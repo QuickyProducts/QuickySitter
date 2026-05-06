@@ -493,7 +493,12 @@ default
         BRAND             = llList2String(p, 11);
         onSit             = llList2String(p, 12);
         CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
-        ADJUST_MENU       = llParseStringKeepNulls(llList2String(p, 14), [SEP], []);
+        // Use llParseString2List (drops empties). When the AVpos has no
+        // ADJUST line, boot writes "" for this field; KeepNulls would turn
+        // that into [""] and the inlined options_menu below would emit an
+        // empty button label, tripping llDialog with "all buttons must have
+        // label strings".
+        ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
         RLVDesignations   = llList2String(p, 15);
         GENDERS = [];
         list gp = llCSV2List(llList2String(p, 16));
