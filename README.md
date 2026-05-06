@@ -1,7 +1,6 @@
 QuickySitter™
 
 Repository for QuickySitter™ - a furniture pose system for Second Life® written in LSL.
-Getting the AVsitter2 scripts in Second Life
 
 You can edit any scripts, as long as you stay in compliance with the license (see below); however, in order to benefit from the extra memory that the SL Marketplace version provides, you're advised to optimize the scripts following the same method used for packaging the releases. There's a guide on how to do it here: Release Building Guide
 License
