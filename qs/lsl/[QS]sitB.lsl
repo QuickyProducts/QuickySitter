@@ -631,12 +631,27 @@ default
             }
             if (num == 90301)
             {
-                // Adjuster updated pos/rot in LSD. If the matching pose is
-                // currently playing, refresh the active anim info so sitA
-                // re-applies the offset; otherwise nothing to do here.
-                if (index != -1 && llGetListLength(data) != 3)
+                // Adjuster overwrote pos/rot in LSD via [HELPER] [SAVE].
+                // Forward the new values straight from the 90301 payload to
+                // sitA — re-reading LSD via send_anim_info() races with
+                // adjuster's qs_save_pose_offset and (worse) uses ANIM_INDEX,
+                // which can point to a stale slot or be -1 entirely, leading
+                // to empty 90055s and avatar snap-back to the previous saved
+                // position. Only fire when the saved pose is the one this
+                // sitter is currently playing; otherwise nothing visible to
+                // update right now (the new default takes effect on next sit).
+                if (index == ANIM_INDEX && llGetListLength(data) != 3)
                 {
-                    send_anim_info(FALSE);
+                    list pp = qs_pose_data(index);
+                    llMessageLinked(LINK_THIS, 90055, (string)SCRIPT_CHANNEL,
+                        llDumpList2String([
+                            llList2String(MENU_LIST, index),
+                            llList2String(pp, 2),    // anim sequence (unchanged)
+                            llList2String(data, 1),  // NEW pos from 90301 payload
+                            llList2String(data, 2),  // NEW rot from 90301 payload
+                            FALSE,
+                            speed_index
+                        ], "|"));
                 }
                 return;
             }

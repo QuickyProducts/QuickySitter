@@ -45,3 +45,24 @@ still applies after a default change.
 - Handled in: [`[QS]sitA.lsl`](./[QS]sitA.lsl) (filtered on `SCRIPT_CHANNEL`)
   and [`[QS]offset.lsl`](./[QS]offset.lsl) (drops matching entries across all
   user_shorts)
+
+## sitB's 90301 handler — payload-forward, no LSD re-read
+
+`[QS]sitB.lsl`'s 90301 handler used to call `send_anim_info(FALSE)`, which
+re-reads pos/rot from LSD via `qs_pose_data(ANIM_INDEX)`. Two race conditions
+would intermittently snap the avatar back to the previously saved position
+(observed roughly 1 in 5 `[HELPER] [SAVE]` clicks):
+
+1. **LSD-read race.** `qs_save_pose_offset` writes LSD *after* the 90301 is
+   queued. Normally the writer's event finishes before sitB processes the
+   message, but timing made the read return the pre-write value occasionally.
+2. **`ANIM_INDEX` mismatch.** `send_anim_info` uses `ANIM_INDEX` (the slot
+   currently playing on this sitter), but the 90301 carries the *saved* slot.
+   When they diverged — including transient `ANIM_INDEX = -1` after a 90045
+   sync-conflict reset — sitB sent empty 90055s or data for a different pose,
+   and sitA applied the wrong default.
+
+The handler now forwards pos/rot **directly from the 90301 payload** to sitA,
+avoiding both races, and only fires when `index == ANIM_INDEX` (the saved pose
+is the one this sitter is playing). The anim sequence is still read from LSD
+because saving doesn't change it.
