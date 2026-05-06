@@ -762,6 +762,20 @@ default
                 (vector)llList2String(mp, 2)];
             return;
         }
+        if (num == 90263) // 90263=adjuster overwrote pose default; drop stale personal offset
+        {
+            // [HELPER] [SAVE] in adjuster sends this right before 90301 so
+            // apply_current_anim (triggered via the 90055 chain) doesn't add
+            // a now-stale pose-specific offset on top of the freshly saved
+            // default. M#T! survives — that's the user's all-poses offset.
+            if (one == SCRIPT_CHANNEL)
+            {
+                string pname = (string)id;
+                integer mi = llListFindList(MY_CUSTOMS, [pname]);
+                if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
+            }
+            return;
+        }
         if (num == 90075) // 90075=old-style helper ask to animate
         {
             if (one == SCRIPT_CHANNEL)
