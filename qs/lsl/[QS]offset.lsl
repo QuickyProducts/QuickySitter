@@ -14,6 +14,12 @@
  *   90262  sitA → offset   pose_name|pos|rot   (id = sitter UUID)
  *                          "Save this offset." Use the magic name M#T!
  *                          for the [ALL POSES] / [SAVE ALL] flow.
+ *   90263  adjuster→offset ""                  (id = pose_name as key)
+ *                          "Pose default was overwritten via [HELPER]
+ *                          [SAVE] — drop every pose-specific entry that
+ *                          matches, regardless of user. M#T! is left
+ *                          alone." sitA also handles this for its own
+ *                          MY_CUSTOMS cache.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
@@ -103,6 +109,19 @@ default
                 llList2String(parts, 0),
                 (vector)llList2String(parts, 1),
                 (vector)llList2String(parts, 2));
+            return;
+        }
+        if (num == 90263)
+        {
+            string pname = (string)id;
+            integer i = 0;
+            while (i < llGetListLength(CUSTOMS))
+            {
+                if (llList2String(CUSTOMS, i) == pname)
+                    CUSTOMS = llDeleteSubList(CUSTOMS, i, i + 3);
+                else
+                    i += 4;
+            }
             return;
         }
     }

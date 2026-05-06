@@ -736,6 +736,14 @@ default
                                 type = "POSE";
                                 temp_pose_name = llGetSubString(temp_pose_name, 2, 99999);
                             }
+                            // Saving a new default invalidates any pose-specific
+                            // personal offset that was relative to the OLD default.
+                            // Drop those entries before sitB re-applies via 90055,
+                            // so the avatar lands at the helper-bar position rather
+                            // than (new_default + stale_offset). Send 90263 first
+                            // so sitA processes it ahead of the 90055 chain.
+                            // M#T! (all-poses offset) is intentionally kept.
+                            llMessageLinked(LINK_THIS, 90263, (string)i, (key)llList2String(SITTER_POSES, i));
                             llMessageLinked(LINK_THIS, 90301, (string)i, llList2String(SITTER_POSES, i) + "|" + llList2String(POS_LIST, i) + "|" + llList2String(ROT_LIST, i) + "|");
                             // Persist the new offset to LSD immediately — no
                             // [DUMP] required. SITTER_POSES holds names with
