@@ -273,6 +273,16 @@ default
         data = llStringTrim(data, STRING_TRIM_HEAD);
         string command = llGetSubString(data, 0, llSubStringIndex(data, " ") - 1);
         list parts = llParseStringKeepNulls(llGetSubString(data, llSubStringIndex(data, " ") + 1, 99999), [" | ", " |", "| ", "|"], []);
+        // Stock AVsitter parses with llParseString2List which drops empties.
+        // We need KeepNulls so BUTTON's interior gaps (e.g. "name|90200||<S>")
+        // survive, but a leading "|" right after the command keyword (common
+        // in "POSE | name | anim", "ADJUST | 90100 | …") leaves a phantom ""
+        // at parts[0]. That empty becomes a "P:"/"S:"/"M:"/"T:" pose name in
+        // LSD, then renders as a blank button in the menu and trips llDialog
+        // with "all buttons must have label strings". Drop the leading
+        // empties to mirror stock behavior without losing interior nulls.
+        while (llGetListLength(parts) && llList2String(parts, 0) == "")
+            parts = llDeleteSubList(parts, 0, 0);
         string part0 = llStringTrim(llList2String(parts, 0), STRING_TRIM);
         string part1;
         if (llGetListLength(parts) > 1)
@@ -317,7 +327,18 @@ default
         }
         if (command == "ADJUST")
         {
-            ADJUST_MENU = parts;
+            // KeepNulls leaves a leading "" from "| 90100 | …" — drop empties
+            // so the ADJUST submenu doesn't render a blank button (llDialog
+            // rejects empty labels with "all buttons must have label strings").
+            ADJUST_MENU = [];
+            integer ai;
+            integer an = llGetListLength(parts);
+            for (ai = 0; ai < an; ++ai)
+            {
+                string ap = llList2String(parts, ai);
+                if (ap != "")
+                    ADJUST_MENU += ap;
+            }
             return;
         }
 
