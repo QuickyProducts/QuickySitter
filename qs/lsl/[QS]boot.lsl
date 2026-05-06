@@ -317,7 +317,18 @@ default
         }
         if (command == "ADJUST")
         {
-            ADJUST_MENU = parts;
+            // KeepNulls leaves a leading "" from "| 90100 | …" — drop empties
+            // so the ADJUST submenu doesn't render a blank button (llDialog
+            // rejects empty labels with "all buttons must have label strings").
+            ADJUST_MENU = [];
+            integer ai;
+            integer an = llGetListLength(parts);
+            for (ai = 0; ai < an; ++ai)
+            {
+                string ap = llList2String(parts, ai);
+                if (ap != "")
+                    ADJUST_MENU += ap;
+            }
             return;
         }
 
