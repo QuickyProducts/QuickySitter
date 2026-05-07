@@ -72,6 +72,15 @@ integer total_channels;
 integer current_processing_channel;
 integer load_t0;
 
+// Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
+// qs:p:* keys it writes during seed are exactly what dump emits back).
+// Adjuster sends 90098 to start a channel; boot streams V: synchronously,
+// then ticks via 90099 — one qs:p entry per event — so per-iteration
+// locals are released and the 90022 echo queue drains between ticks.
+// Idle when qs_dump_ch == -1.
+integer qs_dump_ch = -1;
+integer qs_dump_pi;
+
 // Notecard cursor.
 key notecard_query;
 key reused_key;
@@ -222,6 +231,68 @@ process_next_channel()
     }
 }
 
+// ========================================================================
+// [DUMP] streaming. Symmetric to the seed phase: read what we wrote, emit
+// AVpos-style 90022 lines for adjuster's Readout_Say/web pipeline. Runs
+// off 90098 (start) + 90099 (per-entry tick) so peak memory stays small.
+// ========================================================================
+
+// Build and emit the V: line synchronously, then queue the first tick.
+qs_dump_start(integer ch)
+{
+    list p = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:" + (string)ch), ["\n"], []);
+    string vline = "V:" + llDumpList2String(
+        [ version,
+          (integer)llList2String(p, 0),                  // MTYPE
+          (integer)llList2String(p, 1),                  // ETYPE
+          (integer)llList2String(p, 2),                  // SET
+          (integer)llList2String(p, 3),                  // SWAP
+          llLinksetDataRead("qs:sitter:" + (string)ch),  // sitter blob
+          qs_str_replace(llList2String(p, 13), "\\n", "\n"),  // CUSTOM_TEXT
+          llList2String(p, 14),                          // ADJUST_MENU (raw, SEP-joined)
+          (integer)llList2String(p, 4),                  // SELECT
+          (integer)llList2String(p, 5),                  // AMENU
+          (integer)llList2String(p, 6)                   // OLD_HELPER_METHOD
+        ], "|");
+    p = [];
+    llMessageLinked(LINK_THIS, 90022, vline, (string)ch);
+    qs_dump_ch = ch;
+    qs_dump_pi = 0;
+    llMessageLinked(LINK_THIS, 90099, (string)ch, "");
+}
+
+// Process exactly one qs:p:<ch>:<pi> entry per call. When the channel is
+// exhausted, send 90021 so adjuster's plugin-probe / next-channel cascade
+// runs. Returning to the event loop between ticks lets adjuster drain its
+// queued 90022 echoes and frees `parts`/`val`.
+qs_dump_tick()
+{
+    if (qs_dump_ch == -1) return;
+    string val = llLinksetDataRead(qs_p_key(qs_dump_ch, qs_dump_pi));
+    if (val == "")
+    {
+        integer ch = qs_dump_ch;
+        qs_dump_ch = -1;
+        llMessageLinked(LINK_THIS, 90021, (string)ch, "");
+        return;
+    }
+    list parts = llParseStringKeepNulls(val, ["|"], []);
+    val = "";
+    llMessageLinked(LINK_THIS, 90022,
+        "S:" + llList2String(parts, 0) + "|" + llList2String(parts, 2),
+        (string)qs_dump_ch);
+    string pos = llList2String(parts, 3);
+    if (pos != "")
+    {
+        llMessageLinked(LINK_THIS, 90022,
+            "{" + llList2String(parts, 0) + "}" + pos + llList2String(parts, 4),
+            (string)qs_dump_ch);
+    }
+    parts = [];
+    ++qs_dump_pi;
+    llMessageLinked(LINK_THIS, 90099, (string)qs_dump_ch, "");
+}
+
 default
 {
     state_entry()
@@ -243,6 +314,20 @@ default
     {
         llSetTimerEvent(0);
         process_next_channel();
+    }
+
+    link_message(integer sender, integer num, string msg, key id)
+    {
+        if (num == 90098)
+        {
+            qs_dump_start((integer)msg);
+            return;
+        }
+        if (num == 90099)
+        {
+            qs_dump_tick();
+            return;
+        }
     }
 
     dataserver(key query_id, string data)
