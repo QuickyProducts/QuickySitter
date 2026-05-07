@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string #version = "0.01";
+string version = "0.01";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
