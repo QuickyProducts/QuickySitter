@@ -4,6 +4,68 @@ Stock AVsitter's link-message numbers are unchanged. This document covers the
 **fork-specific** numbers QuickySitter adds on top — the 9026x range for
 personal-offset traffic and 9009x for the `[DUMP]` streaming protocol.
 
+## AVsitter compatibility matrix
+
+Cross-reference with the [stock AVsitter2 link-message reference](https://github.com/AVsitter/AVsitter/blob/master/AVsitter2/avsitter2_link_message_reference.md).
+QuickySitter aims to keep the contract that **plugin scripts** (`[AV]prop`,
+`[AV]faces`, `[AV]camera`, `[AV]sequence`, `[AV]favs`) and **notecard
+consumers** see identical to stock — drop a stock plugin into a QuickySitter
+furniture and it should work unchanged.
+
+### Stock numbers used unchanged
+
+`90000`-`90014`, `90030` (SWAP), `90033`, `90045` (pose-played broadcast),
+`90050`/`90051` (menu pose pick), `90055`/`90056` (anim info), `90057`
+(helper move), `90060`/`90065`/`90070` (sit/unsit/permissions),
+`90075`/`90076` (oldschool helper), `90100`/`90101` (menu choice),
+`90150`-`90211`, `90230`, `90298`-`90300`, `90401`-`90500`. From a sender's
+perspective the contracts match stock.
+
+### Stock numbers whose **handler script** moved
+
+| Num | Stock home | QuickySitter home | Why |
+|-----|-----------|-------------------|-----|
+| `90020` | sent to scripts asking for `[DUMP]` | sent **from `[QS]boot`** instead of adjuster | `[DUMP]` ownership moved to boot ([details below](#dump--entirely-in-qsboot)) |
+| `90021` | handled by `[AV]adjuster` | handled by **`[QS]boot`** | same — boot owns the cascade |
+| `90022` | handled by `[AV]adjuster` | handled by **`[QS]boot`** | same — boot owns the receiver |
+
+Plugins still send `90022`/`90021` to `LINK_THIS` exactly like in stock; the
+listener just lives in a different script in the same prim, so they don't
+notice.
+
+### Stock numbers with subtler semantic changes
+
+| Num | Change |
+|-----|--------|
+| `90301` | sitB's handler is stricter: only refreshes the seated avatar when `index == ANIM_INDEX` (saved pose is the playing one), and forwards pos/rot **directly from the 90301 payload** instead of re-reading LSD. Sender contract (`name\|pos\|rot\|`) is unchanged. Stock plugins don't send 90301 — it was sitA→sitB internal — so this is invisible externally. See [§ sitB's 90301 handler](#sitbs-90301-handler--payload-forward-no-lsd-re-read). |
+
+### Stock numbers no longer routed in QuickySitter
+
+| Num | Status |
+|-----|--------|
+| `90302` ("sitA sends initial notecard settings to sitB") | Removed. sitB reads `qs:cfg:<ch>` from LSD directly in `state_entry` instead. Incoming 90302 is silently ignored. |
+| `90020` → sitB | sitB is no longer a `[DUMP]` source (boot owns the dump). Incoming 90020 to sitB is silently ignored. |
+
+### Fork-specific numbers (in stock-unused ranges)
+
+| Num | Range neighbour | Use |
+|-----|-----------------|-----|
+| `90098` | between stock `90076` and `90100` | `[QS]adjuster` → `[QS]boot`: "start dump for channel" |
+| `90099` | same | `[QS]boot` → self: dump tick |
+| `90260` | between stock `90230` and `90298` | `[QS]offset` → `[QS]sitA`: push personal offset |
+| `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
+| `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
+| `90263` | same | `[QS]adjuster` → `[QS]sitA` + `[QS]offset`: drop stale customs after `[HELPER] [SAVE]` |
+
+A stock-AVsitter plugin sending or receiving in these ranges would have
+collided with whatever it's reserved for in stock — but the stock reference
+shows these slots as unused, so we're safe.
+
+### Compat direction
+
+- **Stock plugin in QuickySitter furniture:** ✅ works unchanged.
+- **QuickySitter scripts in stock-AVsitter furniture:** ❌ doesn't work without modification — sitA/sitB expect `qs:cfg`/`qs:sitter`/`qs:p:*` LSD keys that boot writes during seed; stock furniture has no `[QS]boot`. This is intentional, not a goal of the fork.
+
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
 QuickySitter moves personal (per-user) pose offsets out of `[AV]sitA`'s inline
