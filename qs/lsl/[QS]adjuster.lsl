@@ -159,9 +159,13 @@ qs_add_pose(integer ch, string name, string type, string anim, string pos, strin
 // Replaces the legacy 90020→sitB→90022→90021 round-trip for [DUMP].
 qs_dump_channel(integer ch)
 {
-    string cfg_blob = llLinksetDataRead("qs:cfg:" + (string)ch);
-    string sitter_blob = llLinksetDataRead("qs:sitter:" + (string)ch);
-    list pairs = llParseStringKeepNulls(cfg_blob, ["\n"], []);
+    // Memory-conscious dump. The function holds the script through
+    // multiple llSleeps; every byte alive on its stack is unavailable
+    // for queued 90022 echoes that adjuster's own handler processes
+    // after the call returns. Original implementation kept cfg_blob,
+    // pairs, sitter_blob, and text/adj alive end-to-end and ran two
+    // full passes over qs:p:<ch>:*, which Stack-Heap-Collisioned on
+    // configs with more than a handful of poses.
     integer mt = 0;
     integer et = 1;
     integer s_set = -1;
@@ -171,48 +175,59 @@ qs_dump_channel(integer ch)
     integer hp = 0;
     string text = "";
     string adj = "";
-    integer i;
-    integer n = llGetListLength(pairs);
-    for (i = 0; i < n; ++i)
     {
-        string p = llList2String(pairs, i);
-        integer eq = llSubStringIndex(p, "=");
-        if (eq < 1) jump skipcfg;
-        string k = llGetSubString(p, 0, eq - 1);
-        string v = llGetSubString(p, eq + 1, -1);
-        if      (k == "MTYPE")  mt = (integer)v;
-        else if (k == "ETYPE")  et = (integer)v;
-        else if (k == "SET")    s_set = (integer)v;
-        else if (k == "SWAP")   sw = (integer)v;
-        else if (k == "SELECT") sel = (integer)v;
-        else if (k == "AMENU")  am = (integer)v;
-        else if (k == "HELPER") hp = (integer)v;
-        else if (k == "TEXT")   text = strReplace(v, "\\n", "\n");
-        else if (k == "ADJUST") adj = v;
-        @skipcfg;
+        // Inner block keeps cfg_blob/pairs scoped; explicit "" / []
+        // assignments below force the underlying string/list memory
+        // back into the heap before the V: line is built.
+        string cfg_blob = llLinksetDataRead("qs:cfg:" + (string)ch);
+        list pairs = llParseStringKeepNulls(cfg_blob, ["\n"], []);
+        cfg_blob = "";
+        integer i;
+        integer n = llGetListLength(pairs);
+        for (i = 0; i < n; ++i)
+        {
+            string p = llList2String(pairs, i);
+            integer eq = llSubStringIndex(p, "=");
+            if (eq < 1) jump skipcfg;
+            string k = llGetSubString(p, 0, eq - 1);
+            string v = llGetSubString(p, eq + 1, -1);
+            if      (k == "MTYPE")  mt = (integer)v;
+            else if (k == "ETYPE")  et = (integer)v;
+            else if (k == "SET")    s_set = (integer)v;
+            else if (k == "SWAP")   sw = (integer)v;
+            else if (k == "SELECT") sel = (integer)v;
+            else if (k == "AMENU")  am = (integer)v;
+            else if (k == "HELPER") hp = (integer)v;
+            else if (k == "TEXT")   text = strReplace(v, "\\n", "\n");
+            else if (k == "ADJUST") adj = v;
+            @skipcfg;
+        }
+        pairs = [];
     }
-    string vline = "V:" + llDumpList2String(
-        [version, mt, et, s_set, sw, sitter_blob, text, adj, sel, am, hp], "|");
-    llMessageLinked(LINK_THIS, 90022, vline, (string)ch);
 
-    // First pass: S: lines (one per entry, in order).
+    llMessageLinked(LINK_THIS, 90022,
+        "V:" + llDumpList2String(
+            [version, mt, et, s_set, sw,
+             llLinksetDataRead("qs:sitter:" + (string)ch),
+             text, adj, sel, am, hp], "|"),
+        (string)ch);
+    text = "";
+    adj = "";
+
+    // Single pass: emit S: and {name}<pos><rot> per entry. Halves the
+    // LSD reads and per-iteration list allocations vs the original
+    // two-pass version. The receiver doesn't care about S:-vs-{} order
+    // across entries — each line is self-contained.
     integer pi = 0;
     string val;
     while ((val = llLinksetDataRead(qs_p_key(ch, pi))) != "")
     {
         list parts = llParseStringKeepNulls(val, ["|"], []);
+        val = "";
         llSleep(0.5);
         llMessageLinked(LINK_THIS, 90022,
             "S:" + llList2String(parts, 0) + "|" + llList2String(parts, 2),
             (string)ch);
-        ++pi;
-    }
-
-    // Second pass: {name}<pos><rot> lines for entries with non-empty pos.
-    pi = 0;
-    while ((val = llLinksetDataRead(qs_p_key(ch, pi))) != "")
-    {
-        list parts = llParseStringKeepNulls(val, ["|"], []);
         string pos = llList2String(parts, 3);
         if (pos != "")
         {
@@ -221,6 +236,7 @@ qs_dump_channel(integer ch)
                 "{" + llList2String(parts, 0) + "}" + pos + llList2String(parts, 4),
                 (string)ch);
         }
+        parts = [];
         ++pi;
     }
 
