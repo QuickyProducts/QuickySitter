@@ -6,7 +6,10 @@ personal-offset traffic and 9009x for the `[DUMP]` streaming protocol.
 
 ## AVsitter compatibility matrix
 
-Cross-reference with the [stock AVsitter2 link-message reference](https://github.com/AVsitter/AVsitter/blob/master/AVsitter2/avsitter2_link_message_reference.md).
+Cross-reference with the stock AVsitter2 link-message reference vendored
+in [`avstock/avsitter2_link_message_reference.md`](../../avstock/avsitter2_link_message_reference.md)
+(pinned to a specific upstream commit — see [`avstock/README.md`](../../avstock/README.md)
+for the SHA and how to bump it).
 QuickySitter aims to keep the contract that **plugin scripts** (`[AV]prop`,
 `[AV]faces`, `[AV]camera`, `[AV]sequence`, `[AV]favs`) and **notecard
 consumers** see identical to stock — drop a stock plugin into a QuickySitter
