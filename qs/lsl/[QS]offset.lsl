@@ -31,16 +31,58 @@ string version = "qs1";
 // New entries go at the END; LRU eviction trims from the FRONT.
 list CUSTOMS;
 
-// Soft cap on number of entries before eviction kicks in. Computed from
-// free memory at boot; AVsitter uses a similar (free-5000)/100 heuristic.
-integer LRU_CAP;
+// Hard cap on entries. Picked so that 200 × ~150 bytes worst-case
+// (long Unicode pose names + list overhead) plus ~12 KB of script
+// code/state stays well under Mono's 64 KB cap with ~22 KB headroom.
+// The defensive shrink in save_offset is the actual safety net —
+// this cap just bounds the steady state.
+integer LRU_CAP = 200;
 
+// Below this many bytes free, save_offset evicts aggressively before
+// adding the new entry instead of risking Stack-Heap on the `+=`. The
+// 100-bytes/entry estimate below LRU_CAP is conservative; this kicks
+// in only if reality diverges from estimate (very long pose names,
+// other scripts in the prim fragmenting the heap, etc).
+integer EMERGENCY_FREE_BYTES = 3000;
+
+// Set to TRUE to enable verbose owner-chat diagnostics on boot and
+// emergency-shrink events. Off by default.
+integer bDebug = FALSE;
+
+debugSay(string s)
+{
+    if (bDebug)
+        llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
+}
+
+// Drop the oldest entries from the front of CUSTOMS until the list is
+// at or under LRU_CAP. Single batch llDeleteSubList — cheaper than
+// looping one-at-a-time when many entries need to go.
 cull_to_cap()
 {
-    while (llGetListLength(CUSTOMS) / 4 > LRU_CAP && llGetListLength(CUSTOMS) > 0)
+    integer over = llGetListLength(CUSTOMS) / 4 - LRU_CAP;
+    if (over > 0)
+        CUSTOMS = llDeleteSubList(CUSTOMS, 0, over * 4 - 1);
+}
+
+// Defensive: if free memory is below threshold, evict from the front
+// until back above threshold (or the list is empty). Loops one entry
+// at a time because the per-entry memory recovery isn't predictable
+// (varies with pose-name length, list fragmentation), so we can't
+// pre-compute the batch size like cull_to_cap.
+emergency_shrink()
+{
+    integer evicted;
+    while (llGetFreeMemory() < EMERGENCY_FREE_BYTES
+           && llGetListLength(CUSTOMS) > 0)
     {
         CUSTOMS = llDeleteSubList(CUSTOMS, 0, 3);
+        ++evicted;
     }
+    if (evicted)
+        debugSay("Emergency shrink: evicted " + (string)evicted
+            + " entries; free=" + (string)llGetFreeMemory()
+            + " list=" + (string)(llGetListLength(CUSTOMS) / 4));
 }
 
 // Send 90260 for every entry whose user_short matches this sitter.
@@ -65,6 +107,12 @@ push_customs_for(key sitter)
 
 save_offset(key sitter, string pose_name, vector pos, vector rot)
 {
+    // Pre-allocation defensive shrink: if memory is tight, free space
+    // before the `+=` below so we don't Stack-Heap-Collision on a list
+    // realloc. In normal operation this no-ops because we're nowhere
+    // near the threshold.
+    emergency_shrink();
+
     string short = llGetSubString(sitter, 0, 7);
     // Splice out any prior entry for this (pose_name, user_short).
     integer idx = llListFindList(CUSTOMS, [pose_name, short]);
@@ -79,9 +127,9 @@ default
 {
     state_entry()
     {
-        LRU_CAP = (llGetFreeMemory() - 5000) / 100;
-        if (LRU_CAP < 10) LRU_CAP = 10;
-        llOwnerSay(llGetScriptName() + "[" + version + "] Ready. CUSTOMS cap=" + (string)LRU_CAP + " entries. Mem=" + (string)(65536 - llGetUsedMemory()));
+        debugSay("Ready. CUSTOMS cap=" + (string)LRU_CAP
+            + " entries. Free=" + (string)llGetFreeMemory()
+            + " Used=" + (string)llGetUsedMemory());
     }
 
     on_rez(integer p)

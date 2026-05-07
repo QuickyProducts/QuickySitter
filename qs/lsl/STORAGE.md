@@ -116,8 +116,18 @@ What sitB does **not** hold (vs stock AVsitter): the per-pose
 ### [QS]offset.lsl (one instance, optional)
 
 - `CUSTOMS` flat list: `[pose_name, user_short, pos_offset, rot_offset, ...]`
-- `LRU_CAP` — soft cap on entries before front-eviction kicks in,
-  computed from free memory at boot
+- `LRU_CAP` — hard cap on entries (currently 200). Picked so that
+  `200 × ~150` bytes worst-case + ~12 KB script code/state stays well
+  under Mono's 64 KB cap. Front-evicted by `cull_to_cap` after each
+  save (single batch `llDeleteSubList`).
+- `EMERGENCY_FREE_BYTES` (3000) — `save_offset` calls
+  `emergency_shrink()` *before* the `+=` and evicts one entry at a
+  time until free memory ≥ this threshold or the list is empty.
+  Defends against Stack-Heap Collision if the per-entry estimate
+  diverges from reality (very long Unicode pose names, heap
+  fragmentation from other scripts).
+- `bDebug` flag — when `TRUE`, `debugSay` logs ready/shrink events to
+  the owner. Off by default.
 
 ### [QS]adjuster.lsl (one instance)
 
