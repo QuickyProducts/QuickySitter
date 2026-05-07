@@ -47,31 +47,43 @@ still applies after a default change.
   and [`[QS]offset.lsl`](./[QS]offset.lsl) (drops matching entries across all
   user_shorts)
 
-## `[DUMP]` streaming — `[QS]adjuster` ↔ `[QS]boot`
+## `[DUMP]` — entirely in `[QS]boot`
 
-`[DUMP]` used to live entirely in `[QS]adjuster.lsl`'s `qs_dump_channel`
-function: a synchronous loop with `llSleep`s that read `qs:cfg`, `qs:sitter`,
-and every `qs:p:<ch>:<i>` entry, emitting `V:` / `S:` / `{name}<pos><rot>`
-90022 messages for the existing `Readout_Say`/`web` pipeline. On real configs
-it Stack-Heap-Collisioned after ~6 entries — adjuster is the busiest script
-in the prim and the function held `cfg_blob`, `pairs`, etc. on its stack
-across every sleep while the 90022 echoes piled up in adjuster's own queue.
+`[DUMP]` used to live in `[QS]adjuster.lsl`. Adjuster is the prim's busiest
+script (menu state, helper-bar state, listen, HTTP upload, sitter tracking)
+and the dump function plus its 90022 echo backlog Stack-Heap-Collisioned on
+real configs after ~6 pose entries.
 
-Ownership now lives in [`[QS]boot.lsl`](./[QS]boot.lsl) — boot writes the same
-LSD keys during seed, so reading them back to dump is a natural fit and boot
-has plenty of memory headroom. Adjuster keeps the receive side (the existing
-90022 / 90021 handlers and the `web()` upload).
+Ownership now lives entirely in [`[QS]boot.lsl`](./[QS]boot.lsl) — boot
+writes the `qs:cfg` / `qs:sitter` / `qs:p:*` keys during seed, so reading
+them back to dump is a natural fit, and boot is mostly idle after boot
+completes. Both producer (streaming the LSD into 90022 messages) and
+receiver (formatting them into AVpos lines, chat output, HTTP upload to
+the AVsitter settings service) live there. Adjuster's involvement is
+exactly one line: the `[DUMP]` dialog handler sends `90098` to kick the
+chain.
 
 | Num   | Direction                | `msg`             | `id` | Meaning |
 |-------|--------------------------|-------------------|------|---------|
-| 90098 | `[QS]adjuster` → `[QS]boot` | `(string)channel` | `""` | "Start streaming this channel's dump." Sent on `[DUMP]` for channel 0, then again from the 90021 cascade for each subsequent channel. |
-| 90099 | `[QS]boot` → self        | `(string)channel` | `""` | "Process the next pose entry for the channel currently being dumped." Boot self-trigger between ticks — gives its event loop a chance to run between iterations. |
+| 90098 | `[QS]adjuster` → `[QS]boot` | `(string)channel` | `""` | "Start streaming this channel's dump." Sent on `[DUMP]` for channel 0; boot's own 90021 cascade re-sends it for each subsequent channel. |
+| 90099 | `[QS]boot` → self        | `(string)channel` | `""` | "Process the next pose entry for the channel currently being dumped." Self-trigger between ticks — gives boot's event loop a chance to drain queued 90022 echoes between iterations. |
 
 State lives in two boot globals: `qs_dump_ch` (the channel being streamed,
 `-1` when idle) and `qs_dump_pi` (next entry index). Only one channel streams
-at a time. The 90021 cascade in adjuster (probe plugin scripts, then advance
-to next channel) is unchanged — it just sends 90098 instead of calling a
-local function.
+at a time.
+
+`90021` and `90022` are stock-AVsitter numbers (not fork-specific) but their
+**handlers** moved to boot along with the dump pipeline:
+
+- `90021` (channel-done signal): boot probes plugin scripts (`[AV]prop` /
+  `[AV]faces` / `[AV]camera`) for the current channel via 90020, advances to
+  the next channel via 90098, or — when no more channels — calls `web(TRUE)`
+  to flush the cache and shouts the upload URL to the owner.
+- `90022` (one dump line): boot's handler does the format substitution
+  (`S:P:` → `POSE`, `S:M:` → `MENU`, `{pose}<pos><rot>` formatted via
+  `FormatFloat`, etc.) and pipes the result through `Readout_Say`. Sources
+  are boot's own `qs_dump_start`/`qs_dump_tick` and the plugin scripts woken
+  by the 90020 cascade.
 
 ## sitB's 90301 handler — payload-forward, no LSD re-read
 

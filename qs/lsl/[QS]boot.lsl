@@ -23,6 +23,17 @@ string #version = "0.01";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
+string prop_script = "[AV]prop";
+string expression_script = "[AV]faces";
+string camera_script = "[AV]camera";
+
+// [DUMP] output pipeline. Migrated from adjuster: cache fills via
+// Readout_Say, web() flushes to the AVsitter settings service every
+// ~1024 escaped chars or on force(TRUE) at the end of the cascade.
+string url = "https://avsitter.com/settings.php";
+string cache;
+string webkey;
+integer webcount;
 
 // Settings parsed from notecard (one set, applied to every channel).
 integer MTYPE;
@@ -232,8 +243,59 @@ process_next_channel()
 }
 
 // ========================================================================
+// [DUMP] output pipeline. Format + chat + HTTP upload, also migrated from
+// adjuster so the entire dump (producer + receiver) lives in boot.
+// ========================================================================
+
+string FormatFloat(float f, integer num_decimals)
+{
+    f += ((integer)(f > 0) - (integer)(f < 0)) * ((float)(".5e-" + (string)num_decimals) - .5e-6);
+    string ret = llGetSubString((string)f, 0, num_decimals - (!num_decimals) - 7);
+    if (num_decimals)
+    {
+        num_decimals = -1;
+        while (llGetSubString(ret, num_decimals, num_decimals) == "0")
+        {
+            --num_decimals;
+        }
+        if (llGetSubString(ret, num_decimals, num_decimals) == ".")
+        {
+            --num_decimals;
+        }
+
+        return llGetSubString(ret, 0, num_decimals);
+    }
+    return ret;
+}
+
+web(integer force)
+{
+    if (llStringLength(llEscapeURL(cache)) > 1024 || force)
+    {
+        if (force)
+        {
+            cache += "\n\nend";
+        }
+        webcount++;
+        llHTTPRequest(url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], "w=" + webkey + "&c=" + (string)webcount + "&t=" + llEscapeURL(cache));
+        cache = "";
+    }
+}
+
+Readout_Say(string say)
+{
+    string objectname = llGetObjectName();
+    llSetObjectName("");
+    llRegionSayTo(llGetOwner(), 0, "◆" + say);
+    llSetObjectName(objectname);
+    cache += say + "\n";
+    say = "";
+    web(FALSE);
+}
+
+// ========================================================================
 // [DUMP] streaming. Symmetric to the seed phase: read what we wrote, emit
-// AVpos-style 90022 lines for adjuster's Readout_Say/web pipeline. Runs
+// AVpos-style 90022 lines for the Readout_Say/web pipeline above. Runs
 // off 90098 (start) + 90099 (per-entry tick) so peak memory stays small.
 // ========================================================================
 
@@ -318,6 +380,7 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (sender != llGetLinkNumber()) return;
         if (num == 90098)
         {
             qs_dump_start((integer)msg);
@@ -326,6 +389,163 @@ default
         if (num == 90099)
         {
             qs_dump_tick();
+            return;
+        }
+        if (num == 90021)
+        {
+            // Plugin probe + next-channel cascade. Boot owns this now —
+            // when one channel finishes (qs_dump_tick sends 90021, or a
+            // plugin script's 90020 worker echoes back 90021), probe the
+            // remaining plugin scripts ([AV]prop / [AV]faces / [AV]camera)
+            // for this channel; once they're done, advance to the next
+            // channel via 90098 (back to qs_dump_start) or finalize the
+            // upload and shout the URL.
+            integer script_channel = (integer)msg;
+            list scripts = [prop_script, expression_script, camera_script];
+            integer i = llListFindList(scripts, [(string)id]);
+            while (i < llGetListLength(scripts))
+            {
+                ++i;
+                string lookfor = llList2String(scripts, i);
+                if (lookfor == camera_script && script_channel > 0)
+                {
+                    lookfor = lookfor + " " + (string)script_channel;
+                }
+                if (llGetInventoryType(lookfor) == INVENTORY_SCRIPT)
+                {
+                    llMessageLinked(LINK_THIS, 90020, (string)script_channel, llList2String(scripts, i));
+                    return;
+                }
+            }
+            if (llGetInventoryType(main_script + " " + (string)(script_channel + 1)) == INVENTORY_SCRIPT)
+            {
+                llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
+            }
+            else
+            {
+                Readout_Say("");
+                Readout_Say("--✄--COPY ABOVE INTO \"AVpos\" NOTECARD--✄--");
+                Readout_Say("");
+                web(TRUE);
+                llRegionSayTo(llGetOwner(), 0, "Settings copy: " + url + "?q=" + webkey);
+            }
+            return;
+        }
+        if (num == 90022)
+        {
+            // Format one dump line and Readout_Say it. Sources: boot's
+            // own qs_dump_start/qs_dump_tick (V:/S:/{}) and plugin
+            // scripts ([AV]prop / [AV]faces / [AV]camera) that the 90021
+            // cascade wakes via 90020.
+            list data = llParseStringKeepNulls(msg, ["|"], []);
+            if (llGetSubString(msg, 0, 3) == "S:M:" || llGetSubString(msg, 0, 3) == "S:T:")
+            {
+                msg = qs_str_replace(msg, "*|", "|");
+            }
+            if (llGetSubString(msg, 0, 1) == "V:")
+            {
+                if (!(integer)((string)id))
+                {
+                    webkey = (string)llGenerateKey();
+                    webcount = 0;
+                    Readout_Say("");
+                    Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
+                    Readout_Say("");
+                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "AVsitter "));
+                    if (llList2Integer(data, 1))
+                    {
+                        Readout_Say("MTYPE " + llList2String(data, 1));
+                    }
+                    if (llList2Integer(data, 2) != 1)
+                    {
+                        Readout_Say("ETYPE " + llList2String(data, 2));
+                    }
+                    if (llList2Integer(data, 3) > -1)
+                    {
+                        Readout_Say("SET " + llList2String(data, 3));
+                    }
+                    if (llList2Integer(data, 4) != 2)
+                    {
+                        Readout_Say("SWAP " + llList2String(data, 4));
+                    }
+                    if (llList2String(data, 6) != "")
+                    {
+                        Readout_Say("TEXT " + qs_str_replace(llList2String(data, 6), "\n", "\\n"));
+                    }
+                    if (llList2String(data, 7) != "")
+                    {
+                        Readout_Say("ADJUST " + qs_str_replace(llList2String(data, 7), SEP, "|"));
+                    }
+                    if (llList2Integer(data, 8))
+                    {
+                        Readout_Say("SELECT " + llList2String(data, 8));
+                    }
+                    if (llList2Integer(data, 9) != 2)
+                    {
+                        Readout_Say("AMENU " + llList2String(data, 9));
+                    }
+                    if (llList2Integer(data, 10))
+                    {
+                        Readout_Say("HELPER " + llList2String(data, 10));
+                    }
+                }
+                Readout_Say("");
+                if (total_channels > 1 || llList2String(data, 5) != "")
+                {
+                    string SITTER_TEXT;
+                    if (llList2String(data, 5) != "")
+                    {
+                        SITTER_TEXT = "|" + qs_str_replace(llList2String(data, 5), SEP, "|");
+                    }
+                    Readout_Say("SITTER " + (string)id + SITTER_TEXT);
+                    Readout_Say("");
+                }
+                return;
+            }
+            else if (llGetSubString(msg, 0, 0) == "{")
+            {
+                msg = qs_str_replace(msg, "{P:", "{");
+                list parts = llParseStringKeepNulls(llDumpList2String(llParseString2List(llGetSubString(msg, llSubStringIndex(msg, "}") + 1, 99999), [" "], [""]), ""), ["<"], []);
+                vector pos2 = (vector)("<" + llList2String(parts, 1));
+                vector rot2 = (vector)("<" + llList2String(parts, 2));
+                string result = "<" + FormatFloat(pos2.x, 3) + "," + FormatFloat(pos2.y, 3) + "," + FormatFloat(pos2.z, 3) + ">";
+                result += "<" + FormatFloat(rot2.x, 1) + "," + FormatFloat(rot2.y, 1) + "," + FormatFloat(rot2.z, 1) + ">";
+                msg = llGetSubString(msg, 0, llSubStringIndex(msg, "}")) + result;
+            }
+            else if (llGetSubString(msg, 1, 1) == ":")
+            {
+                msg = qs_str_replace(msg, "S:P:", "POSE ");
+                msg = qs_str_replace(msg, "S:M:", "MENU ");
+                msg = qs_str_replace(msg, "S:T:", "TOMENU ");
+                if (llGetSubString(msg, -6, -1) == "|90210")
+                {
+                    msg = qs_str_replace(msg, "S:B:", "SEQUENCE ");
+                    msg = qs_str_replace(msg, "|90210", "");
+                }
+                else
+                {
+                    msg = qs_str_replace(msg, "S:B:", "BUTTON ");
+                    if (llSubStringIndex(msg, SEP) == -1)
+                    {
+                        msg = qs_str_replace(msg, "|90200", "");
+                    }
+                }
+                msg = qs_str_replace(msg, "S:", "SYNC ");
+                msg = qs_str_replace(msg, SEP, "|");
+            }
+            if (llGetSubString(msg, -1, -1) == "*")
+            {
+                msg = llGetSubString(msg, 0, -2);
+            }
+            if (llGetSubString(msg, -1, -1) == "|")
+            {
+                msg = llGetSubString(msg, 0, -2);
+            }
+            if (llGetSubString(msg, 0, 3) == "MENU")
+            {
+                Readout_Say("");
+            }
+            Readout_Say(msg);
             return;
         }
     }
