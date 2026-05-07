@@ -45,67 +45,20 @@ string last_text;
 integer menu_pages;
 integer number_per_page = 9;
 list chosen_animations = [last_text]; //OSS::list chosen_animations; // Force error in LSO
-string cache;
-string webkey;
-integer webcount;
 // SEP = U+FFFD. Initialized at runtime via llUnescapeURL because the
 // SL script editor mangles a literal U+FFFD to 0x20 (space) on upload,
 // which silently splits anim names containing spaces.
 string SEP;
 
-string FormatFloat(float f, integer num_decimals)
-{
-    f += ((integer)(f > 0) - (integer)(f < 0)) * ((float)(".5e-" + (string)num_decimals) - .5e-6);
-    string ret = llGetSubString((string)f, 0, num_decimals - (!num_decimals) - 7);
-    if (num_decimals)
-    {
-        num_decimals = -1;
-        while (llGetSubString(ret, num_decimals, num_decimals) == "0")
-        {
-            --num_decimals;
-        }
-        if (llGetSubString(ret, num_decimals, num_decimals) == ".")
-        {
-            --num_decimals;
-        }
-
-        return llGetSubString(ret, 0, num_decimals);
-    }
-    return ret;
-}
-
-web(integer force)
-{
-    if (llStringLength(llEscapeURL(cache)) > 1024 || force)
-    {
-        if (force)
-        {
-            cache += "\n\nend";
-        }
-        webcount++;
-        llHTTPRequest(url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], "w=" + webkey + "&c=" + (string)webcount + "&t=" + llEscapeURL(cache));
-        cache = "";
-    }
-}
-
-Readout_Say(string say)
-{
-    string objectname = llGetObjectName();
-    llSetObjectName("");
-    llRegionSayTo(llGetOwner(), 0, "◆" + say);
-    llSetObjectName(objectname);
-    cache += say + "\n";
-    say = "";
-    web(FALSE);
-}
+// FormatFloat / web / Readout_Say moved to [QS]boot — they belong with
+// the dump receiver chain that boot now owns.
 
 // ========================================================================
 // QuickySitter LSD persistence layer (adjuster side)
 // ------------------------------------------------------------------------
 // Live-save writes to qs:p:<ch>:<i> when the creator [SAVE]s a pose or
-// adds a new POSE/SYNC/MENU/TOMENU/BUTTON. The [DUMP] button reads back
-// from LSD and emits 90022 lines so the existing dump→Readout_Say path
-// keeps producing a paste-able AVpos backup. See plans/we-want-to-make-rippling-unicorn.md.
+// adds a new POSE/SYNC/MENU/TOMENU/BUTTON. [DUMP] itself lives in
+// [QS]boot now; this script just kicks it via 90098 (see PROTOCOL.md).
 // ========================================================================
 string qs_p_key(integer ch, integer i)
 {
@@ -154,13 +107,9 @@ qs_add_pose(integer ch, string name, string type, string anim, string pos, strin
     llLinksetDataWrite(qs_p_key(ch, idx), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
-// [DUMP] streaming has moved to [QS]boot — boot owns the qs:cfg / qs:p
-// reads (it wrote them). Adjuster kicks the dump per channel via 90098
-// and echoes the resulting 90022 lines through the existing
-// Readout_Say/web pipeline below. Boot sends 90021 when a channel is
-// done; this script's 90021 cascade probes plugin scripts and (when
-// they're done too) sends 90098 again for the next channel.
-// See qs/lsl/PROTOCOL.md.
+// [DUMP] (producer + receiver, including plugin cascade and HTTP upload)
+// lives entirely in [QS]boot now. Adjuster's involvement is: the [DUMP]
+// dialog handler sends 90098 to start, and that's it.
 
 stop_all_anims(key id)
 {
@@ -492,150 +441,10 @@ default
                 SITTERS = llListReplaceList(SITTERS, [id], (integer)msg, (integer)msg);
                 return;
             }
-            if (num == 90021)
-            {
-                integer script_channel = (integer)msg;
-                list scripts = [prop_script, expression_script, camera_script];
-                i = llListFindList(scripts, [(string)id]);
-                while (i < llGetListLength(scripts))
-                {
-                    i++;
-                    string lookfor = llList2String(scripts, i);
-                    if (lookfor == camera_script && script_channel > 0)
-                    {
-                        lookfor = lookfor + " " + (string)script_channel;
-                    }
-                    if (llGetInventoryType(lookfor) == INVENTORY_SCRIPT)
-                    {
-                        llMessageLinked(LINK_THIS, 90020, (string)script_channel, llList2String(scripts, i));
-                        return;
-                    }
-                }
-                if (llGetInventoryType(main_script + " " + (string)(script_channel + 1)) == INVENTORY_SCRIPT)
-                {
-                    llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
-                }
-                else
-                {
-                    Readout_Say("");
-                    Readout_Say("--✄--COPY ABOVE INTO \"AVpos\" NOTECARD--✄--");
-                    Readout_Say("");
-                    web(TRUE);
-                    llRegionSayTo(llGetOwner(), 0, "Settings copy: " + url + "?q=" + webkey);
-                }
-                return;
-            }
-            if (num == 90022)
-            {
-                if (llGetSubString(msg, 0, 3) == "S:M:" || llGetSubString(msg, 0, 3) == "S:T:")
-                {
-                    msg = strReplace(msg, "*|", "|");
-                }
-                if (llGetSubString(msg, 0, 1) == "V:")
-                {
-                    if (!(integer)((string)id))
-                    {
-                        webkey = (string)llGenerateKey();
-                        webcount = 0;
-                        Readout_Say("");
-                        Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
-                        Readout_Say("");
-                        Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + strReplace(llList2String(data, 0), "V:", "AVsitter "));
-                        if (llList2Integer(data, 1))
-                        {
-                            Readout_Say("MTYPE " + llList2String(data, 1));
-                        }
-                        if (llList2Integer(data, 2) != 1)
-                        {
-                            Readout_Say("ETYPE " + llList2String(data, 2));
-                        }
-                        if (llList2Integer(data, 3) > -1)
-                        {
-                            Readout_Say("SET " + llList2String(data, 3));
-                        }
-                        if (llList2Integer(data, 4) != 2)
-                        {
-                            Readout_Say("SWAP " + llList2String(data, 4));
-                        }
-                        if (llList2String(data, 6) != "")
-                        {
-                            Readout_Say("TEXT " + strReplace(llList2String(data, 6), "\n", "\\n"));
-                        }
-                        if (llList2String(data, 7) != "")
-                        {
-                            Readout_Say("ADJUST " + strReplace(llList2String(data, 7), SEP, "|"));
-                        }
-                        if (llList2Integer(data, 8))
-                        {
-                            Readout_Say("SELECT " + llList2String(data, 8));
-                        }
-                        if (llList2Integer(data, 9) != 2)
-                        {
-                            Readout_Say("AMENU " + llList2String(data, 9));
-                        }
-                        if (llList2Integer(data, 10))
-                        {
-                            Readout_Say("HELPER " + llList2String(data, 10));
-                        }
-                    }
-                    Readout_Say("");
-                    if (llGetListLength(SITTERS) > 1 || llList2String(data, 5) != "")
-                    {
-                        string SITTER_TEXT;
-                        if (llList2String(data, 5) != "")
-                        {
-                            SITTER_TEXT = "|" + strReplace(llList2String(data, 5), SEP, "|");
-                        }
-                        Readout_Say("SITTER " + (string)id + SITTER_TEXT);
-                        Readout_Say("");
-                    }
-                    return;
-                }
-                else if (llGetSubString(msg, 0, 0) == "{")
-                {
-                    msg = strReplace(msg, "{P:", "{");
-                    list parts = llParseStringKeepNulls(llDumpList2String(llParseString2List(llGetSubString(msg, llSubStringIndex(msg, "}") + 1, 99999), [" "], [""]), ""), ["<"], []);
-                    vector pos2 = (vector)("<" + llList2String(parts, 1));
-                    vector rot2 = (vector)("<" + llList2String(parts, 2));
-                    string result = "<" + FormatFloat(pos2.x, 3) + "," + FormatFloat(pos2.y, 3) + "," + FormatFloat(pos2.z, 3) + ">";
-                    result += "<" + FormatFloat(rot2.x, 1) + "," + FormatFloat(rot2.y, 1) + "," + FormatFloat(rot2.z, 1) + ">";
-                    msg = llGetSubString(msg, 0, llSubStringIndex(msg, "}")) + result;
-                }
-                else if (llGetSubString(msg, 1, 1) == ":")
-                {
-                    msg = strReplace(msg, "S:P:", "POSE ");
-                    msg = strReplace(msg, "S:M:", "MENU ");
-                    msg = strReplace(msg, "S:T:", "TOMENU ");
-                    if (llGetSubString(msg, -6, -1) == "|90210")
-                    {
-                        msg = strReplace(msg, "S:B:", "SEQUENCE ");
-                        msg = strReplace(msg, "|90210", "");
-                    }
-                    else
-                    {
-                        msg = strReplace(msg, "S:B:", "BUTTON ");
-                        if (llSubStringIndex(msg, SEP) == -1)
-                        {
-                            msg = strReplace(msg, "|90200", "");
-                        }
-                    }
-                    msg = strReplace(msg, "S:", "SYNC ");
-                    msg = strReplace(msg, SEP, "|");
-                }
-                if (llGetSubString(msg, -1, -1) == "*")
-                {
-                    msg = llGetSubString(msg, 0, -2);
-                }
-                if (llGetSubString(msg, -1, -1) == "|")
-                {
-                    msg = llGetSubString(msg, 0, -2);
-                }
-                if (llGetSubString(msg, 0, 3) == "MENU")
-                {
-                    Readout_Say("");
-                }
-                Readout_Say(msg);
-            }
+            // 90021 / 90022 handlers moved to [QS]boot along with the
+            // dump output pipeline (Readout_Say + web upload). Boot owns
+            // both producer (qs_dump_start/qs_dump_tick) and receiver
+            // (90022 formatter, 90021 plugin cascade) now. See PROTOCOL.md.
             if (num == 90100 || num == 90101)
             {
                 if ((msg = llList2String(data, 1)) == "[DUMP]")
@@ -644,12 +453,10 @@ default
                     {
                         llRegionSayTo(id, 0, "Dumping settings to Owner");
                     }
-                    // Hand off to [QS]boot — it streams the channel's V:
-                    // and per-pose 90022s, then sends 90021 so the
-                    // plugin probe / next-channel cascade below kicks in
-                    // unchanged.
-                    webkey = "";
-                    webcount = 0;
+                    // Hand off to [QS]boot. Boot streams V: + per-pose
+                    // 90022s, formats and Readout_Says them itself, then
+                    // runs the plugin/next-channel cascade and finalizes
+                    // the upload.
                     llMessageLinked(LINK_THIS, 90098, "0", "");
                 }
                 if (msg == "[NEW]")
