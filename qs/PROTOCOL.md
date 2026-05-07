@@ -53,7 +53,9 @@ notice.
 
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
-| `90098` | between stock `90076` and `90100` | `[QS]adjuster` → `[QS]boot`: "start dump for channel" |
+| `90096` | between stock `90076` and `90100` | plugin → `[QS]sitA`: QSALIVE presence probe |
+| `90097` | same | `[QS]sitA` (slot 0) → plugin: QSALIVE reply / boot-announce |
+| `90098` | same | `[QS]adjuster` → `[QS]boot`: "start dump for channel" |
 | `90099` | same | `[QS]boot` → self: dump tick |
 | `90260` | between stock `90230` and `90298` | `[QS]offset` → `[QS]sitA`: push personal offset |
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
@@ -68,6 +70,104 @@ shows these slots as unused, so we're safe.
 
 - **Stock plugin in QuickySitter furniture:** ✅ works unchanged.
 - **QuickySitter scripts in stock-AVsitter furniture:** ❌ doesn't work without modification — sitA/sitB expect `qs:cfg`/`qs:sitter`/`qs:p:*` LSD keys that boot writes during seed; stock furniture has no `[QS]boot`. This is intentional, not a goal of the fork.
+
+## QSALIVE — presence probe for plugin discovery
+
+Stock AVsitter plugins detect "is sitA in this prim?" and "how many sitter
+slots?" with `llGetInventoryType("[AV]sitA")` and a
+`while (llGetInventoryType("[AV]sitA " + (string)i) == INVENTORY_SCRIPT)`
+loop. QuickySitter's main script is `[QS]sitA` (see [`qs/[QS]root.lsl`](./[QS]root.lsl)
+and [`qs/[QS]select.lsl`](./[QS]select.lsl) for why we forked the name),
+so plugins that probe only the stock name see `INVENTORY_NONE` and bail
+even though sitA is sitting right next to them.
+
+Plugins that want first-class QuickySitter support can use the QSALIVE
+link-message handshake instead. It's modeled on the stock 90201/90202
+plugin-discovery probe but in the opposite direction (sitA is the
+*responder*, not the asker).
+
+| Num    | Direction              | `msg`                                    | `id` | Meaning |
+|--------|------------------------|------------------------------------------|------|---------|
+| 90096  | plugin → `[QS]sitA`    | `""`                                     | `""` | "Anyone here? Identify yourself." |
+| 90097  | `[QS]sitA` → plugin    | `<product>\|<ver>\|<sitters>\|<caps>`    | `""` | Presence reply. Also broadcast unsolicited from slot 0's `state_entry` once boot finishes. |
+
+**Reply payload** (pipe-delimited, parse with `llParseString2List` — see
+[MEMORY.md note on KeepNulls](../../.claude/projects/.../feedback_lsl_parse_nulls.md)):
+
+| Field | Content                                                              |
+|-------|----------------------------------------------------------------------|
+| 0     | Product token. Always `QuickySitter` for this fork. Future forks (or upstream) may set their own.|
+| 1     | Version string. Mirrors the global `version` in [`[QS]sitA.lsl`](./[QS]sitA.lsl). |
+| 2     | Sitter-slot count, identical to `get_number_of_scripts()`. Plugins can use this directly instead of running the legacy inventory loop. |
+| 3     | Capability CSV. Substring-match for individual features. Initial set: `customs90260` (personal-offset cache, see [§ Personal pose offsets](#personal-pose-offsets--qsoffset--qssita)), `dump90098` (DUMP cascade, see [§ DUMP](#dump--entirely-in-qsboot)). |
+
+### Who answers, when, and on which link
+
+- Only the **slot-0** `[QS]sitA` answers `90096` (`if (SCRIPT_CHANNEL == 0)`),
+  so a multi-sitter prim sends exactly one `90097` per probe — plugins
+  don't have to deduplicate.
+- Both probe and reply use `LINK_SET` so plugins in child prims see
+  them.
+- On boot, slot 0 emits one unsolicited `90097` at the end of
+  `state_entry` (after `boot_done = TRUE`). Plugins that came up before
+  sitA missed any earlier replies; this lets them latch onto QS without
+  having to send a probe themselves. Plugins that come up *after* sitA
+  still get an answer via the normal probe path.
+
+### Adoption pattern for plugin authors
+
+```lsl
+integer QS_ALIVE   = FALSE;
+integer QS_SITTERS = 0;
+
+probe_qs()
+{
+    llMessageLinked(LINK_SET, 90096, "", "");
+    llSetTimerEvent(1.0); // fallback after 1s
+}
+
+default
+{
+    state_entry()
+    {
+        probe_qs();
+    }
+
+    link_message(integer sender, integer num, string msg, key id)
+    {
+        if (num == 90097)
+        {
+            // llParseString2List, NOT KeepNulls — see qs/MEMORY note.
+            list d = llParseString2List(msg, ["|"], []);
+            QS_ALIVE   = (llList2String(d, 0) == "QuickySitter");
+            QS_SITTERS = (integer)llList2String(d, 2);
+            llSetTimerEvent(0.0);
+            // ... wire up plugin state knowing sitA is here ...
+        }
+    }
+
+    timer()
+    {
+        llSetTimerEvent(0.0);
+        if (!QS_ALIVE)
+        {
+            // Fallback: stock inventory probe. Try the QS name first
+            // (cheap), then the AV name for backward compat with stock
+            // furniture.
+            if (llGetInventoryType("[QS]sitA") == INVENTORY_SCRIPT
+             || llGetInventoryType("[AV]sitA") == INVENTORY_SCRIPT)
+            {
+                // ... legacy slot-count loop here ...
+            }
+        }
+    }
+}
+```
+
+`changed(CHANGED_INVENTORY)` is a good place to re-run `probe_qs()` if
+the plugin needs to react to sitter-count changes — slot 0 will re-emit
+`90097` on its own reset (state_entry runs again), but the plugin can
+also pull on demand.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
