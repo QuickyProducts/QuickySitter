@@ -455,6 +455,25 @@ end_sitter()
     }
 }
 
+// QSALIVE — presence reply for plugin discovery. See qs/PROTOCOL.md.
+// Replaces the legacy llGetInventoryType("[AV]sitA N") slot-count loop
+// for plugins that care to detect QuickySitter explicitly. Only the
+// slot-0 sitA replies, so plugins receive exactly one 90097 per probe.
+// Payload (pipe-delimited, parse with llParseString2List — KeepNulls
+// would re-introduce the trailing-empty bug noted in MEMORY.md):
+//   0: product token  (always "QuickySitter" for this fork)
+//   1: version        (matches the global `version` string above)
+//   2: sitter count   (same number get_number_of_scripts() returns)
+//   3: capability CSV (feature flags; plugins can substring-match)
+qs_alive_reply()
+{
+    llMessageLinked(LINK_SET, 90097,
+        "QuickySitter|" + version + "|"
+        + (string)get_number_of_scripts() + "|"
+        + "customs90260,dump90098",
+        "");
+}
+
 default
 {
     state_entry()
@@ -575,6 +594,11 @@ default
         }
         sittargets();
         boot_done = TRUE;
+        // QSALIVE boot-announce: plugins that came up before us missed any
+        // earlier replies, so emit one unsolicited 90097 once we're done
+        // booting. Plugins that came up after us still get an answer via
+        // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
+        if (!SCRIPT_CHANNEL) qs_alive_reply();
     }
 
     timer()
@@ -774,6 +798,11 @@ default
                 integer mi = llListFindList(MY_CUSTOMS, [pname]);
                 if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
             }
+            return;
+        }
+        if (num == 90096) // 90096=QSALIVE probe; only slot-0 sitA replies (90097)
+        {
+            if (SCRIPT_CHANNEL == 0) qs_alive_reply();
             return;
         }
         if (num == 90075) // 90075=old-style helper ask to animate
