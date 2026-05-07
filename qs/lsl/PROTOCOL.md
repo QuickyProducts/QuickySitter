@@ -1,7 +1,8 @@
 # QuickySitter link-message protocol additions
 
 Stock AVsitter's link-message numbers are unchanged. This document covers the
-**fork-specific** numbers QuickySitter adds on top, all in the 9026x range.
+**fork-specific** numbers QuickySitter adds on top — the 9026x range for
+personal-offset traffic and 9009x for the `[DUMP]` streaming protocol.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
@@ -45,6 +46,32 @@ still applies after a default change.
 - Handled in: [`[QS]sitA.lsl`](./[QS]sitA.lsl) (filtered on `SCRIPT_CHANNEL`)
   and [`[QS]offset.lsl`](./[QS]offset.lsl) (drops matching entries across all
   user_shorts)
+
+## `[DUMP]` streaming — `[QS]adjuster` ↔ `[QS]boot`
+
+`[DUMP]` used to live entirely in `[QS]adjuster.lsl`'s `qs_dump_channel`
+function: a synchronous loop with `llSleep`s that read `qs:cfg`, `qs:sitter`,
+and every `qs:p:<ch>:<i>` entry, emitting `V:` / `S:` / `{name}<pos><rot>`
+90022 messages for the existing `Readout_Say`/`web` pipeline. On real configs
+it Stack-Heap-Collisioned after ~6 entries — adjuster is the busiest script
+in the prim and the function held `cfg_blob`, `pairs`, etc. on its stack
+across every sleep while the 90022 echoes piled up in adjuster's own queue.
+
+Ownership now lives in [`[QS]boot.lsl`](./[QS]boot.lsl) — boot writes the same
+LSD keys during seed, so reading them back to dump is a natural fit and boot
+has plenty of memory headroom. Adjuster keeps the receive side (the existing
+90022 / 90021 handlers and the `web()` upload).
+
+| Num   | Direction                | `msg`             | `id` | Meaning |
+|-------|--------------------------|-------------------|------|---------|
+| 90098 | `[QS]adjuster` → `[QS]boot` | `(string)channel` | `""` | "Start streaming this channel's dump." Sent on `[DUMP]` for channel 0, then again from the 90021 cascade for each subsequent channel. |
+| 90099 | `[QS]boot` → self        | `(string)channel` | `""` | "Process the next pose entry for the channel currently being dumped." Boot self-trigger between ticks — gives its event loop a chance to run between iterations. |
+
+State lives in two boot globals: `qs_dump_ch` (the channel being streamed,
+`-1` when idle) and `qs_dump_pi` (next entry index). Only one channel streams
+at a time. The 90021 cascade in adjuster (probe plugin scripts, then advance
+to next channel) is unchanged — it just sends 90098 instead of calling a
+local function.
 
 ## sitB's 90301 handler — payload-forward, no LSD re-read
 

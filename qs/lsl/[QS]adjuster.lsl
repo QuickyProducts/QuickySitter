@@ -154,94 +154,13 @@ qs_add_pose(integer ch, string name, string type, string anim, string pos, strin
     llLinksetDataWrite(qs_p_key(ch, idx), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
-// Read this channel's settings + sitter row from LSD and emit the same
-// V:/S:/{} 90022 messages [QS]sitB used to emit, then a 90021 to cascade.
-// Replaces the legacy 90020→sitB→90022→90021 round-trip for [DUMP].
-qs_dump_channel(integer ch)
-{
-    // Memory-conscious dump. The function holds the script through
-    // multiple llSleeps; every byte alive on its stack is unavailable
-    // for queued 90022 echoes that adjuster's own handler processes
-    // after the call returns. Original implementation kept cfg_blob,
-    // pairs, sitter_blob, and text/adj alive end-to-end and ran two
-    // full passes over qs:p:<ch>:*, which Stack-Heap-Collisioned on
-    // configs with more than a handful of poses.
-    integer mt = 0;
-    integer et = 1;
-    integer s_set = -1;
-    integer sw = 2;
-    integer sel = 0;
-    integer am = 2;
-    integer hp = 0;
-    string text = "";
-    string adj = "";
-    {
-        // Inner block keeps cfg_blob/pairs scoped; explicit "" / []
-        // assignments below force the underlying string/list memory
-        // back into the heap before the V: line is built.
-        string cfg_blob = llLinksetDataRead("qs:cfg:" + (string)ch);
-        list pairs = llParseStringKeepNulls(cfg_blob, ["\n"], []);
-        cfg_blob = "";
-        integer i;
-        integer n = llGetListLength(pairs);
-        for (i = 0; i < n; ++i)
-        {
-            string p = llList2String(pairs, i);
-            integer eq = llSubStringIndex(p, "=");
-            if (eq < 1) jump skipcfg;
-            string k = llGetSubString(p, 0, eq - 1);
-            string v = llGetSubString(p, eq + 1, -1);
-            if      (k == "MTYPE")  mt = (integer)v;
-            else if (k == "ETYPE")  et = (integer)v;
-            else if (k == "SET")    s_set = (integer)v;
-            else if (k == "SWAP")   sw = (integer)v;
-            else if (k == "SELECT") sel = (integer)v;
-            else if (k == "AMENU")  am = (integer)v;
-            else if (k == "HELPER") hp = (integer)v;
-            else if (k == "TEXT")   text = strReplace(v, "\\n", "\n");
-            else if (k == "ADJUST") adj = v;
-            @skipcfg;
-        }
-        pairs = [];
-    }
-
-    llMessageLinked(LINK_THIS, 90022,
-        "V:" + llDumpList2String(
-            [version, mt, et, s_set, sw,
-             llLinksetDataRead("qs:sitter:" + (string)ch),
-             text, adj, sel, am, hp], "|"),
-        (string)ch);
-    text = "";
-    adj = "";
-
-    // Single pass: emit S: and {name}<pos><rot> per entry. Halves the
-    // LSD reads and per-iteration list allocations vs the original
-    // two-pass version. The receiver doesn't care about S:-vs-{} order
-    // across entries — each line is self-contained.
-    integer pi = 0;
-    string val;
-    while ((val = llLinksetDataRead(qs_p_key(ch, pi))) != "")
-    {
-        list parts = llParseStringKeepNulls(val, ["|"], []);
-        val = "";
-        llSleep(0.5);
-        llMessageLinked(LINK_THIS, 90022,
-            "S:" + llList2String(parts, 0) + "|" + llList2String(parts, 2),
-            (string)ch);
-        string pos = llList2String(parts, 3);
-        if (pos != "")
-        {
-            llSleep(0.2);
-            llMessageLinked(LINK_THIS, 90022,
-                "{" + llList2String(parts, 0) + "}" + pos + llList2String(parts, 4),
-                (string)ch);
-        }
-        parts = [];
-        ++pi;
-    }
-
-    llMessageLinked(LINK_THIS, 90021, (string)ch, "");
-}
+// [DUMP] streaming has moved to [QS]boot — boot owns the qs:cfg / qs:p
+// reads (it wrote them). Adjuster kicks the dump per channel via 90098
+// and echoes the resulting 90022 lines through the existing
+// Readout_Say/web pipeline below. Boot sends 90021 when a channel is
+// done; this script's 90021 cascade probes plugin scripts and (when
+// they're done too) sends 90098 again for the next channel.
+// See qs/lsl/PROTOCOL.md.
 
 stop_all_anims(key id)
 {
@@ -594,7 +513,7 @@ default
                 }
                 if (llGetInventoryType(main_script + " " + (string)(script_channel + 1)) == INVENTORY_SCRIPT)
                 {
-                    qs_dump_channel(script_channel + 1);
+                    llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
                 }
                 else
                 {
@@ -725,12 +644,13 @@ default
                     {
                         llRegionSayTo(id, 0, "Dumping settings to Owner");
                     }
-                    // Start the dump cascade with this object's first channel.
-                    // qs_dump_channel sends 90021 at the end so the existing
-                    // plugin probe / next-channel logic kicks in unchanged.
+                    // Hand off to [QS]boot — it streams the channel's V:
+                    // and per-pose 90022s, then sends 90021 so the
+                    // plugin probe / next-channel cascade below kicks in
+                    // unchanged.
                     webkey = "";
                     webcount = 0;
-                    qs_dump_channel(0);
+                    llMessageLinked(LINK_THIS, 90098, "0", "");
                 }
                 if (msg == "[NEW]")
                 {
