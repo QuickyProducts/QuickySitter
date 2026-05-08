@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.10";
+string version = "0.11";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -1051,6 +1051,11 @@ default
             if (num == 90057) // 90057=helper moved, update position
             {
                 data = llParseStringKeepNulls(id, ["|"], data);
+                llOwnerSay("[QS]sitA[" + version + "] 90057 in slot="
+                    + (string)SCRIPT_CHANNEL
+                    + " sender=" + (string)sender
+                    + " new_pos=" + llList2String(data, 0)
+                    + " new_rot=" + llList2String(data, 1));
                 CURRENT_POSITION = (vector)llList2String(data, 0);
                 CURRENT_ROTATION = (vector)llList2String(data, 1);
                 sit_using_prim_params();
