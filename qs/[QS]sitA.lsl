@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.15";
+string version = "0.16";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -38,6 +38,29 @@ integer DFLT = 1;
 list GENDERS;
 integer OLD_HELPER_METHOD;
 integer WARN = 1;
+// Periodic Re-Sync for SYNC poses to fight Interest-List drift between
+// viewers (camera zoom, region crossings, viewer culls). Default on; the
+// AVpos directive `RESYNC OFF` disables it. See qs/TESTPLAN.md.
+//
+// Mechanism: briefly Start+Stop a dummy animation called "SYNC" — the
+// main pose anim is NOT touched and keeps playing. The dummy cycle
+// forces viewers to re-evaluate their animation state, snapping the
+// running loop back into phase without a visible flicker. Requires a
+// SYNC animation asset to be present in the prim's inventory; if it is
+// missing the re-sync silently no-ops. The asset should be a very low
+// priority / minimal-impact anim so it never overrides the main pose
+// even if a viewer renders it for one frame. See PROTOCOL.md
+// § Re-Sync broadcast and TESTPLAN.md TC-029.
+//
+// Constants are intentionally hardcoded — see "Design-Entscheidungen" in
+// TESTPLAN; LSD-exposed knobs are deferred until TC-022 shows defaults
+// don't work universally.
+integer RESYNC = 1;
+string  RESYNC_DUMMY_ANIM = "SYNC"; // dummy anim asset consumed by the trick
+float RESYNC_INTERVAL = 30.0;  // seconds between re-sync ticks
+float RESYNC_DELAY    = 0.1;   // gap between dummy Start and Stop
+                               // (just enough to cross Sim-frame boundary)
+float RESYNC_PLAY_FIRST = 2.0; // earliest re-sync after pose apply
 string FIRST_POSENAME;
 string FIRST_ANIMATION_SEQUENCE;
 string OLD_POSE_NAME;
@@ -328,6 +351,39 @@ set_sittarget()
     }
 }
 
+// Re-Sync helpers — see qs/TESTPLAN.md, "Design-Entscheidungen".
+// Convention: a SYNC pose has a name *without* the "P:" prefix (POSE-type
+// poses are stored as "P:<name>"). Mirrors the IS_SYNC detection in
+// send_anim_info.
+integer is_sync_pose()
+{
+    return CURRENT_POSE_NAME != ""
+        && llSubStringIndex(CURRENT_POSE_NAME, "P:") != 0;
+}
+
+// Should the current pose use the periodic Re-Sync timer instead of the
+// natural sequencing timer? Only single-frame SYNC poses qualify —
+// multi-frame sequences keep the existing sequencing behavior to avoid
+// the resync-during-frame-wechsel race (see TESTPLAN TC-023).
+integer resync_active(integer sequence_len)
+{
+    return RESYNC && is_sync_pose() && sequence_len <= 2;
+}
+
+// Wall-clock-aligned scheduler. Every sitA instance computes the same
+// next-anchor (multiple of RESYNC_INTERVAL since llGetTime epoch), so
+// independent timers across the linkset's sitA scripts fire in the same
+// Sim frame without any leader-election. See TESTPLAN, Frage 1 → (b).
+schedule_resync_timer()
+{
+    float now = llGetTime();
+    float earliest = now + RESYNC_PLAY_FIRST;
+    integer next_n = (integer)(earliest / RESYNC_INTERVAL) + 1;
+    float next_at = (float)next_n * RESYNC_INTERVAL;
+    if (next_at <= earliest) next_at += RESYNC_INTERVAL;
+    llSetTimerEvent(next_at - now);
+}
+
 update_current_anim_name()
 {
     list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
@@ -337,7 +393,14 @@ update_current_anim_name()
     {
         CURRENT_ANIMATION_FILENAME += speed_text;
     }
-    llSetTimerEvent((float)llList2String(SEQUENCE, SEQUENCE_POINTER + 1));
+    if (resync_active(llGetListLength(SEQUENCE)))
+    {
+        schedule_resync_timer();
+    }
+    else
+    {
+        llSetTimerEvent((float)llList2String(SEQUENCE, SEQUENCE_POINTER + 1));
+    }
 }
 
 apply_current_anim(integer broadcast)
@@ -525,6 +588,12 @@ default
         integer gn = llGetListLength(gp);
         for (gj = 0; gj < gn; ++gj)
             GENDERS += (integer)llList2String(gp, gj);
+        // RESYNC at index 17. Empty (cfg pre-RESYNC, or never written) →
+        // treat as default = enabled, so existing setups keep working until
+        // they're explicitly turned off via `RESYNC OFF` in the notecard.
+        string r17 = llList2String(p, 17);
+        RESYNC = 1;
+        if (r17 != "") RESYNC = (integer)r17;
 
         string s = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
         if (s != "")
@@ -605,8 +674,40 @@ default
 
     timer()
     {
-        SEQUENCE_POINTER += 2;
         list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
+        // Re-Sync tick: single-frame SYNC pose, RESYNC enabled. Briefly
+        // play a low-priority dummy anim called "SYNC" — the main pose
+        // anim keeps running uninterrupted. The Start/Stop cycle of the
+        // dummy forces the viewer to push an animation-state update,
+        // which in turn re-evaluates the running loop's phase. No visible
+        // flicker on the main pose. The Sleep is just long enough to
+        // ensure Start and Stop cross a Sim-frame boundary so they aren't
+        // coalesced. If the dummy anim is missing from inventory we
+        // silently skip — see TESTPLAN TC-029 / PROTOCOL.md.
+        // Multi-frame sequences fall through to the existing sequencing
+        // path — see resync_active() / TESTPLAN TC-023.
+        if (resync_active(llGetListLength(SEQUENCE)))
+        {
+            if ((llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
+                && llGetAgentSize(MY_SITTER) != ZERO_VECTOR
+                && CURRENT_ANIMATION_FILENAME != ""
+                && llGetInventoryType(RESYNC_DUMMY_ANIM) == INVENTORY_ANIMATION)
+            {
+                llStartAnimation(RESYNC_DUMMY_ANIM);
+                llSleep(RESYNC_DELAY);
+                llStopAnimation(RESYNC_DUMMY_ANIM);
+                // Notify companion-anim plugins ([AV]faces, [AV]prop, ...)
+                // to re-sync their own loops in the same frame. See
+                // PROTOCOL.md § Re-Sync broadcast (90270). Only sent when
+                // we actually executed the trick — if the dummy anim was
+                // missing, plugins shouldn't tick on a non-event.
+                llMessageLinked(LINK_SET, 90270, CURRENT_POSE_NAME, MY_SITTER);
+            }
+            schedule_resync_timer();
+            return;
+        }
+
+        SEQUENCE_POINTER += 2;
         if (SEQUENCE_POINTER >= llGetListLength(SEQUENCE) || llListFindList(["M", "F"], llList2List(SEQUENCE, SEQUENCE_POINTER, SEQUENCE_POINTER)) != -1)
         {
             SEQUENCE_POINTER = 0;

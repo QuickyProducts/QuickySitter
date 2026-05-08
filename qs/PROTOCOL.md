@@ -61,6 +61,7 @@ notice.
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
 | `90263` | same | `[QS]adjuster` → `[QS]sitA` + `[QS]offset`: drop stale customs after `[HELPER] [SAVE]` |
+| `90270` | same | `[QS]sitA` → companion-anim plugins: SYNC-pose Re-Sync tick (see [§ Re-Sync broadcast](#re-sync-broadcast--90270)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -329,3 +330,98 @@ The handler now forwards pos/rot **directly from the 90301 payload** to sitA,
 avoiding both races, and only fires when `index == ANIM_INDEX` (the saved pose
 is the one this sitter is playing). The anim sequence is still read from LSD
 because saving doesn't change it.
+
+## Re-Sync broadcast — 90270
+
+For SYNC poses (multi-avatar synchronized loops, name *without* `P:` prefix),
+`[QS]sitA.lsl` periodically restarts the running animation to fight
+Interest-List drift between viewers — the well-known
+"camera-zoom-causes-desync" problem in SL where a viewer that culled an
+avatar restarts the looped anim locally at `t=0` on re-acquisition while
+other viewers keep their original timeline. See
+[`TESTPLAN.md`](./TESTPLAN.md) for the failure-mode analysis and Test Cases
+TC-021/TC-022.
+
+| Num   | Direction                                | `msg`              | `id`        | Meaning |
+|-------|------------------------------------------|--------------------|-------------|---------|
+| 90270 | `[QS]sitA` → companion-anim plugins      | `CURRENT_POSE_NAME` | sitter UUID | "Re-sync your loop for this sitter — I just played the SYNC dummy anim to refresh the viewer's animation state." |
+
+### Mechanism — dummy-anim refresh
+
+`[QS]sitA` periodically does a brief Start/Stop cycle on a dummy
+animation asset named `SYNC` that lives in the prim's inventory. The
+main pose animation is **never touched** — it keeps running
+uninterrupted. The dummy cycle forces the viewer to receive an
+animation-state update, which re-evaluates the running loop and (in
+viewers that had drifted out of phase) snaps it back into sync.
+
+This is intentionally different from a naive Stop+Start of the main
+animation, which works functionally but produces a visible
+T-pose/default-sit flicker every tick — the avatar looks like it
+"stands up briefly" each time. See TESTPLAN TC-029 for the experiment
+that drove this choice.
+
+#### `SYNC` asset requirements
+
+The creator must drop an animation called `SYNC` into the furniture's
+prim. It should be:
+
+- **Low priority** (priority 0 or -1) so it never overrides the main
+  pose even if a viewer renders it for a single frame
+- **Minimal/neutral pose** — ideally identical to the avatar's default
+  rest pose, or a no-op animation, so any one-frame leak is invisible
+- **Short or non-loop** — `[QS]sitA` calls `llStopAnimation` after
+  `RESYNC_DELAY`, but a non-loop anim that ends naturally is also fine
+
+If the asset is missing, `[QS]sitA` silently skips re-sync (and does
+not emit 90270). This is a no-error degradation — furnitures without
+the asset behave as if `RESYNC OFF` was set in the notecard.
+
+### Trigger architecture
+
+Each `[QS]sitA` instance runs its own re-sync timer aligned to a shared
+**wall-clock anchor** (multiples of `RESYNC_INTERVAL` since `llGetTime`
+epoch). Without any leader-election or root-broadcast coordination, all
+sitA instances in the same linkset compute the same next-anchor and fire
+their timers in the same Sim frame — viewers receive every sitter's
+Stop+Start in roughly the same network frame, snapping the loops back into
+phase together. This is robust against an absent `[QS]root`, sitter
+churn, and individual sitA resets.
+
+Re-sync only fires for **single-frame SYNC poses** (`SEQUENCE_LEN <= 2`
+and pose name not starting with `P:`). Multi-frame sequences keep the
+existing sequencing timer to avoid the
+re-sync-during-frame-wechsel race (TESTPLAN TC-023). POSE-type poses
+(prefixed `P:`) are solo by convention and don't need re-sync.
+
+Hardcoded constants in `[QS]sitA.lsl`:
+
+- `RESYNC_INTERVAL` = 30.0 s — period between ticks
+- `RESYNC_DELAY` = 0.1 s — gap between dummy Start and Stop (just enough
+  to cross a Sim-frame boundary so the two ops aren't coalesced)
+- `RESYNC_PLAY_FIRST` = 2.0 s — earliest re-sync after pose apply
+- `RESYNC_DUMMY_ANIM` = `"SYNC"` — inventory name of the dummy asset
+
+### What 90270 means for plugin authors
+
+Companion-anim plugins (`[AV]faces`, `[AV]prop`, custom face/prop scripts)
+should listen for `90270` and, **for the matching `id` (sitter UUID)**,
+re-trigger the dummy-anim refresh on their own animations — same idea
+as the body re-sync, but applied to whatever the plugin owns. The
+simplest implementation is to play the same `SYNC` dummy themselves
+(or their own equivalent).
+
+The `msg` payload (`CURRENT_POSE_NAME`) is provided as context — plugins
+can ignore it, or use it to verify the pose hasn't changed mid-tick.
+
+A plugin that ignores 90270 still works correctly; its companion anims
+just won't re-sync, which manifests as face/prop drift relative to the
+body. Body-only re-sync is the minimum viable feature.
+
+### Disabling per-furniture
+
+Add `RESYNC OFF` to the AVpos notecard. `[QS]boot` parses this directive
+into the `RESYNC` field (index 17) of `qs:cfg:<ch>` (see STORAGE.md);
+`[QS]sitA` reads it on `state_entry`. Default when the directive is absent
+is enabled. The dump pipeline emits `RESYNC OFF` only when explicitly
+disabled, so dumps from default-enabled setups don't grow a new line.
