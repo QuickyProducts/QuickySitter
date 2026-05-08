@@ -344,38 +344,36 @@ TC-021/TC-022.
 
 | Num   | Direction                                | `msg`              | `id`        | Meaning |
 |-------|------------------------------------------|--------------------|-------------|---------|
-| 90270 | `[QS]sitA` → companion-anim plugins      | `CURRENT_POSE_NAME` | sitter UUID | "Re-sync your loop for this sitter — I just played the SYNC dummy anim to refresh the viewer's animation state." |
+| 90270 | `[QS]sitA` → companion-anim plugins      | `CURRENT_POSE_NAME` | sitter UUID | "Re-sync your loop for this sitter — I just did Stop+Start on the body anim." |
 
-### Mechanism — dummy-anim refresh
+### Mechanism — main-anim Stop+Start
 
-`[QS]sitA` periodically does a brief Start/Stop cycle on a dummy
-animation asset named `SYNC` that lives in the prim's inventory. The
-main pose animation is **never touched** — it keeps running
-uninterrupted. The dummy cycle forces the viewer to receive an
-animation-state update, which re-evaluates the running loop and (in
-viewers that had drifted out of phase) snaps it back into sync.
+`[QS]sitA` periodically does a brief `Stop` → short `Sleep` → `Start`
+cycle on the **main pose animation**. Loop phase is determined
+viewer-locally at the `Start` event, so this is the only mechanism
+that actually re-phases the running loop on every viewer in sync.
 
-This is intentionally different from a naive Stop+Start of the main
-animation, which works functionally but produces a visible
-T-pose/default-sit flicker every tick — the avatar looks like it
-"stands up briefly" each time. See TESTPLAN TC-029 for the experiment
-that drove this choice.
+The Sleep is intentionally short (50 ms): long enough to cross a
+Sim-frame boundary so the two ops aren't coalesced into a no-op
+(Sim runs at ~45 Hz / 22 ms per frame), short enough that most
+viewers' next render frame falls outside the gap.
 
-#### `SYNC` asset requirements
+#### Tested-and-rejected: dummy-anim refresh
 
-The creator must drop an animation called `SYNC` into the furniture's
-prim. It should be:
+A previous iteration (sitA 0.17–0.19) used a low-priority dummy
+animation named `SYNC`: brief `Start` → `Sleep` → `Stop` of the
+dummy, leaving the main pose anim untouched. The theory (from SL
+folklore around external sync tools) was that the dummy cycle would
+force the viewer to push an animation-state update, re-evaluating the
+running main loop's phase along the way.
 
-- **Low priority** (priority 0 or -1) so it never overrides the main
-  pose even if a viewer renders it for a single frame
-- **Minimal/neutral pose** — ideally identical to the avatar's default
-  rest pose, or a no-op animation, so any one-frame leak is invisible
-- **Short or non-loop** — `[QS]sitA` calls `llStopAnimation` after
-  `RESYNC_DELAY`, but a non-loop anim that ends naturally is also fine
-
-If the asset is missing, `[QS]sitA` silently skips re-sync (and does
-not emit 90270). This is a no-error degradation — furnitures without
-the asset behave as if `RESYNC OFF` was set in the notecard.
+In multi-avatar testing the trick refreshes skeleton state but does
+**not** re-phase the main loop — the main animation never leaves the
+viewer's active set, so its local time-zero is preserved and drift
+continues. Architecturally, only direct Stop+Start of the loop in
+question can re-phase it. The dummy approach is documented here so
+the next person who reads the trick on an SL forum and considers
+re-introducing it has the empirical result.
 
 ### Trigger architecture
 
@@ -397,21 +395,18 @@ re-sync-during-frame-wechsel race (TESTPLAN TC-023). POSE-type poses
 Hardcoded constants in `[QS]sitA.lsl`:
 
 - `RESYNC_INTERVAL` = 30.0 s — period between ticks
-- `RESYNC_DELAY` = 0.1 s — gap between dummy Start and Stop (just enough
-  to cross a Sim-frame boundary so the two ops aren't coalesced)
+- `RESYNC_DELAY` = 0.05 s — gap between Stop and Start (≥ 1 Sim frame
+  to defeat coalescing, < 1 viewer-render frame at 30 FPS to minimise
+  the visible gap)
 - `RESYNC_PLAY_FIRST` = 2.0 s — earliest re-sync after pose apply
-- `RESYNC_DUMMY_ANIM` = `"SYNC"` — inventory name of the dummy asset
 
 ### What 90270 means for plugin authors
 
 Companion-anim plugins (`[AV]faces`, `[AV]prop`, custom face/prop scripts)
 should listen for `90270` and, **for the matching `id` (sitter UUID)**,
-re-trigger the dummy-anim refresh on their own animations — same idea
-as the body re-sync, but applied to whatever the plugin owns. The
-simplest implementation is to play the same `SYNC` dummy themselves
-(or their own equivalent).
-
-The `msg` payload (`CURRENT_POSE_NAME`) is provided as context — plugins
+do their own Stop+Start cycle on whatever loop they currently play, so
+their loop phase resets in the same Sim frame as the body. The
+`msg` payload (`CURRENT_POSE_NAME`) is provided as context — plugins
 can ignore it, or use it to verify the pose hasn't changed mid-tick.
 
 A plugin that ignores 90270 still works correctly; its companion anims

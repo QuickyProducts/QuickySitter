@@ -90,7 +90,7 @@ LinkMsg 90270 für Companion-Anim-Plugins. Siehe
 | TC-025 | Sitter denied `PERMISSION_TRIGGER_ANIMATION` | mittel | Pose stoppt, kein Hang | sitA gibt Sitter frei; `MY_SITTER == ""` | nein |
 | TC-027 | Sit während Boot-Race (90098-Stream aktiv) | mittel | Pose-Default greift nach Boot | `boot_done == TRUE` vor erster Anim; kein verlorener Sit | ja |
 | TC-028 | `[QS]hudprop` Auto-Attach bei Sit | mittel | HUD-Prop + Pose laufen | **deferred** — wartet auf QSALIVE LINK_SET-Layer (siehe MEMORY) | ja |
-| TC-029 | Dummy-Anim-Refresh-Trick (`SYNC`-Asset) vs. naives Stop+Start | hoch | kein visuelles Flackern, gleicher oder besserer Sync-Score | Phasen-Offset mit Dummy-Trick + Frame-by-Frame: keine T-Pose-Frames | n/a |
+| TC-029 | ~~Dummy-Anim-Refresh-Trick~~ Multi-Avatar-Test in 0.18/0.19 zeigte: Dummy-Trick refresht Skeleton, aber **nicht** Loop-Phase. Architektonisch tot. | — | n/a — verworfen, Result dokumentiert | siehe `PROTOCOL.md` § Tested-and-rejected | n/a |
 
 ---
 
@@ -150,15 +150,19 @@ inzwischen umgesetzt. Implementierungs-Referenzen siehe
    LSD-exposed Knöpfe werden eingeführt, falls TC-022 zeigt, dass die
    Defaults nicht universal funktionieren.
 
-5. **Dummy-Anim-Trick aktiv** (vorherige Stop+Start-Implementierung
-   verworfen wegen sichtbaren T-Pose-Flackerns alle 30 s). Der Re-Sync
-   spielt jetzt eine Mini-Anim namens `SYNC` aus dem Prim-Inventory
-   start/stop, **ohne die Hauptpose anzufassen**. Erforderliches Asset:
-   ein niedrig-priore, neutrale Animation namens `SYNC`. Fehlt sie →
-   Re-Sync silent skip. Siehe
-   [`PROTOCOL.md` § Mechanism — dummy-anim refresh](./PROTOCOL.md#mechanism--dummy-anim-refresh).
-   TC-029 ist damit das primäre Verifikations-Test (kein Flackern,
-   Sync-Score gleich oder besser als naives Stop+Start).
+5. **Mechanismus-Iteration:**
+   - **0.16:** naives Stop+Start der Hauptanim, 0.3 s Sleep. Sync
+     funktioniert, aber sichtbares „Stand-up"-Flackern alle 30 s.
+   - **0.17–0.19:** Dummy-Anim-Refresh-Trick mit `SYNC`-Asset
+     (Start+Sleep+Stop einer Mini-Anim, Hauptanim unangetastet).
+     Multi-Avatar-Test bestätigte: refresht Skeleton-State, aber
+     **nicht** die Loop-Phase. Architektonisch dafür ungeeignet —
+     siehe `PROTOCOL.md` § Tested-and-rejected.
+   - **0.20:** zurück zu Stop+Start der Hauptanim, aber mit verkürztem
+     Sleep auf **50 ms** (≥ 1 Sim-Frame zur Coalescing-Verhinderung,
+     < 1 Viewer-Render-Frame bei 30 FPS, um den Gap nicht zu rendern).
+     TC-029 ist damit erledigt; offene Frage: ob 50 ms tatsächlich
+     unsichtbar bleibt (Test in TC-021/022).
 
 ### On/Off-Mechanismus
 

@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.19";
+string version = "0.20";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -42,24 +42,28 @@ integer WARN = 1;
 // viewers (camera zoom, region crossings, viewer culls). Default on; the
 // AVpos directive `RESYNC OFF` disables it. See qs/TESTPLAN.md.
 //
-// Mechanism: briefly Start+Stop a dummy animation called "SYNC" — the
-// main pose anim is NOT touched and keeps playing. The dummy cycle
-// forces viewers to re-evaluate their animation state, snapping the
-// running loop back into phase without a visible flicker. Requires a
-// SYNC animation asset to be present in the prim's inventory; if it is
-// missing the re-sync silently no-ops. The asset should be a very low
-// priority / minimal-impact anim so it never overrides the main pose
-// even if a viewer renders it for one frame. See PROTOCOL.md
+// Mechanism: briefly Stop and Start the *main* pose animation. Loop
+// phase is determined viewer-locally at the Start event, so this is the
+// only mechanism that actually re-phases the running loop on all
+// viewers. The dummy-anim refresh approach (sitA 0.17–0.19) tested
+// empirically: it refreshes skeleton state but leaves the main loop's
+// phase untouched, so it can't fix drift. See PROTOCOL.md
 // § Re-Sync broadcast and TESTPLAN.md TC-029.
+//
+// The Sleep between Stop and Start is intentionally short (50 ms) — long
+// enough to cross a Sim-frame boundary so the two ops aren't coalesced
+// (Sim runs at ~45 Hz / 22 ms per frame), but short enough that most
+// viewers' next render frame falls outside the gap. The earlier 0.3 s
+// Sleep showed a clearly visible "stand-up" flicker; 0.05 s is the
+// experiment to find the sweet spot. Adjust if visible artefacts remain.
 //
 // Constants are intentionally hardcoded — see "Design-Entscheidungen" in
 // TESTPLAN; LSD-exposed knobs are deferred until TC-022 shows defaults
 // don't work universally.
 integer RESYNC = 1;
-string  RESYNC_DUMMY_ANIM = "SYNC"; // dummy anim asset consumed by the trick
 float RESYNC_INTERVAL = 30.0;  // seconds between re-sync ticks
-float RESYNC_DELAY    = 0.1;   // gap between dummy Start and Stop
-                               // (just enough to cross Sim-frame boundary)
+float RESYNC_DELAY    = 0.05;  // gap between Stop and Start
+                               // (>= 1 Sim frame, < 1 viewer-render frame)
 float RESYNC_PLAY_FIRST = 2.0; // earliest re-sync after pose apply
 string FIRST_POSENAME;
 string FIRST_ANIMATION_SEQUENCE;
@@ -677,36 +681,34 @@ default
     timer()
     {
         list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
-        // Re-Sync tick: single-frame SYNC pose, RESYNC enabled. Briefly
-        // play a low-priority dummy anim called "SYNC" — the main pose
-        // anim keeps running uninterrupted. The Start/Stop cycle of the
-        // dummy forces the viewer to push an animation-state update,
-        // which in turn re-evaluates the running loop's phase. No visible
-        // flicker on the main pose. The Sleep is just long enough to
-        // ensure Start and Stop cross a Sim-frame boundary so they aren't
-        // coalesced. If the dummy anim is missing from inventory we
-        // silently skip — see TESTPLAN TC-029 / PROTOCOL.md.
+        // Re-Sync tick: single-frame SYNC pose, RESYNC enabled. Stop the
+        // main pose animation, briefly Sleep across a Sim-frame boundary,
+        // then Start it again. This forces every viewer to remove the
+        // anim from its active list and re-add it — which is the only
+        // mechanism that actually re-phases the loop locally on each
+        // viewer. The Sleep duration trades visibility against effective-
+        // ness: too short and the Sim coalesces Stop+Start to a no-op,
+        // too long and viewers render the gap as a "stand-up" flicker.
+        // 50 ms is the current experiment.
         // Multi-frame sequences fall through to the existing sequencing
         // path — see resync_active() / TESTPLAN TC-023.
         if (resync_active(llGetListLength(SEQUENCE)))
         {
-            // DIAG (0.19): compact 4-flag tick log — drop in cleanup.
-            integer inv_ok = (llGetInventoryType(RESYNC_DUMMY_ANIM) == INVENTORY_ANIMATION);
+            // DIAG (0.19): compact tick log — drop in cleanup.
             integer ok = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
                       && (llGetAgentSize(MY_SITTER) != ZERO_VECTOR)
-                      && (CURRENT_ANIMATION_FILENAME != "")
-                      && inv_ok;
+                      && (CURRENT_ANIMATION_FILENAME != "");
             if (ok)
             {
-                llStartAnimation(RESYNC_DUMMY_ANIM);
+                llStopAnimation(CURRENT_ANIMATION_FILENAME);
                 llSleep(RESYNC_DELAY);
-                llStopAnimation(RESYNC_DUMMY_ANIM);
+                llStartAnimation(CURRENT_ANIMATION_FILENAME);
                 llMessageLinked(LINK_SET, 90270, CURRENT_POSE_NAME, MY_SITTER);
                 llOwnerSay("rs FIRED p=" + CURRENT_POSE_NAME);
             }
             else
             {
-                llOwnerSay("rs SKIP inv=" + (string)inv_ok + " p=" + CURRENT_POSE_NAME);
+                llOwnerSay("rs SKIP p=" + CURRENT_POSE_NAME);
             }
             schedule_resync_timer();
             return;
