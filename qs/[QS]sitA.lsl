@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.06";
+string version = "0.07";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -351,19 +351,11 @@ apply_current_anim(integer broadcast)
     integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
     if (custom_index == -1)
         custom_index = llListFindList(MY_CUSTOMS, ["M#T!"]);
-    llOwnerSay("[QS]sitA[" + version + "] apply_current_anim_in slot="
-        + (string)SCRIPT_CHANNEL + " pose=" + CURRENT_POSE_NAME
-        + " MY_CUSTOMS_len=" + (string)llGetListLength(MY_CUSTOMS)
-        + " match_idx=" + (string)custom_index
-        + " DEFAULT=" + (string)DEFAULT_POSITION);
     if (custom_index > -1)
     {
         CURRENT_POSITION += llList2Vector(MY_CUSTOMS, custom_index + 1);
         CURRENT_ROTATION += llList2Vector(MY_CUSTOMS, custom_index + 2);
     }
-    llOwnerSay("[QS]sitA[" + version + "] apply_current_anim_out slot="
-        + (string)SCRIPT_CHANNEL
-        + " CURRENT_POSITION=" + (string)CURRENT_POSITION);
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
     {
         if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR)
@@ -439,12 +431,7 @@ sit_using_prim_params()
     {
         llSetKeyframedMotion([], [KFM_COMMAND, KFM_CMD_PAUSE]);
     }
-    vector finalLocalPos = CURRENT_POSITION * localrot + localpos;
-    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, finalLocalPos]);
-    llOwnerSay("[QS]sitA[" + version + "] sit_using_prim_params slot="
-        + (string)SCRIPT_CHANNEL + " sitter_prim=" + (string)sitter_prim
-        + " CURRENT_POSITION=" + (string)CURRENT_POSITION
-        + " set PRIM_POS_LOCAL=" + (string)finalLocalPos);
+    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, CURRENT_POSITION * localrot + localpos]);
     if (HASKEYFRAME && !llGetStatus(STATUS_PHYSICS))
     {
         llSleep(0.2);
@@ -709,22 +696,12 @@ default
             {
                 vector pd = CURRENT_POSITION - DEFAULT_POSITION;
                 vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
-                llOwnerSay("[QS]sitA[" + version + "] [SAVE] reached slot="
-                    + (string)SCRIPT_CHANNEL + " pose=" + CURRENT_POSE_NAME
-                    + " CURRENT=" + (string)CURRENT_POSITION
-                    + " DEFAULT=" + (string)DEFAULT_POSITION
-                    + " pd=" + (string)pd + " rd=" + (string)rd
-                    + " MY_SITTER=" + (string)MY_SITTER);
                 integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
                 if (custom_index >= 0)
                     MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, custom_index, custom_index + 2);
                 MY_CUSTOMS += [CURRENT_POSE_NAME, pd, rd];
                 // Persist to [QS]offset.
-                string saveMsg = CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd;
-                llOwnerSay("[QS]sitA[" + version + "] [SAVE] sending 90262 msg="
-                    + saveMsg + " id=" + (string)MY_SITTER);
-                llMessageLinked(LINK_THIS, 90262, saveMsg, MY_SITTER);
-                llOwnerSay("[QS]sitA[" + version + "] [SAVE] 90262 sent");
+                llMessageLinked(LINK_THIS, 90262, CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for this pose.");
             }
@@ -798,17 +775,10 @@ default
         // 90303 handler removed — sitA reads settings from LSD directly in
         // state_entry now. [QS]boot resets sitA after seeding so this runs
         // with populated LSD.
-        // 90260 lives at the top so all incoming pushes are observed even
-        // when id != MY_SITTER (other slots' pushes), to spot misrouting.
-        if (num == 90260)
+        if (num == 90260 && id == MY_SITTER)
         {
-            llOwnerSay("[QS]sitA[" + version + "] 90260 slot="
-                + (string)SCRIPT_CHANNEL
-                + " id=" + (string)id
-                + " MY_SITTER=" + (string)MY_SITTER
-                + " match=" + (string)(id == MY_SITTER)
-                + " msg=" + msg);
-            if (id != MY_SITTER) return;
+            // Cache push from [QS]offset for the avatar currently on this
+            // sitter. Payload is pose_name|<pos_diff>|<rot_diff>.
             list mp = llParseStringKeepNulls(msg, ["|"], []);
             string pname = llList2String(mp, 0);
             integer mi = llListFindList(MY_CUSTOMS, [pname]);
@@ -817,11 +787,19 @@ default
                 (vector)llList2String(mp, 1),
                 (vector)llList2String(mp, 2)];
 
-            llOwnerSay("[QS]sitA[" + version + "] 90260 cached pname=" + pname
-                + " CURRENT_POSE_NAME=" + CURRENT_POSE_NAME
-                + " CURRENT_POSITION=" + (string)CURRENT_POSITION
-                + " DEFAULT_POSITION=" + (string)DEFAULT_POSITION);
-
+            // Race fix: on re-sit, run_time_permissions fires 90261 (request
+            // customs push) and 90000 (play pose) back-to-back. The 90000
+            // round-trips through sitB → 90055 → apply_current_anim, which
+            // reads MY_CUSTOMS and snapshots CURRENT_POSITION = DEFAULT +
+            // offset (or just DEFAULT if MY_CUSTOMS was empty at that
+            // moment). When the 90260 from [QS]offset loses the race the
+            // avatar lands at DEFAULT and the saved offset never visibly
+            // applies even though MY_CUSTOMS is populated milliseconds
+            // later. If we land here while CURRENT still equals DEFAULT,
+            // apply_current_anim ran without our entry — re-apply now using
+            // the same selection rule (specific pose wins over M#T!). If
+            // the user has touched the pose mid-session (CURRENT != DEFAULT)
+            // we leave them alone.
             if (CURRENT_POSITION == DEFAULT_POSITION
                 && CURRENT_ROTATION == DEFAULT_ROTATION)
             {
@@ -834,19 +812,7 @@ default
                     CURRENT_ROTATION = DEFAULT_ROTATION
                         + llList2Vector(MY_CUSTOMS, ci + 2);
                     sit_using_prim_params();
-                    llOwnerSay("[QS]sitA[" + version + "] 90260 re-applied offset"
-                        + " new CURRENT_POSITION=" + (string)CURRENT_POSITION);
                 }
-                else
-                {
-                    llOwnerSay("[QS]sitA[" + version + "] 90260 no MY_CUSTOMS"
-                        + " match for CURRENT_POSE_NAME=" + CURRENT_POSE_NAME);
-                }
-            }
-            else
-            {
-                llOwnerSay("[QS]sitA[" + version + "] 90260 CURRENT != DEFAULT"
-                    + " — not re-applying (user adjusted in-session?)");
             }
             return;
         }
