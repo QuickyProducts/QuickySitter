@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.20";
+string version = "0.21";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -374,20 +374,34 @@ integer resync_active(integer sequence_len)
     return RESYNC && is_sync_pose() && sequence_len <= 2;
 }
 
-// Wall-clock-aligned scheduler. Every sitA instance computes the same
-// next-anchor (multiple of RESYNC_INTERVAL since llGetTime epoch), so
-// independent timers across the linkset's sitA scripts fire in the same
-// Sim frame without any leader-election. See TESTPLAN, Frage 1 → (b).
+// Wall-clock-aligned scheduler. Every sitA instance in the region
+// computes the same next-anchor (multiple of RESYNC_INTERVAL since the
+// Unix epoch), so independent timers across the linkset's sitA scripts
+// fire in the same Sim frame without any leader-election.
+//
+// IMPORTANT: must be llGetUnixTime, not llGetTime. llGetTime is per-
+// script and resets with the script — two sitA's reset at different
+// moments end up with private anchors and never align. (Bug fixed in
+// 0.21; symptom was "first re-sync makes it worse, second one fixes".)
+// See TESTPLAN, Frage 1 → (b).
 schedule_resync_timer()
 {
-    float now = llGetTime();
-    float earliest = now + RESYNC_PLAY_FIRST;
-    integer next_n = (integer)(earliest / RESYNC_INTERVAL) + 1;
-    float next_at = (float)next_n * RESYNC_INTERVAL;
-    if (next_at <= earliest) next_at += RESYNC_INTERVAL;
-    llSetTimerEvent(next_at - now);
-    // DIAG (0.19): one-shot per pose-apply, fixed short format.
-    llOwnerSay("rs sched +" + (string)((integer)(next_at - now)) + "s p=" + CURRENT_POSE_NAME);
+    integer now = llGetUnixTime();
+    integer interval = (integer)RESYNC_INTERVAL;
+    integer next_at = ((now / interval) + 1) * interval;
+    integer wait = next_at - now;
+    // Enforce minimum delay for the first fire after pose-apply, so a
+    // pose change right before an anchor doesn't immediately re-sync.
+    if (wait < (integer)RESYNC_PLAY_FIRST)
+    {
+        next_at += interval;
+        wait = next_at - now;
+    }
+    llSetTimerEvent((float)wait);
+    // DIAG (0.21): include the unix anchor so we can verify two sitA's
+    // compute the same value. They must match exactly for cross-script
+    // alignment to work.
+    llOwnerSay("rs sched +" + (string)wait + "s anchor=" + (string)next_at + " p=" + CURRENT_POSE_NAME);
 }
 
 update_current_anim_name()
