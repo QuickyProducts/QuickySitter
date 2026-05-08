@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.07";
+string version = "0.08";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -470,7 +470,7 @@ qs_alive_reply()
     llMessageLinked(LINK_SET, 90097,
         "QuickySitter|" + version + "|"
         + (string)get_number_of_scripts() + "|"
-        + "customs90260,dump90098",
+        + "customs90260,dump90098,offsetlsd_v1",
         "");
 }
 

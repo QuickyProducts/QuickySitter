@@ -99,7 +99,7 @@ plugin-discovery probe but in the opposite direction (sitA is the
 | 0     | Product token. Always `QuickySitter` for this fork. Future forks (or upstream) may set their own.|
 | 1     | Version string. Mirrors the global `version` in [`[QS]sitA.lsl`](./[QS]sitA.lsl). |
 | 2     | Sitter-slot count, identical to `get_number_of_scripts()`. Plugins can use this directly instead of running the legacy inventory loop. |
-| 3     | Capability CSV. Substring-match for individual features. Initial set: `customs90260` (personal-offset cache, see [§ Personal pose offsets](#personal-pose-offsets--qsoffset--qssita)), `dump90098` (DUMP cascade, see [§ DUMP](#dump--entirely-in-qsboot)). |
+| 3     | Capability CSV. Substring-match for individual features. Initial set: `customs90260` (personal-offset cache, see [§ Personal pose offsets](#personal-pose-offsets--qsoffset--qssita)), `dump90098` (DUMP cascade, see [§ DUMP](#dump--entirely-in-qsboot)), `offsetlsd_v1` (offset.lsl ≥ 0.04 supports persistent LSD storage at `QSO:<short>:<pose>`; gates plugin migrations from older volatile-only releases). |
 
 ### Who answers, when, and on which link
 
@@ -172,8 +172,27 @@ also pull on demand.
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
 QuickySitter moves personal (per-user) pose offsets out of `[AV]sitA`'s inline
-`CUSTOMS` list into a dedicated [`[QS]offset`](./[QS]offset.lsl) script with an
-LRU cache. The four numbers below carry that traffic.
+`CUSTOMS` list into a dedicated [`[QS]offset`](./[QS]offset.lsl) script with a
+two-tier store:
+
+* **LSD `QSO:<short>:<pose>`** (≥ 0.04, advertised as `offsetlsd_v1`) — persistent
+  across script reset and re-rez. Used while LSD has room for at least 200 more
+  entries past the `QPP_CFG:RESERVE` budget that hudprop sets. Keys are written
+  unprotected: the proprietary QuickyHUD `LSD_PASS` is intentionally absent from
+  this MPL-licensed source; `QPP_CFG:*` keys (license, adjustmode, reserve) stay
+  protected on hudproxy/hudprop's side. Pose offsets aren't security-sensitive,
+  so unprotected reads/writes are acceptable.
+* **RAM `CUSTOMS` list** — volatile fallback, LRU-evicted at 200 entries. Used
+  when LSD is too tight, or in legacy / stock AVsitter setups where there's no
+  `QPP_CFG:RESERVE` to honor.
+
+`save_offset` writes to LSD when `lsdHasRoom()` returns TRUE, otherwise to
+CUSTOMS. `push_customs_for` enumerates **both** stores and emits one `90260`
+per matching pose (LSD entries win when the same pose appears in both —
+shouldn't happen in practice, but the dedupe protects against stale RAM after
+`lsdHasRoom()` flips at runtime).
+
+The four numbers below carry the link-message traffic.
 
 | Num    | Direction                  | `msg`                | `id`              | Meaning |
 |--------|----------------------------|----------------------|-------------------|---------|
