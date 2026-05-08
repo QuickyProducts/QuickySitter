@@ -212,6 +212,29 @@ still applies after a default change.
   and [`[QS]offset.lsl`](./[QS]offset.lsl) (drops matching entries across all
   user_shorts)
 
+### 90260 late-arrival re-apply
+
+`run_time_permissions` in `[QS]sitA.lsl` fires `90261` (request customs push)
+and `90000` (play pose) back-to-back when an avatar sits. The two messages
+race two independent round-trips:
+
+* `90261` → `[QS]offset` → `90260` (one per matching CUSTOMS entry)
+* `90000` → `[QS]sitB`   → `90055` → `apply_current_anim` reads `MY_CUSTOMS`
+
+If `90055` wins, `apply_current_anim` runs against an empty `MY_CUSTOMS`
+and lands the avatar on `DEFAULT_POSITION` even though the offset push is
+on its way. The 90260 then arrives, populates `MY_CUSTOMS`, and nobody
+re-applies — the saved offset is silently ignored every time the user
+loses the race. This is observable as `[Adjust][SAVE]` "doing nothing"
+across stand/re-sit cycles.
+
+`[QS]sitA.lsl`'s 90260 handler resolves this by re-applying the offset
+inside the handler when CURRENT still equals DEFAULT (i.e., apply_current_anim
+already ran but didn't see our entry). It uses the same selection rule as
+apply_current_anim — specific pose wins over `M#T!`. Mid-session adjustments
+(`X+/Y+/Z+` from the `[Adjust]` dialog) are not overridden because they shift
+CURRENT away from DEFAULT, breaking the equality check.
+
 ## `[DUMP]` — entirely in `[QS]boot`
 
 `[DUMP]` used to live in `[QS]adjuster.lsl`. Adjuster is the prim's busiest

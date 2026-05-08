@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.01";
+string version = "0.02";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -784,6 +784,34 @@ default
             MY_CUSTOMS += [pname,
                 (vector)llList2String(mp, 1),
                 (vector)llList2String(mp, 2)];
+
+            // Race fix: on re-sit, run_time_permissions fires 90261 (request
+            // customs push) and 90000 (play pose) back-to-back. The 90000
+            // round-trips through sitB → 90055 → apply_current_anim, which
+            // reads MY_CUSTOMS and snapshots CURRENT_POSITION = DEFAULT +
+            // offset (or just DEFAULT if MY_CUSTOMS was empty at that
+            // moment). When the 90260 from [QS]offset loses the race the
+            // avatar lands at DEFAULT and the saved offset never visibly
+            // applies even though MY_CUSTOMS is populated milliseconds
+            // later. If we land here while CURRENT still equals DEFAULT,
+            // apply_current_anim ran without our entry — re-apply now using
+            // the same selection rule (specific pose wins over M#T!). If
+            // the user has touched the pose mid-session (CURRENT != DEFAULT)
+            // we leave them alone.
+            if (CURRENT_POSITION == DEFAULT_POSITION
+                && CURRENT_ROTATION == DEFAULT_ROTATION)
+            {
+                integer ci = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
+                if (ci == -1) ci = llListFindList(MY_CUSTOMS, ["M#T!"]);
+                if (ci > -1)
+                {
+                    CURRENT_POSITION = DEFAULT_POSITION
+                        + llList2Vector(MY_CUSTOMS, ci + 1);
+                    CURRENT_ROTATION = DEFAULT_ROTATION
+                        + llList2Vector(MY_CUSTOMS, ci + 2);
+                    sit_using_prim_params();
+                }
+            }
             return;
         }
         if (num == 90263) // 90263=adjuster overwrote pose default; drop stale personal offset
