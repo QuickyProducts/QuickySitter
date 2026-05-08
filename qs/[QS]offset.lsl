@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.05";
+string version = "0.06";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -169,7 +169,6 @@ ramDelete(string short, string pose_name)
 push_customs_for(key sitter)
 {
     string short = llGetSubString(sitter, 0, 7);
-    integer pushed_count;
 
     // Pass 1 — LSD QSO:<short>:* keys.
     string keyPrefix = LSD_PREFIX + short + ":";
@@ -180,21 +179,15 @@ push_customs_for(key sitter)
     do {
         list keys = llLinksetDataFindKeys("^" + keyPrefix, offset, batch);
         integer n = llGetListLength(keys);
-        llOwnerSay("[QS]offset[" + version + "] LSD scan offset="
-            + (string)offset + " regex=^" + keyPrefix
-            + " batch=" + (string)batch + " hits=" + (string)n);
         integer i;
         for (i = 0; i < n; i++) {
             string k = llList2String(keys, i);
             string val = llLinksetDataRead(k);
-            llOwnerSay("[QS]offset[" + version + "] LSD key=" + k
-                + " val=" + val);
             if (val != "") {
                 string poseName = llGetSubString(k, prefixLen, -1);
                 llMessageLinked(LINK_THIS, 90260,
                     poseName + "|" + val,
                     sitter);
-                ++pushed_count;
                 pushed_poses += [poseName];
             }
         }
@@ -218,15 +211,10 @@ push_customs_for(key sitter)
                     + (string)llList2Vector(CUSTOMS, i + 2) + "|"
                     + (string)llList2Vector(CUSTOMS, i + 3),
                     sitter);
-                ++pushed_count;
             }
         }
         i += 4;
     }
-
-    llOwnerSay("[QS]offset[" + version + "] push_customs_for sitter="
-        + (string)sitter + " short=" + short
-        + " pushed=" + (string)pushed_count);
 }
 
 // Save / drop —————————————————————————————————————————————————————————
