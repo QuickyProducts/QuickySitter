@@ -25,7 +25,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.01";
+string version = "0.02";
 
 // Flat list: [pose_name, user_short, pos_offset, rot_offset, ...]
 // New entries go at the END; LRU eviction trims from the FRONT.
@@ -91,6 +91,7 @@ push_customs_for(key sitter)
     string short = llGetSubString(sitter, 0, 7);
     integer i = 0;
     integer n = llGetListLength(CUSTOMS);
+    integer pushed = 0;
     while (i < n)
     {
         if (llList2String(CUSTOMS, i + 1) == short)
@@ -100,9 +101,12 @@ push_customs_for(key sitter)
                 + (string)llList2Vector(CUSTOMS, i + 2) + "|"
                 + (string)llList2Vector(CUSTOMS, i + 3),
                 sitter);
+            ++pushed;
         }
         i += 4;
     }
+    llOwnerSay("[QS]offset[" + version + "] push_customs_for short=" + short
+        + " pushed=" + (string)pushed + " of " + (string)(n / 4));
 }
 
 save_offset(key sitter, string pose_name, vector pos, vector rot)
@@ -147,12 +151,20 @@ default
     {
         if (num == 90261)
         {
+            integer pre = llGetListLength(CUSTOMS) / 4;
+            llOwnerSay("[QS]offset[" + version + "] 90261 push_for sitter="
+                + (string)id + " short=" + llGetSubString(id, 0, 7)
+                + " CUSTOMS_total=" + (string)pre);
             push_customs_for(id);
             return;
         }
         if (num == 90262)
         {
             list parts = llParseStringKeepNulls(msg, ["|"], []);
+            llOwnerSay("[QS]offset[" + version + "] 90262 save sitter="
+                + (string)id + " pose=" + llList2String(parts, 0)
+                + " pos=" + llList2String(parts, 1)
+                + " rot=" + llList2String(parts, 2));
             save_offset(id,
                 llList2String(parts, 0),
                 (vector)llList2String(parts, 1),
