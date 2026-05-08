@@ -25,7 +25,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "qs1";
+string version = "0.01";
 
 // Flat list: [pose_name, user_short, pos_offset, rot_offset, ...]
 // New entries go at the END; LRU eviction trims from the FRONT.

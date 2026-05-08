@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string #version = "0.01";
+string version = "0.01";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
