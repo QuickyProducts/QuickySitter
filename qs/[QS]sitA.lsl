@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.07";
+string version = "0.15";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -470,7 +470,7 @@ qs_alive_reply()
     llMessageLinked(LINK_SET, 90097,
         "QuickySitter|" + version + "|"
         + (string)get_number_of_scripts() + "|"
-        + "customs90260,dump90098",
+        + "customs90260,dump90098,offsetlsd_v1",
         "");
 }
 
@@ -688,7 +688,7 @@ default
                 if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
                 MY_CUSTOMS += ["M#T!", pd, rd];
                 // Persist to [QS]offset.
-                llMessageLinked(LINK_THIS, 90262, "M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
+                llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for all poses.");
             }
@@ -701,7 +701,7 @@ default
                     MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, custom_index, custom_index + 2);
                 MY_CUSTOMS += [CURRENT_POSE_NAME, pd, rd];
                 // Persist to [QS]offset.
-                llMessageLinked(LINK_THIS, 90262, CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
+                llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|" + CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for this pose.");
             }
@@ -867,8 +867,25 @@ default
             SITTERS_SITTARGETS = llListReplaceList(llListReplaceList(SITTERS_SITTARGETS, [llList2Integer(SITTERS_SITTARGETS, two)], one, one), [llList2Integer(SITTERS_SITTARGETS, one)], two, two);
             my_sittarget = llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL);
             set_sittarget();
-            SITTERS = llListReplaceList(llListReplaceList(SITTERS, [""], one, one), [""], two, two);
-            MY_SITTER = llList2Key(SITTERS, SCRIPT_CHANNEL);
+            // Swap SITTERS instead of clearing both slots. The original
+            // stock code sets [empty, empty] and lets run_time_permissions
+            // re-register each occupant; CHANGED_LINK fires in between
+            // (sit-target update from set_sittarget triggers it once
+            // perms grant) and the auto-assign in our changed() handler
+            // sees the avatar not in SITTERS and re-claims it on the
+            // first empty slot — typically slot 0 — which then races
+            // with the swap-target slot's run_time_permissions and
+            // ends with both slots claiming the same avatar. Visible as
+            // the wrong sit-position (apply_current_anim picks slot 0's
+            // offset, sit_using_prim_params on slot 0 then writes to
+            // the avatar's prim using slot 0's localrot/localpos basis,
+            // resulting in a position that matches slot 1's DEFAULT).
+            // Swapping SITTERS up front means CHANGED_LINK already finds
+            // the avatar registered on the destination slot.
+            key swapA = llList2Key(SITTERS, one);
+            key swapB = llList2Key(SITTERS, two);
+            SITTERS = llListReplaceList(llListReplaceList(SITTERS, [swapB], one, one), [swapA], two, two);
+            MY_SITTER = "";
             return;
         }
         if (num == 90070) // 90070=update SITTERS after permission granted
@@ -1267,7 +1284,7 @@ default
             SITTERS = llListReplaceList(SITTERS, [(CONTROLLER = MY_SITTER = llGetPermissionsKey())], SCRIPT_CHANNEL, SCRIPT_CHANNEL);
             // Reset cache and ask [QS]offset to push this sitter's customs.
             MY_CUSTOMS = [];
-            llMessageLinked(LINK_THIS, 90261, "", MY_SITTER);
+            llMessageLinked(LINK_THIS, 90261, (string)SCRIPT_CHANNEL, MY_SITTER);
             string channel_or_swap = (string)SCRIPT_CHANNEL;
             integer lnk = 90000; // 90000=play pose
             if (SWAPPED)
