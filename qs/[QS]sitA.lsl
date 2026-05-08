@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.17";
+string version = "0.18";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -382,6 +382,10 @@ schedule_resync_timer()
     float next_at = (float)next_n * RESYNC_INTERVAL;
     if (next_at <= earliest) next_at += RESYNC_INTERVAL;
     llSetTimerEvent(next_at - now);
+    // DIAG (0.18): log scheduled re-sync. Drop in cleanup commit.
+    llOwnerSay(llGetScriptName() + "[" + version + "] resync scheduled in "
+        + (string)((integer)(next_at - now)) + "s (pose='" + CURRENT_POSE_NAME
+        + "' RESYNC=" + (string)RESYNC + ")");
 }
 
 update_current_anim_name()
@@ -688,10 +692,14 @@ default
         // path — see resync_active() / TESTPLAN TC-023.
         if (resync_active(llGetListLength(SEQUENCE)))
         {
-            if ((llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
-                && llGetAgentSize(MY_SITTER) != ZERO_VECTOR
-                && CURRENT_ANIMATION_FILENAME != ""
-                && llGetInventoryType(RESYNC_DUMMY_ANIM) == INVENTORY_ANIMATION)
+            // DIAG (0.18): dump all gating conditions per tick. Drop in
+            // cleanup commit once the trick is verified or replaced.
+            integer perms_ok = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            integer agent_ok = (llGetAgentSize(MY_SITTER) != ZERO_VECTOR);
+            integer anim_ok  = (CURRENT_ANIMATION_FILENAME != "");
+            integer inv_ok   = (llGetInventoryType(RESYNC_DUMMY_ANIM) == INVENTORY_ANIMATION);
+            string  fired    = "SKIP";
+            if (perms_ok && agent_ok && anim_ok && inv_ok)
             {
                 llStartAnimation(RESYNC_DUMMY_ANIM);
                 llSleep(RESYNC_DELAY);
@@ -702,10 +710,21 @@ default
                 // we actually executed the trick — if the dummy anim was
                 // missing, plugins shouldn't tick on a non-event.
                 llMessageLinked(LINK_SET, 90270, CURRENT_POSE_NAME, MY_SITTER);
+                fired = "FIRED";
             }
+            llOwnerSay(llGetScriptName() + "[" + version + "] resync tick: pose='"
+                + CURRENT_POSE_NAME + "' perms=" + (string)perms_ok
+                + " agent=" + (string)agent_ok + " anim='" + CURRENT_ANIMATION_FILENAME
+                + "' sync_inv=" + (string)inv_ok + " → " + fired);
             schedule_resync_timer();
             return;
         }
+        // DIAG (0.18): log when timer fires but resync is NOT active —
+        // helps identify why a SYNC pose isn't getting re-synced (e.g.
+        // P: prefix, multi-frame sequence, RESYNC=0). Drop in cleanup.
+        llOwnerSay(llGetScriptName() + "[" + version + "] timer fired (no resync): pose='"
+            + CURRENT_POSE_NAME + "' RESYNC=" + (string)RESYNC + " is_sync="
+            + (string)is_sync_pose() + " seq_len=" + (string)llGetListLength(SEQUENCE));
 
         SEQUENCE_POINTER += 2;
         if (SEQUENCE_POINTER >= llGetListLength(SEQUENCE) || llListFindList(["M", "F"], llList2List(SEQUENCE, SEQUENCE_POINTER, SEQUENCE_POINTER)) != -1)
