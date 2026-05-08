@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.13";
+string version = "0.14";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -887,8 +887,25 @@ default
             SITTERS_SITTARGETS = llListReplaceList(llListReplaceList(SITTERS_SITTARGETS, [llList2Integer(SITTERS_SITTARGETS, two)], one, one), [llList2Integer(SITTERS_SITTARGETS, one)], two, two);
             my_sittarget = llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL);
             set_sittarget();
-            SITTERS = llListReplaceList(llListReplaceList(SITTERS, [""], one, one), [""], two, two);
-            MY_SITTER = llList2Key(SITTERS, SCRIPT_CHANNEL);
+            // Swap SITTERS instead of clearing both slots. The original
+            // stock code sets [empty, empty] and lets run_time_permissions
+            // re-register each occupant; CHANGED_LINK fires in between
+            // (sit-target update from set_sittarget triggers it once
+            // perms grant) and the auto-assign in our changed() handler
+            // sees the avatar not in SITTERS and re-claims it on the
+            // first empty slot — typically slot 0 — which then races
+            // with the swap-target slot's run_time_permissions and
+            // ends with both slots claiming the same avatar. Visible as
+            // the wrong sit-position (apply_current_anim picks slot 0's
+            // offset, sit_using_prim_params on slot 0 then writes to
+            // the avatar's prim using slot 0's localrot/localpos basis,
+            // resulting in a position that matches slot 1's DEFAULT).
+            // Swapping SITTERS up front means CHANGED_LINK already finds
+            // the avatar registered on the destination slot.
+            key swapA = llList2Key(SITTERS, one);
+            key swapB = llList2Key(SITTERS, two);
+            SITTERS = llListReplaceList(llListReplaceList(SITTERS, [swapB], one, one), [swapA], two, two);
+            MY_SITTER = "";
             return;
         }
         if (num == 90070) // 90070=update SITTERS after permission granted
