@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.12";
+string version = "0.13";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -351,11 +351,18 @@ apply_current_anim(integer broadcast)
     integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
     if (custom_index == -1)
         custom_index = llListFindList(MY_CUSTOMS, ["M#T!"]);
+    llOwnerSay("[QS]sitA[" + version + "] apply slot=" + (string)SCRIPT_CHANNEL
+        + " pose=" + CURRENT_POSE_NAME
+        + " MY_CUSTOMS_len=" + (string)llGetListLength(MY_CUSTOMS)
+        + " match=" + (string)custom_index
+        + " DEFAULT=" + (string)DEFAULT_POSITION);
     if (custom_index > -1)
     {
         CURRENT_POSITION += llList2Vector(MY_CUSTOMS, custom_index + 1);
         CURRENT_ROTATION += llList2Vector(MY_CUSTOMS, custom_index + 2);
     }
+    llOwnerSay("[QS]sitA[" + version + "] apply_out slot="
+        + (string)SCRIPT_CHANNEL + " CURRENT=" + (string)CURRENT_POSITION);
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
     {
         if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR)
@@ -431,7 +438,11 @@ sit_using_prim_params()
     {
         llSetKeyframedMotion([], [KFM_COMMAND, KFM_CMD_PAUSE]);
     }
-    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, CURRENT_POSITION * localrot + localpos]);
+    vector finalLocalPos = CURRENT_POSITION * localrot + localpos;
+    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, finalLocalPos]);
+    llOwnerSay("[QS]sitA[" + version + "] sit_using slot="
+        + (string)SCRIPT_CHANNEL + " CURRENT=" + (string)CURRENT_POSITION
+        + " set=" + (string)finalLocalPos);
     if (HASKEYFRAME && !llGetStatus(STATUS_PHYSICS))
     {
         llSleep(0.2);
@@ -775,8 +786,17 @@ default
         // 90303 handler removed — sitA reads settings from LSD directly in
         // state_entry now. [QS]boot resets sitA after seeding so this runs
         // with populated LSD.
-        if (num == 90260 && id == MY_SITTER)
+        if (num == 90260)
         {
+            llOwnerSay("[QS]sitA[" + version + "] 90260 in slot="
+                + (string)SCRIPT_CHANNEL + " id=" + (string)id
+                + " MY_SITTER=" + (string)MY_SITTER
+                + " match=" + (string)(id == MY_SITTER)
+                + " msg=" + msg
+                + " CURRENT=" + (string)CURRENT_POSITION
+                + " DEFAULT=" + (string)DEFAULT_POSITION
+                + " CURRENT_POSE_NAME=" + CURRENT_POSE_NAME);
+            if (id != MY_SITTER) return;
             // Cache push from [QS]offset for the avatar currently on this
             // sitter. Payload is pose_name|<pos_diff>|<rot_diff>.
             list mp = llParseStringKeepNulls(msg, ["|"], []);
@@ -1027,6 +1047,10 @@ default
             if (num == 90057) // 90057=helper moved, update position
             {
                 data = llParseStringKeepNulls(id, ["|"], data);
+                llOwnerSay("[QS]sitA[" + version + "] 90057 in slot="
+                    + (string)SCRIPT_CHANNEL + " sender=" + (string)sender
+                    + " new_pos=" + llList2String(data, 0)
+                    + " new_rot=" + llList2String(data, 1));
                 CURRENT_POSITION = (vector)llList2String(data, 0);
                 CURRENT_ROTATION = (vector)llList2String(data, 1);
                 sit_using_prim_params();
