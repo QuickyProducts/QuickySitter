@@ -171,35 +171,51 @@ also pull on demand.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
-QuickySitter moves personal (per-user) pose offsets out of `[AV]sitA`'s inline
-`CUSTOMS` list into a dedicated [`[QS]offset`](./[QS]offset.lsl) script with a
-two-tier store:
+QuickySitter moves personal (per-user, per-slot) pose offsets out of
+`[AV]sitA`'s inline `CUSTOMS` list into a dedicated [`[QS]offset`](./[QS]offset.lsl)
+script with a two-tier store. The slot is in the key because SYNC couple
+poses share a pose name across multiple slots, but each slot has its own
+DEFAULT (sit-target offset relative to root); a flat (user, pose) key
+would let a save on slot 1 overwrite a save on slot 0 for the same pose
+name.
 
-* **LSD `QSO:<short>:<pose>`** (≥ 0.04, advertised as `offsetlsd_v1`) — persistent
-  across script reset and re-rez. Used while LSD has room for at least 200 more
-  entries past the `QPP_CFG:RESERVE` budget that hudprop sets. Keys are written
-  unprotected: the proprietary QuickyHUD `LSD_PASS` is intentionally absent from
-  this MPL-licensed source; `QPP_CFG:*` keys (license, adjustmode, reserve) stay
-  protected on hudproxy/hudprop's side. Pose offsets aren't security-sensitive,
-  so unprotected reads/writes are acceptable.
-* **RAM `CUSTOMS` list** — volatile fallback, LRU-evicted at 200 entries. Used
-  when LSD is too tight, or in legacy / stock AVsitter setups where there's no
-  `QPP_CFG:RESERVE` to honor.
+* **LSD `QSO:<short>:<slot>:<pose>`** (≥ 0.09) — persistent across script
+  reset and re-rez. Used while LSD has room for at least 200 more entries
+  past the `QPP_CFG:RESERVE` budget that hudprop sets. Keys are written
+  unprotected: the proprietary QuickyHUD `LSD_PASS` is intentionally
+  absent from this MPL-licensed source; `QPP_CFG:*` keys (license,
+  adjustmode, reserve) stay protected on hudproxy/hudprop's side. Pose
+  offsets aren't security-sensitive, so unprotected reads/writes are
+  acceptable.
+* **RAM `CUSTOMS` list** — volatile fallback, LRU-evicted at 200 entries.
+  Used when LSD is too tight, or in legacy / stock AVsitter setups where
+  there's no `QPP_CFG:RESERVE` to honor. Stride is 5: `[pose, short,
+  slot, pos, rot]` per entry.
 
-`save_offset` writes to LSD when `lsdHasRoom()` returns TRUE, otherwise to
-CUSTOMS. `push_customs_for` enumerates **both** stores and emits one `90260`
-per matching pose (LSD entries win when the same pose appears in both —
-shouldn't happen in practice, but the dedupe protects against stale RAM after
-`lsdHasRoom()` flips at runtime).
+`save_offset` writes to LSD when `lsdHasRoom()` returns TRUE, otherwise
+to CUSTOMS. `push_customs_for(sitter, slot)` enumerates **both** stores
+and emits one `90260` per matching (user_short, slot) entry — the slot
+filter ensures each sitA's per-instance MY_CUSTOMS only ever contains
+its own slot's data, so `apply_current_anim`'s lookup needs no slot
+awareness on the receiver side. LSD entries win when the same pose
+appears in both — shouldn't happen in practice, but the dedupe protects
+against stale RAM after `lsdHasRoom()` flips at runtime.
+
+The QSALIVE `offsetlsd_v1` capability bit advertised by `[QS]sitA` was
+introduced with the LSD tier in 0.04 (flat key) and remains valid for
+0.09's per-slot keys. Hudproxy's one-shot QPP→QSO migration falls back
+to `slot 0` for legacy entries that have no slot info; users updating
+the no-mod HUD typically clear their offset storage before the upgrade,
+so this is rarely traversed in practice.
 
 The four numbers below carry the link-message traffic.
 
 | Num    | Direction                  | `msg`                | `id`              | Meaning |
 |--------|----------------------------|----------------------|-------------------|---------|
-| 90260  | `[QS]offset` → `[QS]sitA`  | `pose_name\|pos\|rot` | sitter UUID       | "Apply this personal offset for the avatar on this sitter slot." Sent once per matching `CUSTOMS` entry when a sitter sits. |
-| 90261  | `[QS]sitA` → `[QS]offset`  | `""`                 | sitter UUID       | "Push every cached offset for this sitter to me." Sent on sit. |
-| 90262  | `[QS]sitA` → `[QS]offset`  | `pose_name\|pos\|rot` | sitter UUID       | "Save this offset to the cache." Magic name `M#T!` is the all-poses offset used by `[SAVE ALL]`. Hudproxy listens on the same broadcast (LINK_THIS) to mirror the new offset into its JSON state. |
-| 90263  | `[QS]adjuster` → `[QS]sitA` + `[QS]offset` | `(string)sitter_slot` | pose_name (as `key`) | "The creator just overwrote this pose's default via `[HELPER] [SAVE]`. Drop every pose-specific entry that matches — `M#T!` survives." |
+| 90260  | `[QS]offset` → `[QS]sitA`  | `pose_name\|pos\|rot` | sitter UUID       | "Apply this personal offset for the avatar on this sitter slot." Sent once per matching cache entry when a sitter sits. The slot was already filtered by 90261's request so the payload doesn't repeat it. |
+| 90261  | `[QS]sitA` → `[QS]offset`  | `(string)slot`       | sitter UUID       | "Push every cached offset for this (sitter, slot) pair to me." Sent on sit and on hudproxy pose change. |
+| 90262  | `[QS]sitA` → `[QS]offset`  | `slot\|pose_name\|pos\|rot` | sitter UUID | "Save this offset for (sitter, slot, pose)." Magic name `M#T!` is the all-poses offset used by `[SAVE ALL]`; each slot can have its own M#T!. Hudproxy listens on the same broadcast (LINK_THIS) to mirror the new offset into its JSON state when the slot matches the active sitter's slot. |
+| 90263  | `[QS]adjuster` → `[QS]sitA` + `[QS]offset` | `(string)sitter_slot` | pose_name (as `key`) | "The creator just overwrote this pose's default on this slot via `[HELPER] [SAVE]`. Drop every pose-specific entry on this slot that matches — `M#T!` survives, and other slots keep their offsets." |
 | 90264  | hudproxy → `[QS]offset`    | `""`                 | ignored           | "Wipe ALL personal offsets — both LSD `QSO:*` and RAM `CUSTOMS`." Triggered by the HUD settings menu's `CLEAR offset storage` confirm. Matches the `CHANGED_OWNER` cleanup behavior. |
 
 ### Why 90263 exists

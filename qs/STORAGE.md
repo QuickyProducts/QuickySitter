@@ -9,7 +9,7 @@ link-message protocol that moves data between these stores.
 | What | Where | Persistent? |
 |------|-------|-------------|
 | **Pose defaults** (`<pos><rot>` from AVpos) | LSD `qs:p:<ch>:<i>` — written by [`[QS]boot`](./[QS]boot.lsl) at seed and by [`[QS]adjuster`](./[QS]adjuster.lsl) on `[HELPER] [SAVE]` | ✅ yes, survives rerez |
-| **Personal user offsets** (per-pose and `M#T!` all-poses, set via `[ADJUSTER] [SAVE]` / `[SAVE ALL]`) | [`[QS]offset`](./[QS]offset.lsl) — LSD `QSO:<short>:<pose>` when room exists past `QPP_CFG:RESERVE`, else global `CUSTOMS` list | ✅ LSD persistent (≥ 0.04), ❌ RAM volatile fallback |
+| **Personal user offsets** (per-(user, slot, pose), incl. `M#T!` per-slot all-poses fallback, set via `[ADJUSTER] [SAVE]` / `[SAVE ALL]`) | [`[QS]offset`](./[QS]offset.lsl) — LSD `QSO:<short>:<slot>:<pose>` when room exists past `QPP_CFG:RESERVE`, else global `CUSTOMS` list | ✅ LSD persistent (≥ 0.09), ❌ RAM volatile fallback |
 | **Pose runtime state** (which pose is playing, menu navigation, speed) | [`[QS]sitB`](./[QS]sitB.lsl) per-sitter globals | ❌ volatile per session |
 | **Playback state** (`CURRENT_POSITION` / `CURRENT_ROTATION`, anim filename, `MY_SITTER`) | [`[QS]sitA`](./[QS]sitA.lsl) per-sitter globals | ❌ volatile |
 | **Channel settings** (MTYPE, ETYPE, SWAP, BRAND, CUSTOM_TEXT, ADJUST_MENU, ...) | LSD `qs:cfg:<ch>` (boot writes) + in-memory cache in sitA/sitB | ✅ LSD persistent, memory is cache |
@@ -28,7 +28,7 @@ All keys are namespaced `qs:*`. `<ch>` is the sitter slot (0-based, matches
 | `qs:sitter:<ch>` | `SEP`-joined sitter info row | boot | boot's `qs_dump_start`, sitB |
 | `qs:p:<ch>:<i>` | `name\|type\|anim\|pos\|rot` (type is single char: `P`/`S`/`M`/`T`/`B`) | boot's `qs_p_write()`, adjuster's `qs_save_pose_offset` / `qs_add_pose` | sitB's `qs_pose_data()`, adjuster's `qs_find_index` / `qs_p_count`, boot's `qs_dump_tick` |
 | `qs:meta:<ch>` | `"qs1"` (presence = "channel seeded") | boot | boot's `process_next_channel` |
-| `QSO:<short>:<pose>` | `<pos>\|<rot>` (Euler degrees, both `vector`-string) — unprotected | offset.lsl ≥ 0.04 `save_offset` (when `lsdHasRoom()`) | offset.lsl `push_customs_for`, `drop_pose_all_users` |
+| `QSO:<short>:<slot>:<pose>` | `<pos>\|<rot>` (Euler degrees, both `vector`-string) — unprotected | offset.lsl ≥ 0.09 `save_offset` (when `lsdHasRoom()`) | offset.lsl `push_customs_for`, `drop_pose_for_slot` |
 
 `SEP` is U+FFFD, initialized at runtime via `llUnescapeURL("%EF%BF%BD")`
 because the SL script editor mangles a literal U+FFFD on upload.
@@ -123,18 +123,21 @@ What sitB does **not** hold (vs stock AVsitter): the per-pose
 
 Two-tier store, see [§ Personal pose offsets](./PROTOCOL.md#personal-pose-offsets--qsoffset--qssita) in PROTOCOL.md for the link-message side.
 
-- **LSD tier** (≥ 0.04, persistent): `QSO:<short>:<pose>` keys, value
-  `<pos>\|<rot>` (both `vector`-string in degrees). Unprotected
+- **LSD tier** (≥ 0.09, persistent): `QSO:<short>:<slot>:<pose>` keys,
+  value `<pos>\|<rot>` (both `vector`-string in degrees). Unprotected
   reads/writes — no `LSD_PASS` involved (intentional, see PROTOCOL.md
-  capability notes).
+  capability notes). The slot in the key lets each sitter slot keep
+  its own offset for the same pose name (SYNC couple poses on multiple
+  slots had a flat (user, pose) key before 0.09 and would overwrite
+  each other on save).
   - `LSD_BYTES_PER_ENTRY` (80) and `LSD_MIN_FREE_POSES` (200): `save_offset`
     only writes to LSD if `(llLinksetDataAvailable() − reserved) /
     LSD_BYTES_PER_ENTRY ≥ LSD_MIN_FREE_POSES`. `reserved` reads
     `QPP_CFG:RESERVE` (set by hudprop) unprotected; missing → 0.
   - No timestamp / eviction in LSD — full keys persist until manually
     cleared, fall back to RAM if room runs out.
-- **RAM tier** (volatile fallback): `CUSTOMS` flat list:
-  `[pose_name, user_short, pos_offset, rot_offset, ...]`
+- **RAM tier** (volatile fallback): `CUSTOMS` flat list with stride 5:
+  `[pose_name, user_short, slot, pos_offset, rot_offset, ...]`
   - `LRU_CAP` — hard cap on entries (currently 200). Picked so that
     `200 × ~150` bytes worst-case + ~12 KB script code/state stays well
     under Mono's 64 KB cap. Front-evicted by `cull_to_cap` after each
