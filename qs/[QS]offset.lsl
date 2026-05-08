@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.06";
+string version = "0.07";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -222,6 +222,17 @@ push_customs_for(key sitter)
 save_offset(key sitter, string pose_name, vector pos, vector rot)
 {
     string short = llGetSubString(sitter, 0, 7);
+
+    // ZERO/ZERO is the delete sentinel — sitA's [SAVE] (when the user has
+    // dialed all adjustments back to base) and hudproxy's poseBufPush both
+    // converge on this when there's nothing meaningful to store. Cleans up
+    // both tiers so push_customs_for stops emitting empty 90260s on sit.
+    if (pos == ZERO_VECTOR && rot == ZERO_VECTOR)
+    {
+        ramDelete(short, pose_name);
+        llLinksetDataDelete(lsdMakeKey(sitter, pose_name));
+        return;
+    }
 
     if (lsdHasRoom())
     {
