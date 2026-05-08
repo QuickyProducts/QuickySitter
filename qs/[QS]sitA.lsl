@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.03";
+string version = "0.04";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -351,15 +351,19 @@ apply_current_anim(integer broadcast)
     integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
     if (custom_index == -1)
         custom_index = llListFindList(MY_CUSTOMS, ["M#T!"]);
-    llOwnerSay("[QS]sitA[" + version + "] apply_current_anim slot="
+    llOwnerSay("[QS]sitA[" + version + "] apply_current_anim_in slot="
         + (string)SCRIPT_CHANNEL + " pose=" + CURRENT_POSE_NAME
         + " MY_CUSTOMS_len=" + (string)llGetListLength(MY_CUSTOMS)
-        + " match_idx=" + (string)custom_index);
+        + " match_idx=" + (string)custom_index
+        + " DEFAULT=" + (string)DEFAULT_POSITION);
     if (custom_index > -1)
     {
         CURRENT_POSITION += llList2Vector(MY_CUSTOMS, custom_index + 1);
         CURRENT_ROTATION += llList2Vector(MY_CUSTOMS, custom_index + 2);
     }
+    llOwnerSay("[QS]sitA[" + version + "] apply_current_anim_out slot="
+        + (string)SCRIPT_CHANNEL
+        + " CURRENT_POSITION=" + (string)CURRENT_POSITION);
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
     {
         if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR)
@@ -435,7 +439,12 @@ sit_using_prim_params()
     {
         llSetKeyframedMotion([], [KFM_COMMAND, KFM_CMD_PAUSE]);
     }
-    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, CURRENT_POSITION * localrot + localpos]);
+    vector finalLocalPos = CURRENT_POSITION * localrot + localpos;
+    llSetLinkPrimitiveParamsFast(sitter_prim, [PRIM_ROT_LOCAL, llEuler2Rot((CURRENT_ROTATION + <0,0,0.002>) * DEG_TO_RAD) * localrot, PRIM_POS_LOCAL, finalLocalPos]);
+    llOwnerSay("[QS]sitA[" + version + "] sit_using_prim_params slot="
+        + (string)SCRIPT_CHANNEL + " sitter_prim=" + (string)sitter_prim
+        + " CURRENT_POSITION=" + (string)CURRENT_POSITION
+        + " set PRIM_POS_LOCAL=" + (string)finalLocalPos);
     if (HASKEYFRAME && !llGetStatus(STATUS_PHYSICS))
     {
         llSleep(0.2);
