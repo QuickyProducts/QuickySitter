@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string #version = "0.01";
+string version = "0.01";
 string BRAND;
 integer OLD_HELPER_METHOD;
 string main_script = "[QS]sitA";
