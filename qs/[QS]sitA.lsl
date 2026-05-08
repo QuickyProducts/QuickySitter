@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.08";
+string version = "0.09";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -775,10 +775,15 @@ default
         // 90303 handler removed — sitA reads settings from LSD directly in
         // state_entry now. [QS]boot resets sitA after seeding so this runs
         // with populated LSD.
-        if (num == 90260 && id == MY_SITTER)
+        if (num == 90260)
         {
-            // Cache push from [QS]offset for the avatar currently on this
-            // sitter. Payload is pose_name|<pos_diff>|<rot_diff>.
+            llOwnerSay("[QS]sitA[" + version + "] 90260 in slot="
+                + (string)SCRIPT_CHANNEL
+                + " id=" + (string)id
+                + " MY_SITTER=" + (string)MY_SITTER
+                + " match=" + (string)(id == MY_SITTER)
+                + " msg=" + msg);
+            if (id != MY_SITTER) return;
             list mp = llParseStringKeepNulls(msg, ["|"], []);
             string pname = llList2String(mp, 0);
             integer mi = llListFindList(MY_CUSTOMS, [pname]);
@@ -787,19 +792,11 @@ default
                 (vector)llList2String(mp, 1),
                 (vector)llList2String(mp, 2)];
 
-            // Race fix: on re-sit, run_time_permissions fires 90261 (request
-            // customs push) and 90000 (play pose) back-to-back. The 90000
-            // round-trips through sitB → 90055 → apply_current_anim, which
-            // reads MY_CUSTOMS and snapshots CURRENT_POSITION = DEFAULT +
-            // offset (or just DEFAULT if MY_CUSTOMS was empty at that
-            // moment). When the 90260 from [QS]offset loses the race the
-            // avatar lands at DEFAULT and the saved offset never visibly
-            // applies even though MY_CUSTOMS is populated milliseconds
-            // later. If we land here while CURRENT still equals DEFAULT,
-            // apply_current_anim ran without our entry — re-apply now using
-            // the same selection rule (specific pose wins over M#T!). If
-            // the user has touched the pose mid-session (CURRENT != DEFAULT)
-            // we leave them alone.
+            llOwnerSay("[QS]sitA[" + version + "] 90260 cached pname="
+                + pname + " CURRENT_POSE_NAME=" + CURRENT_POSE_NAME
+                + " CURRENT=" + (string)CURRENT_POSITION
+                + " DEFAULT=" + (string)DEFAULT_POSITION);
+
             if (CURRENT_POSITION == DEFAULT_POSITION
                 && CURRENT_ROTATION == DEFAULT_ROTATION)
             {
@@ -812,7 +809,21 @@ default
                     CURRENT_ROTATION = DEFAULT_ROTATION
                         + llList2Vector(MY_CUSTOMS, ci + 2);
                     sit_using_prim_params();
+                    llOwnerSay("[QS]sitA[" + version
+                        + "] 90260 re-applied offset; new CURRENT="
+                        + (string)CURRENT_POSITION);
                 }
+                else
+                {
+                    llOwnerSay("[QS]sitA[" + version
+                        + "] 90260 no MY_CUSTOMS match for pose="
+                        + CURRENT_POSE_NAME);
+                }
+            }
+            else
+            {
+                llOwnerSay("[QS]sitA[" + version
+                    + "] 90260 CURRENT != DEFAULT — no re-apply");
             }
             return;
         }
