@@ -36,12 +36,17 @@
  *                          matches, regardless of user. M#T! is left
  *                          alone." sitA also handles this for its own
  *                          MY_CUSTOMS cache.
+ *   90264  hudproxy→offset ""                  (id ignored)
+ *                          "Wipe ALL personal offsets — every user's
+ *                          QSO:* LSD entries and the entire RAM CUSTOMS
+ *                          list." Triggered by the HUD settings menu
+ *                          "CLEAR offset storage" confirm.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.07";
+string version = "0.08";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -251,6 +256,31 @@ save_offset(key sitter, string pose_name, vector pos, vector rot)
     cull_to_cap();
 }
 
+// Wipe both tiers entirely. Used by CHANGED_OWNER (visitor offsets
+// shouldn't follow the prim to a new account) and by 90264 from the
+// HUD's "CLEAR offset storage" button. Caller is responsible for
+// confirmation prompts; the wipe itself is unconditional.
+wipe_all_offsets()
+{
+    list toDelete;
+    integer offset = 0;
+    integer batch = 20;
+    do {
+        list keys = llLinksetDataFindKeys("^" + LSD_PREFIX, offset, batch);
+        integer n = llGetListLength(keys);
+        integer i;
+        for (i = 0; i < n; i++) toDelete += [llList2String(keys, i)];
+        if (n < batch) jump scanDone;
+        offset += batch;
+    } while (TRUE);
+    @scanDone;
+    integer j;
+    integer m = llGetListLength(toDelete);
+    for (j = 0; j < m; j++)
+        llLinksetDataDelete(llList2String(toDelete, j));
+    CUSTOMS = [];
+}
+
 // Drop all entries (LSD + RAM) for this pose_name across all users.
 // Used by 90263 after [HELPER] [SAVE] invalidates pose-specific offsets.
 // M#T! is never sent here per the adjuster's contract.
@@ -320,22 +350,7 @@ default
         // tiers cleanly before resetting.
         if (c & CHANGED_OWNER)
         {
-            list toDelete;
-            integer offset = 0;
-            integer batch = 20;
-            do {
-                list keys = llLinksetDataFindKeys("^" + LSD_PREFIX, offset, batch);
-                integer n = llGetListLength(keys);
-                integer i;
-                for (i = 0; i < n; i++) toDelete += [llList2String(keys, i)];
-                if (n < batch) jump ownerScanDone;
-                offset += batch;
-            } while (TRUE);
-            @ownerScanDone;
-            integer j;
-            integer m = llGetListLength(toDelete);
-            for (j = 0; j < m; j++)
-                llLinksetDataDelete(llList2String(toDelete, j));
+            wipe_all_offsets();
             llResetScript();
         }
     }
@@ -359,6 +374,11 @@ default
         if (num == 90263)
         {
             drop_pose_all_users((string)id);
+            return;
+        }
+        if (num == 90264)
+        {
+            wipe_all_offsets();
             return;
         }
     }
