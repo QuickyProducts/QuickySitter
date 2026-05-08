@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.04";
+string version = "0.05";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -707,12 +707,22 @@ default
             {
                 vector pd = CURRENT_POSITION - DEFAULT_POSITION;
                 vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
+                llOwnerSay("[QS]sitA[" + version + "] [SAVE] reached slot="
+                    + (string)SCRIPT_CHANNEL + " pose=" + CURRENT_POSE_NAME
+                    + " CURRENT=" + (string)CURRENT_POSITION
+                    + " DEFAULT=" + (string)DEFAULT_POSITION
+                    + " pd=" + (string)pd + " rd=" + (string)rd
+                    + " MY_SITTER=" + (string)MY_SITTER);
                 integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
                 if (custom_index >= 0)
                     MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, custom_index, custom_index + 2);
                 MY_CUSTOMS += [CURRENT_POSE_NAME, pd, rd];
                 // Persist to [QS]offset.
-                llMessageLinked(LINK_THIS, 90262, CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
+                string saveMsg = CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd;
+                llOwnerSay("[QS]sitA[" + version + "] [SAVE] sending 90262 msg="
+                    + saveMsg + " id=" + (string)MY_SITTER);
+                llMessageLinked(LINK_THIS, 90262, saveMsg, MY_SITTER);
+                llOwnerSay("[QS]sitA[" + version + "] [SAVE] 90262 sent");
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for this pose.");
             }
