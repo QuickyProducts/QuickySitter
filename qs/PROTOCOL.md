@@ -61,6 +61,7 @@ notice.
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
 | `90263` | same | `[QS]adjuster` → `[QS]sitA` + `[QS]offset`: drop stale customs after `[HELPER] [SAVE]` |
+| `90266` | same | `[QS]adjuster` → `hudproxy`: `"On"` / `"Off"` — flip QuickyHUD ADJUSTMODE remotely (sent by `[HELPER]`'s "Quicky HUD" branch and by `end_helper_mode` auto-Off) |
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
@@ -185,9 +186,13 @@ name.
   past the `QPP_CFG:RESERVE` budget that hudprop sets. Keys are written
   unprotected: the proprietary QuickyHUD `LSD_PASS` is intentionally
   absent from this MPL-licensed source; `QPP_CFG:*` keys (license,
-  adjustmode, reserve) stay protected on hudproxy/hudprop's side. Pose
-  offsets aren't security-sensitive, so unprotected reads/writes are
-  acceptable.
+  reserve, migration flag) stay protected on hudproxy/hudprop's side.
+  Pose offsets aren't security-sensitive, so unprotected reads/writes
+  are acceptable. **Exception:** `QPP_CFG:ADJUSTMODE` is unprotected by
+  design — `[QS]adjuster` reads it (capability detection via
+  `llLinksetDataFindKeys`, state read for sitA's `[STOP HELP]` relabel)
+  and writes it via the 90266 link-message. hudproxy migrates the key
+  on init (`migrateAdjustmodeToUnprotected`), idempotent.
 * **RAM `CUSTOMS` list** — volatile fallback, LRU-evicted at 200 entries.
   Used when LSD is too tight, or in legacy / stock AVsitter setups where
   there's no `QPP_CFG:RESERVE` to honor. Stride is 5: `[pose, short,
@@ -218,6 +223,7 @@ The four numbers below carry the link-message traffic.
 | 90262  | `[QS]sitA` → `[QS]offset`  | `slot\|pose_name\|pos\|rot` | sitter UUID | "Save this offset for (sitter, slot, pose)." Magic name `M#T!` is the all-poses offset used by `[SAVE ALL]`; each slot can have its own M#T!. Hudproxy listens on the same broadcast (LINK_THIS) to mirror the new offset into its JSON state when the slot matches the active sitter's slot. |
 | 90263  | `[QS]adjuster` → `[QS]sitA` + `[QS]offset` | `(string)sitter_slot` | pose_name (as `key`) | "The creator just overwrote this pose's default on this slot via `[HELPER] [SAVE]`. Drop every pose-specific entry on this slot that matches — `M#T!` survives, and other slots keep their offsets." |
 | 90264  | hudproxy → `[QS]offset`    | `""`                 | ignored           | "Wipe ALL personal offsets — both LSD `QSO:*` and RAM `CUSTOMS`." Triggered by the HUD settings menu's `CLEAR offset storage` confirm. Matches the `CHANGED_OWNER` cleanup behavior. |
+| 90266  | `[QS]adjuster` → `hudproxy` | `"On"` / `"Off"`     | `llGetOwner()` (unused) | "Flip QuickyHUD ADJUSTMODE remotely." Sent from the `[HELPER]` choice dialog's "Quicky HUD" button (→ `"On"`), from `[STOP HELP]` (→ `"Off"`, routed back through `[HELPER]`), and from `end_helper_mode` auto-Off (→ `"Off"`, only when adjuster's local `helper_method == 1`). hudproxy mirrors the same `sAdjustmode` + LSD write its own settings menu performs; no confirmation dialog (the user already confirmed by clicking `[HELPER]`). |
 
 ### Why 90263 exists
 
