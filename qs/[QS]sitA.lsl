@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.22";
+string version = "0.23";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -147,7 +147,18 @@ options_menu()
     }
     if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llGetInventoryType(adjust_script) == INVENTORY_SCRIPT)
     {
-        menu_items += "[HELPER]";
+        // Relabel the toggle while QuickyHUD ADJUSTMODE is on so the
+        // user has a clear "click to stop" cue. hudproxy writes
+        // QPP_CFG:ADJUSTMODE unprotected — see PROTOCOL.md. Listen
+        // routes [STOP HELP] back through the [HELPER] dispatch.
+        if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
+        {
+            menu_items += "[STOP HELP]";
+        }
+        else
+        {
+            menu_items += "[HELPER]";
+        }
     }
     if (!llGetListLength(menu_items))
     {
@@ -671,6 +682,11 @@ default
 
     listen(integer listen_channel, string name, key id, string msg)
     {
+        // [STOP HELP] is the relabel options_menu shows while QuickyHUD
+        // ADJUSTMODE is on. Funnel it through the same ADJUST_MENU path
+        // as [HELPER] — adjuster's [HELPER] handler detects helper_method
+        // == 1 and toggles ADJUSTMODE off.
+        if (msg == "[STOP HELP]") msg = "[HELPER]";
         integer index = llListFindList(ADJUST_MENU, [msg]);
         if (index != -1)
         {
