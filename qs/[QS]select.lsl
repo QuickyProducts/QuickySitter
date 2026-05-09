@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.01";
+string version = "0.02";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
@@ -119,12 +119,11 @@ default
         integer button_index = llListFindList(BUTTONS, [message]);
         if (av_index != -1)
         {
-            if (message == "[ADJUST]" || message == "[HELPER]" || message == "[STOP HELP]")
+            if (message == "[ADJUST]" || message == "[HELPER]" || message == "[QUICKYHUD]")
             {
-                // [STOP HELP] is the QuickyHUD-ADJUSTMODE relabel from
-                // sitA's options_menu — fold it back into the [HELPER]
-                // dispatch so adjuster's toggle logic stays single-path.
-                if (message == "[STOP HELP]") message = "[HELPER]";
+                // [QUICKYHUD] is sitA's hudproxy-gated entry into
+                // ADJUSTMODE. Adjuster opens its own submenu with
+                // [ADJUST OFF] / [BACK] from there.
                 llMessageLinked(LINK_SET, 90101, llDumpList2String(["X", message, id], "|"), id);
             }
             else if (llGetSubString(message, 0, 0) == "⊘" || (select_type == 0 && llList2Integer(SYNCS, button_index) == FALSE && llList2Key(SITTERS, button_index) != NULL_KEY && llList2Key(SITTERS, button_index) != id))

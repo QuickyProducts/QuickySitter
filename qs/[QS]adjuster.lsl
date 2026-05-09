@@ -17,7 +17,7 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.02";
+string version = "0.04";
 string helper_name = "[AV]helper";
 string prop_script = "[AV]prop";
 string expression_script = "[AV]faces";
@@ -289,19 +289,24 @@ end_helper_mode()
 
 // QuickyHUD's hudproxy (when present in the linkset) writes
 // QPP_CFG:ADJUSTMODE unprotected. The key's existence is the capability
-// signal — we don't read its value here, only ask "is hudproxy around?"
-// Inventory-name probe was rejected because stock AVsitter painted itself
-// into a corner with that pattern.
+// signal — sitA gates the [QUICKYHUD] button on the same probe. We don't
+// rely on script-name matches because stock AVsitter painted itself into
+// a corner with that pattern.
 integer hudproxy_present()
 {
     return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1));
 }
 
-helper_choice_menu()
+// QuickyHUD-mode submenu: shown after the user picks [QUICKYHUD] from
+// the Adjust menu (separate button now, not a choice dialog merged with
+// [HELPER]). [ADJUST OFF] toggles ADJUSTMODE off and returns to the
+// pose menu. [BACK] just closes the dialog without disabling — useful
+// when the user is mid-adjustment via the HUD's own X+/Y+/Z+ buttons.
+quickyhud_menu()
 {
     llDialog(controller,
-        "\nHelper mode:\n\n[Helper Bars] rezzes the classic [AV]helper objects in-world.\n[Quicky HUD] hands off to your QuickyHUD's ADJUSTMODE.",
-        ["[BACK]", "Helper Bars", "Quicky HUD"],
+        "\nQuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[BACK] keeps it on and closes this dialog.",
+        ["[BACK]", "[ADJUST OFF]"],
         comm_channel);
 }
 
@@ -539,28 +544,18 @@ default
                 {
                     controller = id;
                     OLD_HELPER_METHOD = (integer)llList2String(data, 3);
-                    if (helper_method == 1)
-                    {
-                        // Already handed off to the HUD — the [STOP HELP]
-                        // button (sitA renders that label while ADJUSTMODE
-                        // is On) routes through here as "[HELPER]". Toggle
-                        // off and stay out of helper_choice_menu.
-                        llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
-                        helper_method = 0;
-                    }
-                    else if (hudproxy_present())
-                    {
-                        // Pre-arm the comm_channel listen so the choice
-                        // dialog response gets delivered. toggle_helper_mode
-                        // re-arms idempotently if "Helper Bars" is chosen.
-                        llListenRemove(listen_handle);
-                        listen_handle = llListen(comm_channel, "", "", "");
-                        helper_choice_menu();
-                    }
-                    else
-                    {
-                        toggle_helper_mode();
-                    }
+                    toggle_helper_mode();
+                }
+                if (msg == "[QUICKYHUD]")
+                {
+                    controller = id;
+                    // Pre-arm the comm_channel listen so quickyhud_menu's
+                    // [BACK] / [ADJUST OFF] response is delivered to us.
+                    llListenRemove(listen_handle);
+                    listen_handle = llListen(comm_channel, "", "", "");
+                    llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
+                    helper_method = 1;
+                    quickyhud_menu();
                 }
                 if (msg == "[ADJUST]")
                 {
@@ -574,6 +569,24 @@ default
                 SITTER_POSES = llListReplaceList(SITTER_POSES, [llList2String(data, 0)], one, one);
                 POS_LIST = llListReplaceList(POS_LIST, [(vector)llList2String(data, 2)], one, one);
                 ROT_LIST = llListReplaceList(ROT_LIST, [(vector)llList2String(data, 3)], one, one);
+                // Stock-equivalent ADJUSTMODE persistence: while QuickyHUD's
+                // ADJUSTMODE is On, every X+/Y+/Z+ click round-trips through
+                // hudproxy → 90301 → sitB → here as 90055, and we write the
+                // new pos/rot straight into qs:p:<ch>:<i> as the new pose
+                // default — no separate [SAVE] step. Idempotent on regular
+                // pose changes / sit (same value rewritten). Gated on the
+                // unprotected LSD key (single source of truth) rather than
+                // helper_method, so a HUD-side toggle of ADJUSTMODE via the
+                // settings dialog stays consistent with the persistence
+                // behavior; helper_method is only the auto-Off-on-stand-up
+                // gate in end_helper_mode.
+                if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
+                {
+                    qs_save_pose_offset(one,
+                        llList2String(data, 0),
+                        llList2String(data, 2),
+                        llList2String(data, 3));
+                }
                 if (helper_mode)
                 {
                     llRegionSay(comm_channel, "POS|" + (string)one + "|" + convert_to_world_positions(one) + "|" + (string)OLD_HELPER_METHOD + "|" + llList2String(SITTERS, one));
@@ -676,19 +689,14 @@ default
             {
                 llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
             }
-            else if (msg == "Helper Bars")
+            else if (msg == "[ADJUST OFF]")
             {
-                // helper_choice_menu picked: classic [AV]helper objects.
-                toggle_helper_mode();
-            }
-            else if (msg == "Quicky HUD")
-            {
-                // helper_choice_menu picked: hand off to QuickyHUD's
-                // ADJUSTMODE. The HUD takes over until [STOP HELP] (which
-                // routes back through [HELPER] above) or stand-up clears
-                // helper_method via end_helper_mode().
-                llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
-                helper_method = 1;
+                // quickyhud_menu picked: disable ADJUSTMODE, return user
+                // to pose menu. helper_method == 1 was set when
+                // [QUICKYHUD] opened the submenu — clear it so
+                // end_helper_mode doesn't double-fire 90266 later.
+                llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
+                helper_method = 0;
                 llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
             }
             else if (msg == "[POSE]" || msg == "[SYNC]")

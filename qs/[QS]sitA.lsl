@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.23";
+string version = "0.27";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -147,18 +147,16 @@ options_menu()
     }
     if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llGetInventoryType(adjust_script) == INVENTORY_SCRIPT)
     {
-        // Relabel the toggle while QuickyHUD ADJUSTMODE is on so the
-        // user has a clear "click to stop" cue. hudproxy writes
-        // QPP_CFG:ADJUSTMODE unprotected — see PROTOCOL.md. Listen
-        // routes [STOP HELP] back through the [HELPER] dispatch.
-        if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
-        {
-            menu_items += "[STOP HELP]";
-        }
-        else
-        {
-            menu_items += "[HELPER]";
-        }
+        menu_items += "[HELPER]";
+    }
+    // QuickyHUD-ADJUSTMODE entry point. hudproxy writes QPP_CFG:ADJUSTMODE
+    // unprotected; existence of the key is the capability probe (script-
+    // name matching deliberately avoided — see PROTOCOL.md). [QUICKYHUD]
+    // routes through the same 90100/90101 dispatch below as [HELPER];
+    // adjuster opens a submenu with [ADJUST OFF] / [BACK] from there.
+    if (llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
+    {
+        menu_items += "[QUICKYHUD]";
     }
     if (!llGetListLength(menu_items))
     {
@@ -682,11 +680,6 @@ default
 
     listen(integer listen_channel, string name, key id, string msg)
     {
-        // [STOP HELP] is the relabel options_menu shows while QuickyHUD
-        // ADJUSTMODE is on. Funnel it through the same ADJUST_MENU path
-        // as [HELPER] — adjuster's [HELPER] handler detects helper_method
-        // == 1 and toggles ADJUSTMODE off.
-        if (msg == "[STOP HELP]") msg = "[HELPER]";
         integer index = llListFindList(ADJUST_MENU, [msg]);
         if (index != -1)
         {
@@ -915,6 +908,17 @@ default
                     SWAPPED = TRUE;
                     llRequestPermissions(reused_key, PERMISSION_TRIGGER_ANIMATION);
                 }
+                // Clear MY_SITTER only on the slots actually involved in
+                // the swap — run_time_permissions will re-set it once
+                // the new occupant grants animation permissions. Slots
+                // not involved keep their MY_SITTER intact, otherwise
+                // any later 90055 from sitB would fail apply_current_anim's
+                // llGetAgentSize(MY_SITTER) check and the avatar would
+                // freeze on its current pose. Pre-fix the wipe was
+                // unconditional — visible as "SYNC pose change only
+                // affects one sitter" after a swap-to-self via the
+                // seat picker.
+                MY_SITTER = "";
             }
             SITTERS_SITTARGETS = llListReplaceList(llListReplaceList(SITTERS_SITTARGETS, [llList2Integer(SITTERS_SITTARGETS, two)], one, one), [llList2Integer(SITTERS_SITTARGETS, one)], two, two);
             my_sittarget = llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL);
@@ -937,7 +941,6 @@ default
             key swapA = llList2Key(SITTERS, one);
             key swapB = llList2Key(SITTERS, two);
             SITTERS = llListReplaceList(llListReplaceList(SITTERS, [swapB], one, one), [swapA], two, two);
-            MY_SITTER = "";
             return;
         }
         if (num == 90070) // 90070=update SITTERS after permission granted
@@ -1026,6 +1029,13 @@ default
                     if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llGetInventoryType(adjust_script) == INVENTORY_SCRIPT)
                     {
                         data += "[HELPER]";
+                    }
+                    // [QUICKYHUD] entry point — see options_menu() above
+                    // for the rationale behind the LSD-key capability
+                    // probe.
+                    if (llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
+                    {
+                        data += "[QUICKYHUD]";
                     }
                     if (!llGetListLength(data))
                     {
