@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.02";
+string version = "0.01";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
@@ -47,10 +47,6 @@ integer WARN = 1;
 integer HASKEYFRAME;
 integer REFERENCE;
 integer DFLT = 1;
-// RESYNC: periodically restart SYNC-pose animations to fight Interest-List
-// drift between viewers. Default ON (1). `RESYNC OFF` in the AVpos notecard
-// disables it for this furniture. See PROTOCOL.md and qs/TESTPLAN.md.
-integer RESYNC = 1;
 string BRAND;
 string onSit;
 string CUSTOM_TEXT;
@@ -137,7 +133,6 @@ string qs_cfg_pack()
         , llDumpList2String(ADJUST_MENU, SEP)
         , RLVDesignations
         , llList2CSV(GENDERS)
-        , RESYNC                           // index 17 — see STORAGE.md
         ], "\n");
 }
 
@@ -319,8 +314,7 @@ qs_dump_start(integer ch)
           llList2String(p, 14),                          // ADJUST_MENU (raw, SEP-joined)
           (integer)llList2String(p, 4),                  // SELECT
           (integer)llList2String(p, 5),                  // AMENU
-          (integer)llList2String(p, 6),                  // OLD_HELPER_METHOD
-          llList2String(p, 17)                           // RESYNC ("" = default-on)
+          (integer)llList2String(p, 6)                   // OLD_HELPER_METHOD
         ], "|");
     p = [];
     llMessageLinked(LINK_THIS, 90022, vline, (string)ch);
@@ -494,13 +488,6 @@ default
                     {
                         Readout_Say("HELPER " + llList2String(data, 10));
                     }
-                    // RESYNC default is on. Emit only when explicitly disabled.
-                    // Empty (pre-RESYNC cfg dump) → treat as default = on, no emit.
-                    string rs = llList2String(data, 11);
-                    if (rs != "" && (integer)rs == 0)
-                    {
-                        Readout_Say("RESYNC OFF");
-                    }
                 }
                 Readout_Say("");
                 if (total_channels > 1 || llList2String(data, 5) != "")
@@ -635,14 +622,6 @@ default
         if (command == "KFM")    { HASKEYFRAME = (integer)part0; return; }
         if (command == "LROT")   { REFERENCE = (integer)part0; return; }
         if (command == "DFLT")   { DFLT = (integer)part0; return; }
-        if (command == "RESYNC")
-        {
-            // RESYNC OFF / RESYNC 0 → disabled. Anything else → enabled.
-            // Default is enabled when the directive is absent.
-            string up = llToUpper(part0);
-            RESYNC = !(up == "OFF" || up == "0" || up == "FALSE" || up == "NO");
-            return;
-        }
         if (command == "BRAND")  { BRAND = part0; return; }
         if (command == "ONSIT")  { onSit = part0; return; }
         if (command == "ROLES")  { RLVDesignations = (string)parts; return; }

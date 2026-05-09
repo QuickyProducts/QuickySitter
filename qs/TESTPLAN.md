@@ -18,10 +18,13 @@ Re-Sync-Signal kommt.
 **SYNC in QuickySitter:** POSE-Posen werden als `P:<name>` gespeichert,
 SYNC-Posen ohne Prefix. `[QS]sitA.lsl` broadcastet das `IS_SYNC`-Flag via
 LinkMsg 90045; `[QS]sitB.lsl` nutzte es bisher nur für den
-SYNC-Konflikt-Reset auf `FIRST_INDEX`. Mit dem Re-Sync-Feature
-(sitA ≥ 0.16, boot ≥ 0.02) feuert sitA zusätzlich periodisch
-LinkMsg 90270 für Companion-Anim-Plugins. Siehe
-[`PROTOCOL.md` § Re-Sync broadcast](./PROTOCOL.md#re-sync-broadcast--90270).
+SYNC-Konflikt-Reset auf `FIRST_INDEX`.
+
+Mit `[QS]sitA` ≥ 0.22 nimmt sitA zusätzlich LinkMsg **90271** entgegen,
+um auf Anforderung einen Stop+Start-Cycle der Hauptpose zu fahren.
+Policy (auto-Tick, manual, Frequenz) liegt **nicht** in sitA, sondern
+beim Sender — typischerweise hudproxy aus dem QuickyHUD-Repo. Siehe
+[`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271).
 
 ---
 
@@ -90,7 +93,10 @@ LinkMsg 90270 für Companion-Anim-Plugins. Siehe
 | TC-025 | Sitter denied `PERMISSION_TRIGGER_ANIMATION` | mittel | Pose stoppt, kein Hang | sitA gibt Sitter frei; `MY_SITTER == ""` | nein |
 | TC-027 | Sit während Boot-Race (90098-Stream aktiv) | mittel | Pose-Default greift nach Boot | `boot_done == TRUE` vor erster Anim; kein verlorener Sit | ja |
 | TC-028 | `[QS]hudprop` Auto-Attach bei Sit | mittel | HUD-Prop + Pose laufen | **deferred** — wartet auf QSALIVE LINK_SET-Layer (siehe MEMORY) | ja |
-| TC-029 | ~~Dummy-Anim-Refresh-Trick~~ Multi-Avatar-Test in 0.18/0.19 zeigte: Dummy-Trick refresht Skeleton, aber **nicht** Loop-Phase. Architektonisch tot. | — | n/a — verworfen, Result dokumentiert | siehe `PROTOCOL.md` § Tested-and-rejected | n/a |
+| TC-029 | ~~Dummy-Anim-Refresh-Trick~~ Multi-Avatar-Test in 0.18/0.19: refresht Skeleton, **nicht** Loop-Phase. Verworfen. | — | n/a | siehe Iterations-History unten | n/a |
+| TC-030 | hudproxy sendet 90271 bei aktivem Multi-Avatar-Setup | hoch | beide Sitter visuell gesynct nach 1 Tick | Phasen-Offset <200 ms 5 s nach Trigger; kein „stand-up"-Flackern | ja |
+| TC-031 | 90271 auf POSE-Pose (P:-Prefix) | niedrig | no-op, kein Stop+Start | `do_resync_tick` returned früh; Pose unverändert | n/a |
+| TC-032 | 90271 ohne Sitter | niedrig | no-op | early return wegen `llGetAgentSize == ZERO_VECTOR` | n/a |
 
 ---
 
@@ -115,69 +121,61 @@ LinkMsg 90270 für Companion-Anim-Plugins. Siehe
 
 ## Design-Entscheidungen (Re-Sync-Implementierung)
 
-Alle fünf offenen Punkte wurden vor der Code-Phase entschieden und sind
-inzwischen umgesetzt. Implementierungs-Referenzen siehe
-[`PROTOCOL.md` § Re-Sync broadcast](./PROTOCOL.md) und
-[`[QS]sitA.lsl`](./[QS]sitA.lsl).
+Endmodell: **HUD owns policy, sitA owns mechanism.** sitA stellt einen
+einzigen LinkMsg-Trigger (90271) bereit; alle Entscheidungen über
+*wann*, *wie oft*, *automatisch oder manuell* treffen Sender —
+typischerweise hudproxy aus dem QuickyHUD-Repo. Implementierungs-
+Referenzen: [`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271)
+und [`[QS]sitA.lsl`](./[QS]sitA.lsl) `do_resync_tick()`.
 
-1. **Trigger-Architektur — Wall-Clock-Alignment, jede sitA selbst.**
-   Root-Broadcast disqualifiziert, weil `[QS]root.lsl` nicht in jeder
-   Furniture-Konfiguration vorhanden ist. Stattdessen berechnet jede
-   `[QS]sitA`-Instanz den nächsten gemeinsamen Wall-Clock-Anker
-   (Vielfaches von `RESYNC_INTERVAL` seit `llGetTime`-Epoch). Ohne
-   Leader-Election feuern alle sitA-Instanzen im selben Sim-Frame.
-   Robust gegen Sitter-Wechsel und einzelne sitA-Resets.
+### Mechanismus
 
-2. **Companion-Anims — eigene Message-Nummer 90270.** `[QS]sitA`
-   broadcastet beim Re-Sync-Tick eine LinkMsg mit `id = MY_SITTER` und
-   `msg = CURRENT_POSE_NAME`. Plugin-Scripts wie `[AV]faces` / `[AV]prop`
-   können auf 90270 hören und ihre eigenen Companion-Anims
-   re-synchronisieren. Plugins ohne 90270-Support funktionieren weiter,
-   nur Face/Prop können dann gegen den Body driften.
+`do_resync_tick()` macht nichts außer einem `Stop`-`Sleep(0.05)`-`Start`-
+Cycle der laufenden Hauptpose, gegated auf vier Conditions:
 
-3. **Sequencing-Kollision — Re-Sync nur für Single-Frame-SYNC-Posen.**
-   `resync_active()` gated auf `is_sync_pose() && SEQUENCE_LEN <= 2`.
-   Multi-Frame-Sequenzen behalten den existierenden Sequencing-Timer
-   und werden nicht resynchronisiert. Das löst TC-023 strukturell
-   (statt heuristisch).
+- aktuelle Pose ist eine SYNC-Pose (kein `P:`-Prefix)
+- `PERMISSION_TRIGGER_ANIMATION` vorhanden
+- Sitter ist alive (`llGetAgentSize != ZERO_VECTOR`)
+- `CURRENT_ANIMATION_FILENAME` nicht leer
 
-4. **Hardcoded Defaults**, keine LSD-Settings vorerst:
-   - `RESYNC_INTERVAL` = 30.0 s
-   - `RESYNC_DELAY` = 0.3 s (passt zum bestehenden `llSleep(0.2)`-Idiom
-     in `apply_current_anim`)
-   - `RESYNC_PLAY_FIRST` = 2.0 s
+Der 50-ms-Sleep ist ≥ 1 Sim-Frame (Sim ~45 Hz) gegen Coalescing,
+< 1 Viewer-Render-Frame bei 30 FPS, um den Gap nicht sichtbar zu
+machen. Das ist die einzige Mechanik, die echt eine Loop-Phase auf
+allen Viewern resettet — Loop-Phase ist viewer-lokal beim `Start`-
+Event determiniert.
 
-   LSD-exposed Knöpfe werden eingeführt, falls TC-022 zeigt, dass die
-   Defaults nicht universal funktionieren.
+### Iterations-History (sitA 0.16-0.21, alle verworfen)
 
-5. **Mechanismus-Iteration:**
-   - **0.16:** naives Stop+Start der Hauptanim, 0.3 s Sleep. Sync
-     funktioniert, aber sichtbares „Stand-up"-Flackern alle 30 s.
-   - **0.17–0.19:** Dummy-Anim-Refresh-Trick mit `SYNC`-Asset
-     (Start+Sleep+Stop einer Mini-Anim, Hauptanim unangetastet).
-     Multi-Avatar-Test bestätigte: refresht Skeleton-State, aber
-     **nicht** die Loop-Phase. Architektonisch dafür ungeeignet —
-     siehe `PROTOCOL.md` § Tested-and-rejected.
-   - **0.20:** zurück zu Stop+Start der Hauptanim, aber mit verkürztem
-     Sleep auf **50 ms** (≥ 1 Sim-Frame zur Coalescing-Verhinderung,
-     < 1 Viewer-Render-Frame bei 30 FPS, um den Gap nicht zu rendern).
-     TC-029 ist damit erledigt; offene Frage: ob 50 ms tatsächlich
-     unsichtbar bleibt (Test in TC-021/022).
+Vor 0.22 hatte sitA verschiedene Auto-Tick-Architekturen, die alle
+verworfen wurden:
 
-### On/Off-Mechanismus
+- **0.16:** naives Stop+Start der Hauptanim, 30-s-Wall-Clock-Timer,
+  300 ms Sleep. Sync funktioniert, aber sichtbares „Stand-up"-Flackern
+  alle 30 s.
+- **0.17–0.19:** Dummy-Anim-Refresh-Trick mit `SYNC`-Asset
+  (Start+Sleep+Stop einer Mini-Anim, Hauptanim unangetastet).
+  Multi-Avatar-Test in 0.19 bestätigte: refresht Skeleton-State, aber
+  **nicht** die Loop-Phase. Architektonisch dafür ungeeignet.
+- **0.20:** zurück zu Stop+Start der Hauptanim, aber mit verkürztem
+  Sleep auf 50 ms.
+- **0.21:** Wall-Clock-Alignment-Bug-Fix (`llGetTime` → `llGetUnixTime`,
+  weil `llGetTime` per-Script und nicht regions-weit ist). Symptom war
+  „erster Re-Sync verschlimmert es, zweiter behebt es".
+- **0.22 (current):** Auto-Tick-Konstrukt komplett entfernt; sitA hat
+  nur noch den 90271-Handler. hudproxy entscheidet, wann gefeuert wird.
+  Notecard-Direktive `RESYNC OFF` ebenfalls entfernt — wenn der HUD
+  das Feature off lassen will, sendet er einfach kein 90271.
 
-Direktive `RESYNC OFF` in der AVpos-Notecard schaltet das Feature pro
-Furniture aus. Default ist „on", wenn die Direktive fehlt.
+### Warum HUD owns policy
 
-- Parser: [`[QS]boot.lsl`](./[QS]boot.lsl) `dataserver` (`if (command == "RESYNC")`)
-- Persistenz: `qs:cfg:<ch>` Index 17 (siehe [STORAGE.md](./STORAGE.md))
-- Reader: [`[QS]sitA.lsl`](./[QS]sitA.lsl) `state_entry`, leerer Wert = default-on (Backward-Compat für Pre-RESYNC-Configs)
-- Dump: `boot.lsl` emittiert `RESYNC OFF` nur bei explizitem Off — keine neue Zeile in Default-Setups.
-
-### Was QuickySitter sich gegenüber externen Tools spart
-
-- **Kein per-Sitter-Script** — `[QS]sitA.lsl` läuft schon pro Slot.
-- **Keine `IGNORE`-Liste** — SYNC vs POSE ist schon über den `P:`-Prefix
-  des Pose-Namens unterschieden.
-- **Keine separate Config-Datei** — `RESYNC OFF` lebt in der bestehenden
-  AVpos-Notecard, alles andere ist hardcoded.
+- **Pro-User-Customization.** Jeder User kann auf seinem HUD die
+  gewünschte Re-Sync-Frequenz oder Manual-Mode einstellen. Auto-Tick
+  in sitA wäre furniture-weit, hätte alle Sitter zwangsbeglückt.
+- **Furniture-Creator entlastet.** Keine Notecard-Direktiven, keine
+  cfg-Felder, keine LSD-Migration.
+- **sitA-Memory.** Die ~80 Zeilen Auto-Tick-Code (Wall-Clock-
+  Scheduling, Multiplexing mit Sequence-Timer, RESYNC-Globals,
+  state_entry-Read) waren in einem Skript, das ohnehin am 64-KB-
+  Mono-Cap kratzt. Out + 90271-Handler = Netto-Memory-Gewinn.
+- **Diagnose und Tuning** liegen im HUD-Repo, das eine Menü-UX hat —
+  geeigneter Ort als ein notecard-getriebener Setup.

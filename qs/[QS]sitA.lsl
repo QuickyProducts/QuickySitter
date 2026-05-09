@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.21";
+string version = "0.22";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -38,33 +38,6 @@ integer DFLT = 1;
 list GENDERS;
 integer OLD_HELPER_METHOD;
 integer WARN = 1;
-// Periodic Re-Sync for SYNC poses to fight Interest-List drift between
-// viewers (camera zoom, region crossings, viewer culls). Default on; the
-// AVpos directive `RESYNC OFF` disables it. See qs/TESTPLAN.md.
-//
-// Mechanism: briefly Stop and Start the *main* pose animation. Loop
-// phase is determined viewer-locally at the Start event, so this is the
-// only mechanism that actually re-phases the running loop on all
-// viewers. The dummy-anim refresh approach (sitA 0.17–0.19) tested
-// empirically: it refreshes skeleton state but leaves the main loop's
-// phase untouched, so it can't fix drift. See PROTOCOL.md
-// § Re-Sync broadcast and TESTPLAN.md TC-029.
-//
-// The Sleep between Stop and Start is intentionally short (50 ms) — long
-// enough to cross a Sim-frame boundary so the two ops aren't coalesced
-// (Sim runs at ~45 Hz / 22 ms per frame), but short enough that most
-// viewers' next render frame falls outside the gap. The earlier 0.3 s
-// Sleep showed a clearly visible "stand-up" flicker; 0.05 s is the
-// experiment to find the sweet spot. Adjust if visible artefacts remain.
-//
-// Constants are intentionally hardcoded — see "Design-Entscheidungen" in
-// TESTPLAN; LSD-exposed knobs are deferred until TC-022 shows defaults
-// don't work universally.
-integer RESYNC = 1;
-float RESYNC_INTERVAL = 30.0;  // seconds between re-sync ticks
-float RESYNC_DELAY    = 0.05;  // gap between Stop and Start
-                               // (>= 1 Sim frame, < 1 viewer-render frame)
-float RESYNC_PLAY_FIRST = 2.0; // earliest re-sync after pose apply
 string FIRST_POSENAME;
 string FIRST_ANIMATION_SEQUENCE;
 string OLD_POSE_NAME;
@@ -355,55 +328,6 @@ set_sittarget()
     }
 }
 
-// Re-Sync helpers — see qs/TESTPLAN.md, "Design-Entscheidungen".
-// Convention: a SYNC pose has a name *without* the "P:" prefix (POSE-type
-// poses are stored as "P:<name>"). Mirrors the IS_SYNC detection in
-// send_anim_info.
-integer is_sync_pose()
-{
-    return CURRENT_POSE_NAME != ""
-        && llSubStringIndex(CURRENT_POSE_NAME, "P:") != 0;
-}
-
-// Should the current pose use the periodic Re-Sync timer instead of the
-// natural sequencing timer? Only single-frame SYNC poses qualify —
-// multi-frame sequences keep the existing sequencing behavior to avoid
-// the resync-during-frame-wechsel race (see TESTPLAN TC-023).
-integer resync_active(integer sequence_len)
-{
-    return RESYNC && is_sync_pose() && sequence_len <= 2;
-}
-
-// Wall-clock-aligned scheduler. Every sitA instance in the region
-// computes the same next-anchor (multiple of RESYNC_INTERVAL since the
-// Unix epoch), so independent timers across the linkset's sitA scripts
-// fire in the same Sim frame without any leader-election.
-//
-// IMPORTANT: must be llGetUnixTime, not llGetTime. llGetTime is per-
-// script and resets with the script — two sitA's reset at different
-// moments end up with private anchors and never align. (Bug fixed in
-// 0.21; symptom was "first re-sync makes it worse, second one fixes".)
-// See TESTPLAN, Frage 1 → (b).
-schedule_resync_timer()
-{
-    integer now = llGetUnixTime();
-    integer interval = (integer)RESYNC_INTERVAL;
-    integer next_at = ((now / interval) + 1) * interval;
-    integer wait = next_at - now;
-    // Enforce minimum delay for the first fire after pose-apply, so a
-    // pose change right before an anchor doesn't immediately re-sync.
-    if (wait < (integer)RESYNC_PLAY_FIRST)
-    {
-        next_at += interval;
-        wait = next_at - now;
-    }
-    llSetTimerEvent((float)wait);
-    // DIAG (0.21): include the unix anchor so we can verify two sitA's
-    // compute the same value. They must match exactly for cross-script
-    // alignment to work.
-    llOwnerSay("rs sched +" + (string)wait + "s anchor=" + (string)next_at + " p=" + CURRENT_POSE_NAME);
-}
-
 update_current_anim_name()
 {
     list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
@@ -413,14 +337,38 @@ update_current_anim_name()
     {
         CURRENT_ANIMATION_FILENAME += speed_text;
     }
-    if (resync_active(llGetListLength(SEQUENCE)))
-    {
-        schedule_resync_timer();
-    }
-    else
-    {
-        llSetTimerEvent((float)llList2String(SEQUENCE, SEQUENCE_POINTER + 1));
-    }
+    llSetTimerEvent((float)llList2String(SEQUENCE, SEQUENCE_POINTER + 1));
+}
+
+// Manual Re-Sync trigger — see qs/PROTOCOL.md § Re-Sync trigger (90271).
+// Convention: SYNC poses are stored without the "P:" prefix; POSE-type
+// poses get "P:<name>" by boot's parser. We only re-sync SYNC because
+// only multi-avatar SYNC suffers from cross-viewer drift.
+integer is_sync_pose()
+{
+    return CURRENT_POSE_NAME != ""
+        && llSubStringIndex(CURRENT_POSE_NAME, "P:") != 0;
+}
+
+// Stop+Start the main pose anim across a Sim-frame boundary, forcing
+// every viewer to remove the anim and re-add it — the only mechanism
+// that re-phases a running loop locally on each viewer. The 50 ms gap
+// is just long enough to defeat Sim coalescing (Sim ~45 Hz / 22 ms
+// per frame) without lingering long enough for viewers to render the
+// gap as a visible "stand-up" flicker. No-op when the gating
+// conditions aren't met (e.g. POSE-type pose, no permissions, no
+// sitter). Triggered by LinkMsg 90271 from hudproxy or any in-prim
+// source. See TESTPLAN TC-029 for the iteration history that landed
+// on the HUD-owned manual-trigger model.
+do_resync_tick()
+{
+    if (!is_sync_pose()) return;
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return;
+    if (llGetAgentSize(MY_SITTER) == ZERO_VECTOR) return;
+    if (CURRENT_ANIMATION_FILENAME == "") return;
+    llStopAnimation(CURRENT_ANIMATION_FILENAME);
+    llSleep(0.05);
+    llStartAnimation(CURRENT_ANIMATION_FILENAME);
 }
 
 apply_current_anim(integer broadcast)
@@ -608,12 +556,6 @@ default
         integer gn = llGetListLength(gp);
         for (gj = 0; gj < gn; ++gj)
             GENDERS += (integer)llList2String(gp, gj);
-        // RESYNC at index 17. Empty (cfg pre-RESYNC, or never written) →
-        // treat as default = enabled, so existing setups keep working until
-        // they're explicitly turned off via `RESYNC OFF` in the notecard.
-        string r17 = llList2String(p, 17);
-        RESYNC = 1;
-        if (r17 != "") RESYNC = (integer)r17;
 
         string s = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
         if (s != "")
@@ -694,44 +636,8 @@ default
 
     timer()
     {
-        list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
-        // Re-Sync tick: single-frame SYNC pose, RESYNC enabled. Stop the
-        // main pose animation, briefly Sleep across a Sim-frame boundary,
-        // then Start it again. This forces every viewer to remove the
-        // anim from its active list and re-add it — which is the only
-        // mechanism that actually re-phases the loop locally on each
-        // viewer. The Sleep duration trades visibility against effective-
-        // ness: too short and the Sim coalesces Stop+Start to a no-op,
-        // too long and viewers render the gap as a "stand-up" flicker.
-        // 50 ms is the current experiment.
-        // Multi-frame sequences fall through to the existing sequencing
-        // path — see resync_active() / TESTPLAN TC-023.
-        if (resync_active(llGetListLength(SEQUENCE)))
-        {
-            // DIAG (0.19): compact tick log — drop in cleanup.
-            integer ok = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
-                      && (llGetAgentSize(MY_SITTER) != ZERO_VECTOR)
-                      && (CURRENT_ANIMATION_FILENAME != "");
-            if (ok)
-            {
-                llStopAnimation(CURRENT_ANIMATION_FILENAME);
-                llSleep(RESYNC_DELAY);
-                llStartAnimation(CURRENT_ANIMATION_FILENAME);
-                llMessageLinked(LINK_SET, 90270, CURRENT_POSE_NAME, MY_SITTER);
-                llOwnerSay("rs FIRED p=" + CURRENT_POSE_NAME);
-            }
-            else
-            {
-                llOwnerSay("rs SKIP p=" + CURRENT_POSE_NAME);
-            }
-            schedule_resync_timer();
-            return;
-        }
-        // No "no-resync" log here — the existing sequence timer can fire
-        // every second on multi-frame poses, and a string-concat per fire
-        // tipped sitA over the 64 KB Mono cap (heap collision in 0.18).
-
         SEQUENCE_POINTER += 2;
+        list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
         if (SEQUENCE_POINTER >= llGetListLength(SEQUENCE) || llListFindList(["M", "F"], llList2List(SEQUENCE, SEQUENCE_POINTER, SEQUENCE_POINTER)) != -1)
         {
             SEQUENCE_POINTER = 0;
@@ -958,6 +864,11 @@ default
         if (num == 90096) // 90096=QSALIVE probe; only slot-0 sitA replies (90097)
         {
             if (SCRIPT_CHANNEL == 0) qs_alive_reply();
+            return;
+        }
+        if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
+        {
+            do_resync_tick();
             return;
         }
         if (num == 90075) // 90075=old-style helper ask to animate

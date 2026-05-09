@@ -61,7 +61,7 @@ notice.
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
 | `90263` | same | `[QS]adjuster` → `[QS]sitA` + `[QS]offset`: drop stale customs after `[HELPER] [SAVE]` |
-| `90270` | same | `[QS]sitA` → companion-anim plugins: SYNC-pose Re-Sync tick (see [§ Re-Sync broadcast](#re-sync-broadcast--90270)) |
+| `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -331,92 +331,83 @@ avoiding both races, and only fires when `index == ANIM_INDEX` (the saved pose
 is the one this sitter is playing). The anim sequence is still read from LSD
 because saving doesn't change it.
 
-## Re-Sync broadcast — 90270
+## Re-Sync trigger — `90271`
 
-For SYNC poses (multi-avatar synchronized loops, name *without* `P:` prefix),
-`[QS]sitA.lsl` periodically restarts the running animation to fight
-Interest-List drift between viewers — the well-known
-"camera-zoom-causes-desync" problem in SL where a viewer that culled an
-avatar restarts the looped anim locally at `t=0` on re-acquisition while
-other viewers keep their original timeline. See
-[`TESTPLAN.md`](./TESTPLAN.md) for the failure-mode analysis and Test Cases
-TC-021/TC-022.
+Multi-avatar SYNC poses (loops with multiple sitters in shared timing —
+cuddles, dances) drift between viewers over time, especially after a
+viewer culls and re-acquires an avatar (camera zoom, region crossing,
+draw-distance changes). The viewer restarts the looped anim locally
+at `t=0` on re-acquisition, while other viewers keep their original
+timeline.
 
-| Num   | Direction                                | `msg`              | `id`        | Meaning |
-|-------|------------------------------------------|--------------------|-------------|---------|
-| 90270 | `[QS]sitA` → companion-anim plugins      | `CURRENT_POSE_NAME` | sitter UUID | "Re-sync your loop for this sitter — I just did Stop+Start on the body anim." |
+`[QS]sitA` exposes a single LinkMsg that any in-prim script can send
+to force every sitter slot to re-phase its main pose loop in the same
+Sim frame:
 
-### Mechanism — main-anim Stop+Start
+| Num   | Direction                                | `msg` | `id`  | Meaning |
+|-------|------------------------------------------|-------|-------|---------|
+| 90271 | hudproxy / any → all `[QS]sitA` slots    | `""`  | `""`  | "Every SYNC-pose sitter, do one Stop+Start cycle on your main anim now." |
 
-`[QS]sitA` periodically does a brief `Stop` → short `Sleep` → `Start`
-cycle on the **main pose animation**. Loop phase is determined
-viewer-locally at the `Start` event, so this is the only mechanism
-that actually re-phases the running loop on every viewer in sync.
+### Mechanism
 
-The Sleep is intentionally short (50 ms): long enough to cross a
-Sim-frame boundary so the two ops aren't coalesced into a no-op
-(Sim runs at ~45 Hz / 22 ms per frame), short enough that most
-viewers' next render frame falls outside the gap.
+On receipt of `90271`, each `[QS]sitA` instance whose current pose is
+a SYNC pose (name not prefixed `P:`) and whose sitter is alive runs:
 
-#### Tested-and-rejected: dummy-anim refresh
+```
+llStopAnimation(CURRENT_ANIMATION_FILENAME);
+llSleep(0.05);
+llStartAnimation(CURRENT_ANIMATION_FILENAME);
+```
 
-A previous iteration (sitA 0.17–0.19) used a low-priority dummy
-animation named `SYNC`: brief `Start` → `Sleep` → `Stop` of the
-dummy, leaving the main pose anim untouched. The theory (from SL
-folklore around external sync tools) was that the dummy cycle would
-force the viewer to push an animation-state update, re-evaluating the
-running main loop's phase along the way.
+The 50 ms sleep is just long enough to cross a Sim-frame boundary so
+Stop and Start aren't coalesced into a no-op (Sim runs at ~45 Hz /
+22 ms per frame), short enough that most viewers' next render frame
+falls outside the gap. Stop+Start is the only mechanism that actually
+re-phases a running loop on the viewer side — the viewer determines
+loop phase locally at the `Start` event.
 
-In multi-avatar testing the trick refreshes skeleton state but does
-**not** re-phase the main loop — the main animation never leaves the
-viewer's active set, so its local time-zero is preserved and drift
-continues. Architecturally, only direct Stop+Start of the loop in
-question can re-phase it. The dummy approach is documented here so
-the next person who reads the trick on an SL forum and considers
-re-introducing it has the empirical result.
+POSE-type poses (prefixed `P:`) are solo-by-convention and don't need
+re-sync — `do_resync_tick` no-ops on them.
 
-### Trigger architecture
+### Policy lives on the sender side
 
-Each `[QS]sitA` instance runs its own re-sync timer aligned to a shared
-**wall-clock anchor** (multiples of `RESYNC_INTERVAL` since `llGetTime`
-epoch). Without any leader-election or root-broadcast coordination, all
-sitA instances in the same linkset compute the same next-anchor and fire
-their timers in the same Sim frame — viewers receive every sitter's
-Stop+Start in roughly the same network frame, snapping the loops back into
-phase together. This is robust against an absent `[QS]root`, sitter
-churn, and individual sitA resets.
+`[QS]sitA` deliberately knows nothing about *when* to re-sync. It
+just executes the trigger when asked. The sender (typically hudproxy
+in QuickyHUD setups) decides:
 
-Re-sync only fires for **single-frame SYNC poses** (`SEQUENCE_LEN <= 2`
-and pose name not starting with `P:`). Multi-frame sequences keep the
-existing sequencing timer to avoid the
-re-sync-during-frame-wechsel race (TESTPLAN TC-023). POSE-type poses
-(prefixed `P:`) are solo by convention and don't need re-sync.
+- **Auto vs manual** (the user's HUD setting)
+- **Tick interval** (e.g., every 30 s, or only on user-noticed drift)
+- **Per-furniture overrides** (HUD might disable Re-Sync for solo
+  furnitures, or for furnitures whose creator marked them as solo)
 
-Hardcoded constants in `[QS]sitA.lsl`:
+This split came after several iterations (sitA 0.16–0.21) tried to
+own auto-tick scheduling inside sitA itself: a wall-clock-aligned
+30 s timer, a notecard `RESYNC OFF` directive, and a dummy-anim
+refresh trick. All three were abandoned — the dummy-anim trick
+turned out to refresh skeleton state but not loop phase
+(architecturally can't do what it was supposed to do), and the
+auto-tick approach competed with the natural sequence timer in
+sitA in ways that didn't add value over a HUD-driven trigger.
+The history is preserved in `qs/TESTPLAN.md` § Design decisions.
 
-- `RESYNC_INTERVAL` = 30.0 s — period between ticks
-- `RESYNC_DELAY` = 0.05 s — gap between Stop and Start (≥ 1 Sim frame
-  to defeat coalescing, < 1 viewer-render frame at 30 FPS to minimise
-  the visible gap)
-- `RESYNC_PLAY_FIRST` = 2.0 s — earliest re-sync after pose apply
+### What hudproxy must do
 
-### What 90270 means for plugin authors
+When the user clicks the SYNC button on the HUD, hudproxy in the
+furniture's linkset sends:
 
-Companion-anim plugins (`[AV]faces`, `[AV]prop`, custom face/prop scripts)
-should listen for `90270` and, **for the matching `id` (sitter UUID)**,
-do their own Stop+Start cycle on whatever loop they currently play, so
-their loop phase resets in the same Sim frame as the body. The
-`msg` payload (`CURRENT_POSE_NAME`) is provided as context — plugins
-can ignore it, or use it to verify the pose hasn't changed mid-tick.
+```lsl
+llMessageLinked(LINK_SET, 90271, "", "");
+```
 
-A plugin that ignores 90270 still works correctly; its companion anims
-just won't re-sync, which manifests as face/prop drift relative to the
-body. Body-only re-sync is the minimum viable feature.
+That's the entire integration. Auto-tick (if hudproxy implements it)
+is a `llSetTimerEvent` loop on hudproxy's side that fires the same
+LinkMsg every N seconds.
 
-### Disabling per-furniture
+### Multi-sitter timing
 
-Add `RESYNC OFF` to the AVpos notecard. `[QS]boot` parses this directive
-into the `RESYNC` field (index 17) of `qs:cfg:<ch>` (see STORAGE.md);
-`[QS]sitA` reads it on `state_entry`. Default when the directive is absent
-is enabled. The dump pipeline emits `RESYNC OFF` only when explicitly
-disabled, so dumps from default-enabled setups don't grow a new line.
+All `[QS]sitA` slots in the linkset receive `90271` in the same Sim
+frame (LINK_SET broadcast). Each does its own Stop+Sleep+Start, with
+the Sim processing them sequentially within the frame. The resulting
+viewer-side restarts arrive within one Sim frame of each other —
+close enough that drift between sitters is corrected to within
+~50 ms.

@@ -24,7 +24,7 @@ All keys are namespaced `qs:*`. `<ch>` is the sitter slot (0-based, matches
 
 | Key | Format | Writer | Readers |
 |-----|--------|--------|---------|
-| `qs:cfg:<ch>` | `\n`-separated positional values: MTYPE, ETYPE, SET, SWAP, SELECT, AMENU, OLD_HELPER_METHOD, WARN, HASKEYFRAME, REFERENCE, DFLT, BRAND, onSit, CUSTOM_TEXT (escaped), ADJUST_MENU (SEP-joined), RLVDesignations, GENDERS (CSV), RESYNC (`0`/`1`, default `1`) | boot's `qs_cfg_pack()` | sitA, sitB, boot's `qs_dump_start` |
+| `qs:cfg:<ch>` | `\n`-separated positional values: MTYPE, ETYPE, SET, SWAP, SELECT, AMENU, OLD_HELPER_METHOD, WARN, HASKEYFRAME, REFERENCE, DFLT, BRAND, onSit, CUSTOM_TEXT (escaped), ADJUST_MENU (SEP-joined), RLVDesignations, GENDERS (CSV) | boot's `qs_cfg_pack()` | sitA, sitB, boot's `qs_dump_start` |
 | `qs:sitter:<ch>` | `SEP`-joined sitter info row | boot | boot's `qs_dump_start`, sitB |
 | `qs:p:<ch>:<i>` | `name\|type\|anim\|pos\|rot` (type is single char: `P`/`S`/`M`/`T`/`B`) | boot's `qs_p_write()`, adjuster's `qs_save_pose_offset` / `qs_add_pose` | sitB's `qs_pose_data()`, adjuster's `qs_find_index` / `qs_p_count`, boot's `qs_dump_tick` |
 | `qs:meta:<ch>` | `"qs1"` (presence = "channel seeded") | boot | boot's `process_next_channel` |
