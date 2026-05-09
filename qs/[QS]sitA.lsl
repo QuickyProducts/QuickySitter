@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.15";
+string version = "0.22";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -338,6 +338,37 @@ update_current_anim_name()
         CURRENT_ANIMATION_FILENAME += speed_text;
     }
     llSetTimerEvent((float)llList2String(SEQUENCE, SEQUENCE_POINTER + 1));
+}
+
+// Manual Re-Sync trigger — see qs/PROTOCOL.md § Re-Sync trigger (90271).
+// Convention: SYNC poses are stored without the "P:" prefix; POSE-type
+// poses get "P:<name>" by boot's parser. We only re-sync SYNC because
+// only multi-avatar SYNC suffers from cross-viewer drift.
+integer is_sync_pose()
+{
+    return CURRENT_POSE_NAME != ""
+        && llSubStringIndex(CURRENT_POSE_NAME, "P:") != 0;
+}
+
+// Stop+Start the main pose anim across a Sim-frame boundary, forcing
+// every viewer to remove the anim and re-add it — the only mechanism
+// that re-phases a running loop locally on each viewer. The 50 ms gap
+// is just long enough to defeat Sim coalescing (Sim ~45 Hz / 22 ms
+// per frame) without lingering long enough for viewers to render the
+// gap as a visible "stand-up" flicker. No-op when the gating
+// conditions aren't met (e.g. POSE-type pose, no permissions, no
+// sitter). Triggered by LinkMsg 90271 from hudproxy or any in-prim
+// source. See TESTPLAN TC-029 for the iteration history that landed
+// on the HUD-owned manual-trigger model.
+do_resync_tick()
+{
+    if (!is_sync_pose()) return;
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return;
+    if (llGetAgentSize(MY_SITTER) == ZERO_VECTOR) return;
+    if (CURRENT_ANIMATION_FILENAME == "") return;
+    llStopAnimation(CURRENT_ANIMATION_FILENAME);
+    llSleep(0.05);
+    llStartAnimation(CURRENT_ANIMATION_FILENAME);
 }
 
 apply_current_anim(integer broadcast)
@@ -833,6 +864,11 @@ default
         if (num == 90096) // 90096=QSALIVE probe; only slot-0 sitA replies (90097)
         {
             if (SCRIPT_CHANNEL == 0) qs_alive_reply();
+            return;
+        }
+        if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
+        {
+            do_resync_tick();
             return;
         }
         if (num == 90075) // 90075=old-style helper ask to animate
