@@ -25,10 +25,33 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.01";
+string version = "0.03";
 integer chan = 88;
 integer listen_handle;
 integer LSD_TOTAL_BYTES = 131072;  // 128 KB linkset cap
+
+// === STRESS TEST STATE ===
+//
+// Fires synthetic sitter LinkMsg traffic to stress hudproxy and the
+// downstream sitA/sitB/offset chain. Phases: RAMP (sitter joins, one
+// per tick), CHAOS (random pose changes / swaps / saves), CLEANUP
+// (90065 each, one per tick). UUIDs from llGenerateKey, so each run
+// exercises a fresh keyspace in offset.lsl's QSO:<short>:* keys.
+//
+// Note: if [QS]debug is reset mid-stress, fake sitters orphan in
+// hudproxy's sJsonSitters and consume listen slots. Reset hudproxy
+// (or the prim) to recover.
+integer STRESS_IDLE    = 0;
+integer STRESS_RAMP    = 1;
+integer STRESS_CHAOS   = 2;
+integer STRESS_CLEANUP = 3;
+integer stress_state;
+integer stress_count;
+list    stress_sitters;
+integer stress_ops;
+float   stress_tick    = 0.5;
+list    stress_poses   = ["P:Sit", "P:Lounge", "Cuddle", "Hug",
+                          "Hold", "Spoon", "Kiss", "Embrace", "M#T!"];
 
 show_help()
 {
@@ -46,7 +69,8 @@ show_help()
       + "  raw <key>             show raw value of any key\n"
       + "  mem                   LSD bytes used / free\n"
       + "  delch <ch>            delete all qs:*:<ch> keys\n"
-      + "  nuke / nuke yes       wipe ALL Linkset Data");
+      + "  nuke / nuke yes       wipe ALL Linkset Data\n"
+      + "  stress {start|stop|status|speed}  hudproxy stress test");
 }
 
 cmd_keys(string pattern)
@@ -239,6 +263,160 @@ cmd_nuke(integer confirmed)
     llOwnerSay("[QS]debug: Linkset Data wiped. Reset the prim to re-seed from notecard.");
 }
 
+// === STRESS TEST OPS ===
+
+// 90055 from "sitB" — pose change. hudproxy's handler dispatches to
+// applyPoseChange, which triggers a poseBufPush (= 90262 save) for the
+// OLD pose's accumulated po/ro. First call for a sitter has empty
+// oldPose so no save fires; subsequent calls do.
+stress_send_pose(integer slot, string pose)
+{
+    vector pos = <llFrand(2.0) - 1.0, llFrand(2.0) - 1.0, llFrand(1.0)>;
+    vector rot = <0, 0, llFrand(360)>;
+    llMessageLinked(LINK_THIS, 90055,
+        (string)slot,
+        (key)(pose + "||" + (string)pos + "|" + (string)rot + "|"));
+}
+
+// 90262 directly to offset.lsl with non-zero offsets — simulates a
+// HUD [Adjust][SAVE] click. Bypasses the ZERO/ZERO delete sentinel
+// so each call grows the QSO:* keyspace.
+stress_send_save(key uuid, integer slot, string pose)
+{
+    vector pos = <llFrand(0.4) - 0.2, llFrand(0.4) - 0.2, 0>;
+    vector rot = <0, 0, llFrand(20.0) - 10.0>;
+    llMessageLinked(LINK_THIS, 90262,
+        (string)slot + "|" + pose + "|" + (string)pos + "|" + (string)rot,
+        uuid);
+}
+
+stress_tick_event()
+{
+    if (stress_state == STRESS_RAMP)
+    {
+        integer i = llGetListLength(stress_sitters);
+        if (i >= stress_count)
+        {
+            stress_state = STRESS_CHAOS;
+            llOwnerSay("[stress] " + (string)stress_count
+                + " sitter(s) joined; entering chaos.");
+            return;
+        }
+        key uuid = llGenerateKey();
+        stress_sitters += uuid;
+        llMessageLinked(LINK_THIS, 90060, "", uuid);
+        llMessageLinked(LINK_THIS, 90070, (string)i, uuid);
+        ++stress_ops;
+    }
+    else if (stress_state == STRESS_CHAOS)
+    {
+        integer n = llGetListLength(stress_sitters);
+        if (n == 0)
+        {
+            stress_state = STRESS_IDLE;
+            llSetTimerEvent(0.0);
+            return;
+        }
+        integer roll = (integer)llFrand(100.0);
+        integer slot = (integer)llFrand((float)n);
+        string pose  = llList2String(stress_poses,
+            (integer)llFrand((float)llGetListLength(stress_poses)));
+        if (roll < 70)
+        {
+            stress_send_pose(slot, pose);
+        }
+        else if (roll < 85 && n >= 2)
+        {
+            integer slotB = (slot + 1 + (integer)llFrand((float)(n - 1))) % n;
+            llMessageLinked(LINK_THIS, 90030,
+                (string)slot, (key)((string)slotB));
+        }
+        else
+        {
+            stress_send_save(llList2Key(stress_sitters, slot), slot, pose);
+        }
+        ++stress_ops;
+    }
+    else if (stress_state == STRESS_CLEANUP)
+    {
+        integer n = llGetListLength(stress_sitters);
+        if (n == 0)
+        {
+            stress_state = STRESS_IDLE;
+            llSetTimerEvent(0.0);
+            llOwnerSay("[stress] cleanup done. " + (string)stress_ops
+                + " ops total. lsdFree=" + (string)llLinksetDataAvailable());
+            return;
+        }
+        key uuid = llList2Key(stress_sitters, n - 1);
+        stress_sitters = llDeleteSubList(stress_sitters, n - 1, n - 1);
+        llMessageLinked(LINK_THIS, 90065, "", uuid);
+        ++stress_ops;
+    }
+}
+
+cmd_stress(string sub, string arg)
+{
+    if (sub == "" || sub == "help")
+    {
+        llOwnerSay("[stress] subcommands:\n"
+          + "  stress start [n]   spawn n fake sitters (default 6, max 7)\n"
+          + "  stress stop        run cleanup phase (90065 each)\n"
+          + "  stress status      state, sitter/op counts, free LSD\n"
+          + "  stress speed <ms>  chaos tick interval (min 100 ms)");
+        return;
+    }
+    if (sub == "start")
+    {
+        if (stress_state != STRESS_IDLE)
+        {
+            llOwnerSay("[stress] already running (state=" + (string)stress_state + ").");
+            return;
+        }
+        stress_count = 6;
+        if (arg != "") stress_count = (integer)arg;
+        if (stress_count < 1) stress_count = 1;
+        if (stress_count > 7) stress_count = 7;
+        stress_sitters = [];
+        stress_ops     = 0;
+        stress_state   = STRESS_RAMP;
+        llOwnerSay("[stress] ramping " + (string)stress_count
+            + " sitter(s), tick=" + (string)stress_tick + "s.");
+        llSetTimerEvent(stress_tick);
+        return;
+    }
+    if (sub == "stop")
+    {
+        if (stress_state == STRESS_IDLE)
+        {
+            llOwnerSay("[stress] not running.");
+            return;
+        }
+        stress_state = STRESS_CLEANUP;
+        llOwnerSay("[stress] entering cleanup phase.");
+        return;
+    }
+    if (sub == "status")
+    {
+        llOwnerSay("[stress] state=" + (string)stress_state
+            + " sitters=" + (string)llGetListLength(stress_sitters)
+            + " ops=" + (string)stress_ops
+            + " lsdFree=" + (string)llLinksetDataAvailable()
+            + " debugMem=" + (string)llGetFreeMemory());
+        return;
+    }
+    if (sub == "speed")
+    {
+        float t = (float)arg / 1000.0;
+        if (t < 0.1) t = 0.1;
+        stress_tick = t;
+        if (stress_state != STRESS_IDLE) llSetTimerEvent(stress_tick);
+        llOwnerSay("[stress] tick=" + (string)stress_tick + "s.");
+        return;
+    }
+    llOwnerSay("[stress] unknown sub-command '" + sub + "'. Try 'stress help'.");
+}
+
 handle_command(string cmd)
 {
     list args = llParseStringKeepNulls(cmd, [" "], []);
@@ -295,6 +473,10 @@ handle_command(string cmd)
     {
         cmd_nuke(llList2String(args, 1) == "yes");
     }
+    else if (verb == "stress")
+    {
+        cmd_stress(llList2String(args, 1), llList2String(args, 2));
+    }
     else
     {
         llOwnerSay("[QS]debug: unknown command '" + verb + "'. Try '/" + (string)chan + " help'.");
@@ -322,5 +504,10 @@ default
     listen(integer c, string n, key id, string msg)
     {
         handle_command(msg);
+    }
+
+    timer()
+    {
+        stress_tick_event();
     }
 }
