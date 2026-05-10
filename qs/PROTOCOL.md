@@ -61,6 +61,8 @@ notice.
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
 | `90263` | same | `[QS]adjuster` → `[QS]sitA` + `[QS]offset`: drop stale customs after `[HELPER] [SAVE]` |
+| `90264` | same | hudproxy → `[QS]offset`: wipe ALL personal offsets (LSD `QSO:*` + RAM `CUSTOMS`) |
+| `90265` | same | `[QS]offset` → all `[QS]sitA`: clear `RAM_OVERFLOW` (broadcast invalidation paired with 90264) |
 | `90266` | same | `[QS]adjuster` → `hudproxy`: `"On"` / `"Off"` — flip QuickyHUD ADJUSTMODE remotely (sent by `[HELPER]`'s "Quicky HUD" branch and by `end_helper_mode` auto-Off) |
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 
@@ -181,6 +183,8 @@ DEFAULT (sit-target offset relative to root); a flat (user, pose) key
 would let a save on slot 1 overwrite a save on slot 0 for the same pose
 name.
 
+### Storage tiers (owned exclusively by `[QS]offset`)
+
 * **LSD `QSO:<short>:<slot>:<pose>`** (≥ 0.09) — persistent across script
   reset and re-rez. Used while LSD has room for at least 200 more entries
   past the `QPP_CFG:RESERVE` budget that hudprop sets. Keys are written
@@ -193,19 +197,66 @@ name.
   `llLinksetDataFindKeys`, state read for sitA's `[STOP HELP]` relabel)
   and writes it via the 90266 link-message. hudproxy migrates the key
   on init (`migrateAdjustmodeToUnprotected`), idempotent.
-* **RAM `CUSTOMS` list** — volatile fallback, LRU-evicted at 200 entries.
-  Used when LSD is too tight, or in legacy / stock AVsitter setups where
-  there's no `QPP_CFG:RESERVE` to honor. Stride is 5: `[pose, short,
-  slot, pos, rot]` per entry.
+* **RAM `CUSTOMS` list** — volatile overflow, LRU-evicted at 200 entries.
+  Used when LSD is too tight (below the `LSD_MIN_FREE_POSES` floor +
+  `QPP_CFG:RESERVE`), or in legacy / stock AVsitter setups where
+  there's no reserve to honor. Stride is 5: `[pose, short, slot, pos,
+  rot]` per entry.
 
-`save_offset` writes to LSD when `lsdHasRoom()` returns TRUE, otherwise
-to CUSTOMS. `push_customs_for(sitter, slot)` enumerates **both** stores
-and emits one `90260` per matching (user_short, slot) entry — the slot
-filter ensures each sitA's per-instance MY_CUSTOMS only ever contains
-its own slot's data, so `apply_current_anim`'s lookup needs no slot
-awareness on the receiver side. LSD entries win when the same pose
-appears in both — shouldn't happen in practice, but the dedupe protects
-against stale RAM after `lsdHasRoom()` flips at runtime.
+### Single source of truth
+
+`[QS]offset` is the **sole owner** of both tiers. `[QS]sitA` holds **no
+authoritative copy** — it reads LSD directly for the LSD tier, and
+mirrors only the RAM tier in a session-local list (`RAM_OVERFLOW`)
+populated by 90260 push. The mirror is fully replaced/cleared on
+sit-down (90261 request), CLEAR (90265 broadcast), and stand-up.
+
+This eliminates the cache-coherence problem that the previous
+`MY_CUSTOMS`-as-full-cache design had: any LSD mutation in
+`[QS]offset` is automatically visible to `apply_current_anim`'s next
+read, no invalidation broadcast needed for LSD-tier values. Only the
+small RAM-tier subset has push-based invalidation, with three
+well-defined events (90260 push for save, 90263 for adjuster overwrite,
+90265 for full wipe).
+
+### Read path in `[QS]sitA.apply_current_anim`
+
+```
+1. Build key = "QSO:" + llGetSubString(MY_SITTER, 0, 7) + ":"
+              + (string)SCRIPT_CHANNEL + ":" + CURRENT_POSE_NAME
+2. Read LSD at key. If non-empty → parse "<pos>|<rot>", apply, done.
+3. Look up CURRENT_POSE_NAME in RAM_OVERFLOW. If found → apply, done.
+4. Read LSD at "QSO:<short>:<slot>:M#T!". If non-empty → apply, done.
+5. Look up "M#T!" in RAM_OVERFLOW. If found → apply, done.
+6. No personal offset.
+```
+
+LSD reads are Mono hashmap lookups (~50 µs); the four-read worst case
+stays well under one Sim frame. Pose-specific entries always win over
+`M#T!` (the all-poses fallback), regardless of which tier they're in.
+
+### Write path
+
+`save_offset` writes to LSD when `lsdHasRoom()` returns TRUE,
+otherwise to RAM `CUSTOMS`. When the write went to RAM (not LSD),
+`save_offset` also fires `90260` to the originating sitA so its
+`RAM_OVERFLOW` mirror stays in sync immediately — sitA wouldn't see
+the value otherwise (it only direct-reads LSD).
+
+`push_customs_for(sitter, slot)` (90261 handler) enumerates **only the
+RAM tier** and emits one `90260` per matching (user_short, slot, pose)
+entry. LSD entries are not pushed because sitA reads them directly on
+demand. The slot filter in the lookup ensures each sitA's
+`RAM_OVERFLOW` only ever contains its own slot's data.
+
+### RAM-tier visibility — `QPP_CFG:RAM_TIER_COUNT`
+
+`[QS]offset` writes the current `CUSTOMS` entry count to the
+unprotected LSD key `QPP_CFG:RAM_TIER_COUNT` whenever the count
+changes (save, drop, wipe, eviction). hudproxy reads this key in
+`getStorageReport()` so the CLEAR-confirm dialog can show how many
+offsets sit in RAM tier (i.e., would be lost on script reset). Empty
+or "0" means none.
 
 The QSALIVE `offsetlsd_v1` capability bit advertised by `[QS]sitA` was
 introduced with the LSD tier in 0.04 (flat key) and remains valid for
@@ -218,11 +269,12 @@ The four numbers below carry the link-message traffic.
 
 | Num    | Direction                  | `msg`                | `id`              | Meaning |
 |--------|----------------------------|----------------------|-------------------|---------|
-| 90260  | `[QS]offset` → `[QS]sitA`  | `pose_name\|pos\|rot` | sitter UUID       | "Apply this personal offset for the avatar on this sitter slot." Sent once per matching cache entry when a sitter sits. The slot was already filtered by 90261's request so the payload doesn't repeat it. |
-| 90261  | `[QS]sitA` → `[QS]offset`  | `(string)slot`       | sitter UUID       | "Push every cached offset for this (sitter, slot) pair to me." Sent on sit and on hudproxy pose change. |
+| 90260  | `[QS]offset` → `[QS]sitA`  | `pose_name\|pos\|rot` | sitter UUID       | "Mirror this RAM-tier personal offset into your `RAM_OVERFLOW`." Sent once per matching RAM-tier entry when a sitter sits (in response to 90261), and once per RAM-tier `save_offset` so the writer's sitA stays in sync immediately. **LSD-tier offsets are not pushed via 90260 anymore** — sitA reads `QSO:*` directly from LSD on demand. **ZERO/ZERO payload is the delete sentinel**: `save_offset` emits it whenever it removed an entry (user adjusted back to default and saved); sitA drops the matching `RAM_OVERFLOW` entry to prevent ghost-application after the underlying store was already cleared. |
+| 90261  | `[QS]sitA` → `[QS]offset`  | `(string)slot`       | sitter UUID       | "Push every RAM-tier cached offset for this (sitter, slot) pair to me." Sent on sit and on hudproxy pose change. The push only enumerates `CUSTOMS` (RAM tier); `[QS]offset` does not scan LSD on this request. |
 | 90262  | `[QS]sitA` → `[QS]offset`  | `slot\|pose_name\|pos\|rot` | sitter UUID | "Save this offset for (sitter, slot, pose)." Magic name `M#T!` is the all-poses offset used by `[SAVE ALL]`; each slot can have its own M#T!. Hudproxy listens on the same broadcast (LINK_THIS) to mirror the new offset into its JSON state when the slot matches the active sitter's slot. |
-| 90263  | `[QS]adjuster` → `[QS]sitA` + `[QS]offset` | `(string)sitter_slot` | pose_name (as `key`) | "The creator just overwrote this pose's default on this slot via `[HELPER] [SAVE]`. Drop every pose-specific entry on this slot that matches — `M#T!` survives, and other slots keep their offsets." |
-| 90264  | hudproxy → `[QS]offset`    | `""`                 | ignored           | "Wipe ALL personal offsets — both LSD `QSO:*` and RAM `CUSTOMS`." Triggered by the HUD settings menu's `CLEAR offset storage` confirm. Matches the `CHANGED_OWNER` cleanup behavior. |
+| 90263  | `[QS]adjuster` → `[QS]sitA` + `[QS]offset` | `(string)sitter_slot` | pose_name (as `key`) | "The creator just overwrote this pose's default on this slot via `[HELPER] [SAVE]`. Drop every pose-specific entry on this slot that matches — `M#T!` survives, and other slots keep their offsets." sitA-side: drops the matching `RAM_OVERFLOW` entry (no-op if it was an LSD-tier offset; that one gets dropped via `[QS]offset`'s LSD-side handler). |
+| 90264  | hudproxy → `[QS]offset`    | `""`                 | ignored           | "Wipe ALL personal offsets — both LSD `QSO:*` and RAM `CUSTOMS`." Triggered by the HUD settings menu's `CLEAR offset storage` confirm. Matches the `CHANGED_OWNER` cleanup behavior. `[QS]offset` follows up with a 90265 broadcast to clear all sitA `RAM_OVERFLOW` mirrors. |
+| 90265  | `[QS]offset` → all `[QS]sitA` | `""`              | `NULL_KEY`        | "Clear your `RAM_OVERFLOW` mirror." Broadcast on `wipe_all_offsets` (90264 follow-up) to keep sitA's session-local RAM-tier mirror in sync. LSD-tier values don't need invalidation — the wipe is visible on next `llLinksetDataRead`. |
 | 90266  | `[QS]adjuster` → `hudproxy` | `"On"` / `"Off"`     | `llGetOwner()` (unused) | "Flip QuickyHUD ADJUSTMODE remotely." Sent from the `[HELPER]` choice dialog's "Quicky HUD" button (→ `"On"`), from `[STOP HELP]` (→ `"Off"`, routed back through `[HELPER]`), and from `end_helper_mode` auto-Off (→ `"Off"`, only when adjuster's local `helper_method == 1`). hudproxy mirrors the same `sAdjustmode` + LSD write its own settings menu performs; no confirmation dialog (the user already confirmed by clicking `[HELPER]`). |
 
 ### Why 90263 exists
@@ -255,28 +307,38 @@ still applies after a default change.
   and [`[QS]offset.lsl`](./[QS]offset.lsl) (drops matching entries across all
   user_shorts)
 
-### 90260 late-arrival re-apply
+### 90260 late-arrival re-apply (RAM-tier only)
 
-`run_time_permissions` in `[QS]sitA.lsl` fires `90261` (request customs push)
-and `90000` (play pose) back-to-back when an avatar sits. The two messages
-race two independent round-trips:
+`run_time_permissions` in `[QS]sitA.lsl` fires `90261` (request RAM-tier
+push) and `90000` (play pose) back-to-back when an avatar sits. The two
+messages race two independent round-trips:
 
-* `90261` → `[QS]offset` → `90260` (one per matching CUSTOMS entry)
-* `90000` → `[QS]sitB`   → `90055` → `apply_current_anim` reads `MY_CUSTOMS`
+* `90261` → `[QS]offset` → `90260` (one per matching RAM-tier entry)
+* `90000` → `[QS]sitB`   → `90055` → `apply_current_anim` reads LSD direct
 
-If `90055` wins, `apply_current_anim` runs against an empty `MY_CUSTOMS`
-and lands the avatar on `DEFAULT_POSITION` even though the offset push is
-on its way. The 90260 then arrives, populates `MY_CUSTOMS`, and nobody
-re-applies — the saved offset is silently ignored every time the user
-loses the race. This is observable as `[Adjust][SAVE]` "doing nothing"
-across stand/re-sit cycles.
+For LSD-tier offsets the race is gone post-SSoT-refactor:
+`apply_current_anim` reads the LSD value synchronously inside the
+handler, so winning or losing the 90260 race no longer matters — the
+LSD-tier offset is always visible immediately.
+
+For RAM-tier offsets the race is still possible: if `90055` wins,
+`apply_current_anim` reads LSD (miss), then checks `RAM_OVERFLOW`
+(empty until the 90260 arrives), and lands on `DEFAULT_POSITION`.
+The 90260 then populates `RAM_OVERFLOW`, and nobody re-applies — the
+RAM-tier offset is silently ignored.
 
 `[QS]sitA.lsl`'s 90260 handler resolves this by re-applying the offset
-inside the handler when CURRENT still equals DEFAULT (i.e., apply_current_anim
-already ran but didn't see our entry). It uses the same selection rule as
-apply_current_anim — specific pose wins over `M#T!`. Mid-session adjustments
-(`X+/Y+/Z+` from the `[Adjust]` dialog) are not overridden because they shift
-CURRENT away from DEFAULT, breaking the equality check.
+inside the handler when CURRENT still equals DEFAULT (i.e.,
+apply_current_anim already ran but didn't see our entry). It uses the
+same selection rule as apply_current_anim — specific pose wins over
+`M#T!`, and the just-pushed RAM-tier value is checked first. Mid-session
+adjustments (`X+/Y+/Z+` from the `[Adjust]` dialog) are not overridden
+because they shift CURRENT away from DEFAULT, breaking the equality
+check.
+
+Since RAM-tier writes only happen when LSD is at the floor (rare in
+practice), this race-fix code path is rarely traversed but kept as a
+defensive measure for the edge case.
 
 ## `[DUMP]` — entirely in `[QS]boot`
 

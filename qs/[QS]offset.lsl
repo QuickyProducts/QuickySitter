@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.09";
+string version = "0.10";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -210,44 +210,18 @@ ramDelete(string short, integer slot, string pose_name)
 
 // Push helpers ————————————————————————————————————————————————————————
 
-// Send 90260 for every entry in BOTH stores matching (sitter, slot).
-// Only this slot's offsets are pushed — sitA's per-instance MY_CUSTOMS
-// stays slot-scoped and the apply_current_anim lookup needs no slot
-// awareness on the receiver side. LSD wins over RAM if the same pose
-// appears in both tiers (saves shouldn't double-write but a stale RAM
-// entry can survive a later LSD save that promoted to LSD via
-// lsdHasRoom() flipping).
+// Send 90260 for every RAM-tier entry matching (sitter, slot).
+// Post-SSoT-refactor: LSD-tier offsets are NOT pushed — sitA reads them
+// directly via llLinksetDataRead in apply_current_anim. We only mirror
+// the RAM tier into sitA's session-local RAM_OVERFLOW, because sitA
+// can't see RAM tier without a push (it's not in LSD by definition).
+// Slot filter ensures each sitA's per-instance RAM_OVERFLOW only ever
+// contains its own slot's data, so apply_current_anim's lookup needs
+// no slot awareness on the receiver side.
 push_customs_for(key sitter, integer slot)
 {
     string short = llGetSubString(sitter, 0, 7);
 
-    // Pass 1 — LSD QSO:<short>:<slot>:* keys.
-    string keyPrefix = lsdMakePrefix(sitter, slot);
-    integer prefixLen = llStringLength(keyPrefix);
-    list pushed_poses;
-    integer offset = 0;
-    integer batch = 20;
-    do {
-        list keys = llLinksetDataFindKeys("^" + keyPrefix, offset, batch);
-        integer n = llGetListLength(keys);
-        integer i;
-        for (i = 0; i < n; i++) {
-            string k = llList2String(keys, i);
-            string val = llLinksetDataRead(k);
-            if (val != "") {
-                string poseName = llGetSubString(k, prefixLen, -1);
-                llMessageLinked(LINK_THIS, 90260,
-                    poseName + "|" + val,
-                    sitter);
-                pushed_poses += [poseName];
-            }
-        }
-        if (n < batch) jump lsdScanDone;
-        offset += batch;
-    } while (TRUE);
-    @lsdScanDone;
-
-    // Pass 2 — RAM CUSTOMS, skipping anything already pushed from LSD.
     integer i = 0;
     integer total = llGetListLength(CUSTOMS);
     while (i < total)
@@ -255,15 +229,11 @@ push_customs_for(key sitter, integer slot)
         if (llList2String(CUSTOMS, i + 1) == short
          && llList2Integer(CUSTOMS, i + 2) == slot)
         {
-            string poseName = llList2String(CUSTOMS, i);
-            if (llListFindList(pushed_poses, [poseName]) == -1)
-            {
-                llMessageLinked(LINK_THIS, 90260,
-                    poseName + "|"
-                    + (string)llList2Vector(CUSTOMS, i + 3) + "|"
-                    + (string)llList2Vector(CUSTOMS, i + 4),
-                    sitter);
-            }
+            llMessageLinked(LINK_THIS, 90260,
+                llList2String(CUSTOMS, i) + "|"
+                + (string)llList2Vector(CUSTOMS, i + 3) + "|"
+                + (string)llList2Vector(CUSTOMS, i + 4),
+                sitter);
         }
         i += CUSTOMS_STRIDE;
     }
@@ -278,35 +248,68 @@ save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
     // ZERO/ZERO is the delete sentinel — sitA's [SAVE] (when the user has
     // dialed all adjustments back to base) and hudproxy's poseBufPush both
     // converge on this when there's nothing meaningful to store. Cleans up
-    // both tiers so push_customs_for stops emitting empty 90260s on sit.
+    // both tiers AND notifies sitA's RAM_OVERFLOW to drop any matching
+    // entry — without this, a stale RAM_OVERFLOW value from a previous
+    // RAM-tier save would survive the LSD/CUSTOMS delete and keep
+    // applying via apply_current_anim's RAM fallback.
+    //
+    // Convention: 90260 with ZERO/ZERO payload is the "remove from
+    // RAM_OVERFLOW" signal, distinct from non-zero values which insert.
     if (pos == ZERO_VECTOR && rot == ZERO_VECTOR)
     {
         ramDelete(short, slot, pose_name);
         llLinksetDataDelete(lsdMakeKey(sitter, slot, pose_name));
+        llMessageLinked(LINK_THIS, 90260,
+            pose_name + "|" + (string)ZERO_VECTOR + "|" + (string)ZERO_VECTOR,
+            sitter);
+        update_ram_tier_count();
         return;
     }
 
     if (lsdHasRoom())
     {
-        // Persistent path. Drop any RAM duplicate so we don't push the
-        // stale value alongside the LSD-stored one on next 90261.
+        // Persistent path. Drop any RAM duplicate so we don't double-store.
+        // sitA reads LSD direct on next apply, no push needed.
         ramDelete(short, slot, pose_name);
         string val = (string)pos + "|" + (string)rot;
         llLinksetDataWrite(lsdMakeKey(sitter, slot, pose_name), val);
+        update_ram_tier_count();
         return;
     }
 
-    // RAM fallback path.
+    // RAM fallback path. Push to sitA's RAM_OVERFLOW immediately so the
+    // value is visible to apply_current_anim — sitA can't see CUSTOMS
+    // without a push (it only direct-reads LSD).
     emergency_shrink();
     ramDelete(short, slot, pose_name);
     CUSTOMS += [pose_name, short, slot, pos, rot];
     cull_to_cap();
+    llMessageLinked(LINK_THIS, 90260,
+        pose_name + "|" + (string)pos + "|" + (string)rot,
+        sitter);
+    update_ram_tier_count();
+}
+
+// Mirror the current RAM-tier entry count to QPP_CFG:RAM_TIER_COUNT
+// (unprotected) so hudproxy's getStorageReport can show users how many
+// offsets are RAM-only (i.e., would be lost on a script reset). Called
+// from every CUSTOMS-mutating path. Empty list writes "0".
+update_ram_tier_count()
+{
+    integer count = llGetListLength(CUSTOMS) / CUSTOMS_STRIDE;
+    llLinksetDataWrite("QPP_CFG:RAM_TIER_COUNT", (string)count);
 }
 
 // Wipe both tiers entirely. Used by CHANGED_OWNER (visitor offsets
 // shouldn't follow the prim to a new account) and by 90264 from the
 // HUD's "CLEAR offset storage" button. Caller is responsible for
 // confirmation prompts; the wipe itself is unconditional.
+//
+// The 90265 broadcast invalidates every sitA's RAM_OVERFLOW mirror
+// — without it, sitA would keep applying RAM-tier offsets that
+// CUSTOMS no longer contains (the LSD-tier wipe is auto-visible
+// because sitA reads LSD direct, but RAM_OVERFLOW is push-driven
+// and needs explicit invalidation).
 wipe_all_offsets()
 {
     list toDelete;
@@ -326,6 +329,8 @@ wipe_all_offsets()
     for (j = 0; j < m; j++)
         llLinksetDataDelete(llList2String(toDelete, j));
     CUSTOMS = [];
+    llMessageLinked(LINK_SET, 90265, "", NULL_KEY);
+    update_ram_tier_count();
 }
 
 // Drop all entries (LSD + RAM) for this (slot, pose_name) across all
@@ -374,12 +379,17 @@ drop_pose_for_slot(integer slot, string pose_name)
         else
             i += CUSTOMS_STRIDE;
     }
+    update_ram_tier_count();
 }
 
 default
 {
     state_entry()
     {
+        // Reset the RAM-tier counter — CUSTOMS is empty post-state-entry,
+        // and we want hudproxy's storage report to reflect that until the
+        // first save_offset bumps it.
+        update_ram_tier_count();
         debugSay("Ready. LSD room=" + (string)lsdRoomLeft()
             + " poses; RAM cap=" + (string)LRU_CAP
             + "; Free=" + (string)llGetFreeMemory()

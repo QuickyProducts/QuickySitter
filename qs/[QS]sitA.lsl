@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.27";
+string version = "0.28";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -59,9 +59,16 @@ vector CURRENT_POSITION;
 vector CURRENT_ROTATION;
 integer wrong_primcount;
 integer prims;
-// Per-sitter offset cache pushed by [QS]offset on sit. Layout:
-// [pose_name, pos_diff, rot_diff, ...]. NOT persisted — volatile by design.
-list MY_CUSTOMS;
+// Per-sitter RAM-tier mirror pushed by [QS]offset for offsets that
+// don't fit in LSD. Layout: [pose_name, pos_diff, rot_diff, ...].
+// NOT persisted — volatile by design, fully replaced on sit-down
+// (90261 request → 90260 push) and cleared on stand-up + 90265 broadcast.
+//
+// LSD-tier offsets are NOT mirrored here — sitA reads them directly
+// from QSO:<short>:<slot>:<pose> in apply_current_anim. RAM_OVERFLOW
+// only carries values that [QS]offset stored in its own RAM (CUSTOMS)
+// because LSD was at the floor.
+list RAM_OVERFLOW;
 integer HASKEYFRAME = FALSE;
 integer REFERENCE;
 key reused_key;
@@ -297,7 +304,7 @@ release_sitter(integer i)
                 llStopAnimation(CURRENT_ANIMATION_FILENAME);
             }
             MY_SITTER = "";
-            MY_CUSTOMS = [];   // drop sitter-specific cache
+            RAM_OVERFLOW = [];   // drop sitter-specific cache
             llListenRemove(menu_handle);
         }
     }
@@ -380,21 +387,54 @@ do_resync_tick()
     llStartAnimation(CURRENT_ANIMATION_FILENAME);
 }
 
+// Single-source-of-truth lookup for this sitter's personal offset on the
+// given pose name. LSD wins (persistent tier, read direct via the
+// documented QSO:<short>:<slot>:<pose> convention — see PROTOCOL.md).
+// RAM_OVERFLOW is the fallback for the rare case where [QS]offset
+// stored the value in its own RAM (CUSTOMS) because LSD was at the
+// floor — those values arrive via 90260 push.
+//
+// Returns [pos_offset, rot_offset] (two-element list) on hit, empty
+// list on miss. Caller is responsible for the M#T! fallback semantics
+// (specific pose wins over global) by calling this twice if needed.
+list lookup_personal_offset(string pose_name)
+{
+    string short = llGetSubString(MY_SITTER, 0, 7);
+    string lsdKey = "QSO:" + short + ":" + (string)SCRIPT_CHANNEL + ":" + pose_name;
+    string val = llLinksetDataRead(lsdKey);
+    if (val != "") {
+        // LSD-tier hit. Value format is "<pos>|<rot>" (vector strings).
+        list parts = llParseString2List(val, ["|"], []);
+        return [(vector)llList2String(parts, 0),
+                (vector)llList2String(parts, 1)];
+    }
+    integer ri = llListFindList(RAM_OVERFLOW, [pose_name]);
+    if (ri >= 0) {
+        // RAM-tier hit (offset.lsl pushed it via 90260 because LSD was full).
+        return [llList2Vector(RAM_OVERFLOW, ri + 1),
+                llList2Vector(RAM_OVERFLOW, ri + 2)];
+    }
+    return [];
+}
+
 apply_current_anim(integer broadcast)
 {
     SEQUENCE_POINTER = 0;
     update_current_anim_name();
     CURRENT_POSITION = DEFAULT_POSITION;
     CURRENT_ROTATION = DEFAULT_ROTATION;
-    // Apply this sitter's personal offset (cache pushed by [QS]offset).
-    // MY_CUSTOMS is per-sitter so no user_short lookup needed here.
-    integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
-    if (custom_index == -1)
-        custom_index = llListFindList(MY_CUSTOMS, ["M#T!"]);
-    if (custom_index > -1)
+    // Apply this sitter's personal offset. SSoT lives in [QS]offset:
+    // LSD QSO:<short>:<slot>:<pose> for the persistent tier (read direct
+    // here, no cache), RAM_OVERFLOW for the rare RAM-tier values pushed
+    // via 90260 when LSD was at the floor. Pose-specific entries always
+    // win over M#T! (the all-poses fallback), regardless of tier.
+    list off = lookup_personal_offset(CURRENT_POSE_NAME);
+    if (llGetListLength(off) == 0)
+        off = lookup_personal_offset("M#T!");
+    if (llGetListLength(off) == 2)
     {
-        CURRENT_POSITION += llList2Vector(MY_CUSTOMS, custom_index + 1);
-        CURRENT_ROTATION += llList2Vector(MY_CUSTOMS, custom_index + 2);
+        CURRENT_POSITION += llList2Vector(off, 0);
+        CURRENT_ROTATION += llList2Vector(off, 1);
     }
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
     {
@@ -715,19 +755,12 @@ default
             {
                 vector pd = CURRENT_POSITION - DEFAULT_POSITION;
                 vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
-                // Wipe pose-specific entries from MY_CUSTOMS, keep only M#T!.
-                integer i = llGetListLength(MY_CUSTOMS) - 3;
-                while (i >= 0)
-                {
-                    if (llList2String(MY_CUSTOMS, i) != "M#T!")
-                        MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, i, i + 2);
-                    i -= 3;
-                }
-                // Replace any existing M#T!.
-                integer mi = llListFindList(MY_CUSTOMS, ["M#T!"]);
-                if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
-                MY_CUSTOMS += ["M#T!", pd, rd];
-                // Persist to [QS]offset.
+                // Persist to [QS]offset (SSoT). Don't touch RAM_OVERFLOW
+                // here — offset.lsl owns the storage decision and pushes
+                // 90260 back if it landed in RAM tier; LSD-tier saves
+                // are read direct by apply_current_anim on next pose.
+                // adjust_pose_menu doesn't re-apply, so there's no race
+                // window where the user would land at DEFAULT.
                 llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for all poses.");
@@ -736,11 +769,8 @@ default
             {
                 vector pd = CURRENT_POSITION - DEFAULT_POSITION;
                 vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
-                integer custom_index = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
-                if (custom_index >= 0)
-                    MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, custom_index, custom_index + 2);
-                MY_CUSTOMS += [CURRENT_POSE_NAME, pd, rd];
-                // Persist to [QS]offset.
+                // Persist to [QS]offset (SSoT). See [ALL POSES] note above
+                // for why we don't pre-populate RAM_OVERFLOW.
                 llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|" + CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
                 llRegionSayTo(id, 0, "Personal position saved for this pose.");
@@ -817,43 +847,72 @@ default
         // with populated LSD.
         if (num == 90260 && id == MY_SITTER)
         {
-            // Cache push from [QS]offset for the avatar currently on this
-            // sitter. Payload is pose_name|<pos_diff>|<rot_diff>.
+            // RAM-tier mirror push from [QS]offset for the avatar on this
+            // sitter. Payload is pose_name|<pos_diff>|<rot_diff>. Post-SSoT-
+            // refactor this only carries values that [QS]offset stored in
+            // its own RAM (CUSTOMS) because LSD was at the floor —
+            // LSD-tier offsets are read direct by apply_current_anim and
+            // never pushed via 90260.
+            //
+            // ZERO/ZERO payload is the delete sentinel — [QS]offset emits
+            // this when save_offset cleaned both tiers (user adjusted back
+            // to default and saved). We must drop the RAM_OVERFLOW entry
+            // to prevent ghost-application after the underlying LSD/RAM
+            // store was already cleared.
             list mp = llParseStringKeepNulls(msg, ["|"], []);
             string pname = llList2String(mp, 0);
-            integer mi = llListFindList(MY_CUSTOMS, [pname]);
-            if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
-            MY_CUSTOMS += [pname,
-                (vector)llList2String(mp, 1),
-                (vector)llList2String(mp, 2)];
+            vector pdiff = (vector)llList2String(mp, 1);
+            vector rdiff = (vector)llList2String(mp, 2);
+            integer mi = llListFindList(RAM_OVERFLOW, [pname]);
+            if (mi >= 0) RAM_OVERFLOW = llDeleteSubList(RAM_OVERFLOW, mi, mi + 2);
+            if (pdiff == ZERO_VECTOR && rdiff == ZERO_VECTOR) {
+                // Delete sentinel — entry already removed above, nothing
+                // else to do (no insert, no race-fix re-apply since we
+                // didn't add a new offset to apply).
+                return;
+            }
+            RAM_OVERFLOW += [pname, pdiff, rdiff];
 
-            // Race fix: on re-sit, run_time_permissions fires 90261 (request
-            // customs push) and 90000 (play pose) back-to-back. The 90000
-            // round-trips through sitB → 90055 → apply_current_anim, which
-            // reads MY_CUSTOMS and snapshots CURRENT_POSITION = DEFAULT +
-            // offset (or just DEFAULT if MY_CUSTOMS was empty at that
-            // moment). When the 90260 from [QS]offset loses the race the
-            // avatar lands at DEFAULT and the saved offset never visibly
-            // applies even though MY_CUSTOMS is populated milliseconds
-            // later. If we land here while CURRENT still equals DEFAULT,
-            // apply_current_anim ran without our entry — re-apply now using
-            // the same selection rule (specific pose wins over M#T!). If
-            // the user has touched the pose mid-session (CURRENT != DEFAULT)
-            // we leave them alone.
+            // Late-arrival race fix (RAM-tier only post-refactor): on
+            // re-sit, run_time_permissions fires 90261 (request RAM-tier
+            // push) and 90000 (play pose) back-to-back. The 90000
+            // round-trips through sitB → 90055 → apply_current_anim,
+            // which checks LSD direct (synchronous, no race) AND
+            // RAM_OVERFLOW. If RAM_OVERFLOW was empty at that moment
+            // (90260 hadn't arrived yet) and the LSD lookup also missed,
+            // CURRENT lands on DEFAULT_POSITION even though the RAM-tier
+            // offset is on its way. When that 90260 arrives here, re-run
+            // the canonical lookup and re-apply if CURRENT still equals
+            // DEFAULT. Mid-session adjustments shift CURRENT away from
+            // DEFAULT and break the equality check, so they're not
+            // overridden.
             if (CURRENT_POSITION == DEFAULT_POSITION
                 && CURRENT_ROTATION == DEFAULT_ROTATION)
             {
-                integer ci = llListFindList(MY_CUSTOMS, [CURRENT_POSE_NAME]);
-                if (ci == -1) ci = llListFindList(MY_CUSTOMS, ["M#T!"]);
-                if (ci > -1)
+                list off = lookup_personal_offset(CURRENT_POSE_NAME);
+                if (llGetListLength(off) == 0)
+                    off = lookup_personal_offset("M#T!");
+                if (llGetListLength(off) == 2)
                 {
                     CURRENT_POSITION = DEFAULT_POSITION
-                        + llList2Vector(MY_CUSTOMS, ci + 1);
+                        + llList2Vector(off, 0);
                     CURRENT_ROTATION = DEFAULT_ROTATION
-                        + llList2Vector(MY_CUSTOMS, ci + 2);
+                        + llList2Vector(off, 1);
                     sit_using_prim_params();
                 }
             }
+            return;
+        }
+        if (num == 90265)
+        {
+            // CLEAR-broadcast invalidation paired with 90264. [QS]offset
+            // wiped both LSD QSO:* and its own CUSTOMS — sitA's LSD-direct
+            // reads are auto-correct (LSD entries are gone), but the
+            // RAM_OVERFLOW mirror needs explicit clearing because no
+            // individual push tells us about deletes from CUSTOMS.
+            // Broadcast on LINK_SET so every sitA slot in the linkset
+            // clears in lockstep.
+            RAM_OVERFLOW = [];
             return;
         }
         if (num == 90263) // 90263=adjuster overwrote pose default; drop stale personal offset
@@ -865,8 +924,8 @@ default
             if (one == SCRIPT_CHANNEL)
             {
                 string pname = (string)id;
-                integer mi = llListFindList(MY_CUSTOMS, [pname]);
-                if (mi >= 0) MY_CUSTOMS = llDeleteSubList(MY_CUSTOMS, mi, mi + 2);
+                integer mi = llListFindList(RAM_OVERFLOW, [pname]);
+                if (mi >= 0) RAM_OVERFLOW = llDeleteSubList(RAM_OVERFLOW, mi, mi + 2);
             }
             return;
         }
@@ -1345,7 +1404,7 @@ default
             reused_key = "";
             SITTERS = llListReplaceList(SITTERS, [(CONTROLLER = MY_SITTER = llGetPermissionsKey())], SCRIPT_CHANNEL, SCRIPT_CHANNEL);
             // Reset cache and ask [QS]offset to push this sitter's customs.
-            MY_CUSTOMS = [];
+            RAM_OVERFLOW = [];
             llMessageLinked(LINK_THIS, 90261, (string)SCRIPT_CHANNEL, MY_SITTER);
             string channel_or_swap = (string)SCRIPT_CHANNEL;
             integer lnk = 90000; // 90000=play pose
