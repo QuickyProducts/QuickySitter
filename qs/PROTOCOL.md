@@ -65,6 +65,7 @@ notice.
 | `90265` | same | `[QS]offset` → all `[QS]sitA`: clear `RAM_OVERFLOW` (broadcast invalidation paired with 90264) |
 | `90266` | same | `[QS]adjuster` → `hudproxy`: `"On"` / `"Off"` — flip QuickyHUD ADJUSTMODE remotely (sent by `[HELPER]`'s "Quicky HUD" branch and by `end_helper_mode` auto-Off) |
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
+| `90280` | same | hudadmin / any in-prim source → `[QS]prop`: dynamic prop attach without notecard (see [§ QSPROP_ATTACH](#qsprop_attach--90280)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -479,3 +480,92 @@ the Sim processing them sequentially within the frame. The resulting
 viewer-side restarts arrive within one Sim frame of each other —
 close enough that drift between sitters is corrected to within
 ~50 ms.
+
+## QSPROP_ATTACH — `90280`
+
+`[QS]prop` is a minimally-invasive fork of stock `[AV]prop`
+(`avstock/Plugins/AVprop/[AV]prop.lsl`, 2.2p04) with one new
+link-message: a way to register and rez a prop **dynamically**
+without writing it into the `AVpos` notecard. Used by
+`[QS]hudadmin` (QuickyHUD repo, formerly `[QS]hudprop`) to attach
+the Quicky-Pose-HUD on sit / on the manual "Quicky HUD" button —
+work that `hudprop` previously did by maintaining its own private
+copy of `[AV]prop`'s prop registry.
+
+| Num    | Direction                                  | `msg`                                              | `id`         | Meaning |
+|--------|--------------------------------------------|----------------------------------------------------|--------------|---------|
+| 90280  | any in-prim source → `[QS]prop`            | `<object>\|<type>\|<point>\|<sitter>\|<post_rez_say>` | sitter UUID  | "Register this dynamic prop for the given sitter slot and rez it now. If a prior 90280 with the same `(sitter, object)` exists, update `point` + `post_rez_say` and re-rez." |
+
+**Payload fields** (pipe-delimited, parse with `llParseString2List`):
+
+| Field | Content |
+|-------|---------|
+| 0 | Object name in this prim's inventory. Must be an `INVENTORY_OBJECT`. |
+| 1 | Stock `[AV]prop` type: `0` = ground prop (COPY-OK NEXT), `1` = attachment prop (COPY-TRANSFER NEXT), `2` = attachment prop personal, `3` = special. The HUD case is type `1`. |
+| 2 | Attachment-point name (case-insensitive substring match into `ATTACH_POINTS` table). Empty string falls through to point `0` = "avatar center". For HUDs use e.g. `"HUD center"`. |
+| 3 | Sitter slot index (0-based). Must be `< llGetListLength(SITTERS)`; out-of-range messages are silently dropped. |
+| 4 | **Optional post-rez say.** Verbatim string `[QS]prop` will `llSay` on its `comm_channel` once the rezzed prop reports `REZ` back via the same channel. Empty = no extra message. Generic mechanism — `[QS]prop` doesn't interpret the content. hudadmin uses it to push `"*QUICKYTEXTURE*\|<uuid>"` to a freshly-rezzed Quicky-Pose-HUD. |
+
+The `id` field carries the seated avatar's key; `[QS]prop` writes it
+into `SITTERS[sitter]` so the subsequent `REZ`-handler can resolve
+`sitter_key` for the standard `ATTACHTO|<sitter>|<rezzed>` reply
+that stock `[AV]prop` already sends for type-1 props.
+
+### Lifecycle and idempotency
+
+The dynamic-prop entry is **stored** in the same `prop_triggers /
+prop_types / prop_objects / …` parallel lists that stock loads
+from `AVpos`. The trigger string is `<sitter>|<object>`, the
+prop group is `<sitter>|QSDYN` (kept separate from notecard
+groups). Dedup is by trigger: re-issuing 90280 for the same
+`(sitter, object)` pair replaces the mutable fields (`point`,
+`post_rez_say`) and re-rezzes via the existing `rez_prop(idx)`
+path — no growth in the registry.
+
+### Removal
+
+No new linkmsg is needed for cleanup. Stock `[AV]prop`'s `90065`
+(stand-up) handler already calls `remove_props_by_sitter(msg,
+FALSE)`, which wipes all non-type-3 entries matching the standing
+sitter — including dynamic ones. The registry rows stay, but
+that's stock behavior and the dedup logic prevents accumulation
+on re-sit.
+
+### Why a parallel `prop_post_rez_say` list
+
+The minimal way to forward HUD-specific data (texture key) without
+making `[QS]prop` HUD-aware. The list is **append-only-aligned
+with `prop_triggers`** — every code path that appends to
+`prop_triggers` (notecard load, stock `90171`/`90173`, new 90280)
+also appends one entry to `prop_post_rez_say` (empty for stock
+paths). The `listen()` REZ branch reads
+`prop_post_rez_say[prop_index]` and llSays it on `comm_channel` if
+non-empty. Out-of-range index returns `""` gracefully — so even if
+a future refactor breaks alignment, the worst case is missed
+texture forwarding, not a runtime error.
+
+### Stock-diff inventory
+
+Total changes from stock `[AV]prop` 2.2p04:
+
+1. **Sitter presence via QSALIVE, not script-name inventory probes.**
+   Stock's `string main_script = "[AV]sitA";` and its
+   `llGetInventoryType(main_script)` checks are gone. Replaced by
+   `qs_alive` + `qs_sitter_count_cached`, populated by a 90096 probe
+   sent in `state_entry` / `on_rez` / `changed(CHANGED_INVENTORY)`
+   and a 90097 reply handler in `link_message`. `get_number_of_scripts()`
+   becomes a one-liner returning the cache (default 1 until reply).
+   This is a project-wide convention — script names are not stable
+   across forks/renames; QSALIVE is the canonical presence API.
+2. New global `list prop_post_rez_say;`.
+3. One line in `dataserver` event: `prop_post_rez_say += "";`
+   after `prop_points += ...` on `PROP*` notecard lines.
+4. One line in `90171/90173` handler: same append, so adjuster-
+   added props stay aligned.
+5. Three lines in `listen()`'s REZ branch: read
+   `prop_post_rez_say[prop_index]` and llSay if non-empty.
+6. New `link_message` handler block for `num == 90280` (≈40 lines)
+   plus a `num == QSALIVE_REPLY` handler at the top (≈15 lines).
+7. Version string + header comment block.
+
+Everything else verbatim from stock.
