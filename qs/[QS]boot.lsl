@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.01";
+string version = "0.02";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
@@ -53,6 +53,15 @@ string CUSTOM_TEXT;
 list ADJUST_MENU;
 string RLVDesignations;
 list GENDERS;
+
+// AUTOSYNC ticker. Owned here (rather than in [QS]hudproxy) because
+// hudproxy is bytecode-tight under 6-sitter stress; boot is mostly idle
+// after seed completes and has plenty of headroom for a periodic timer.
+// State written via the QPP_CFG:AUTOSYNC LSD key (unprotected) — the
+// hudproxy settings dialog is the writer; we react via linkset_data.
+// Coexists with the seed timer via the bAutoSyncActive flag: TRUE only
+// after finalize_boot, FALSE during seeding.
+integer bAutoSyncActive;
 
 // Per-current-channel parse state. Reset on each channel switch.
 integer SCRIPT_CHANNEL;
@@ -219,6 +228,25 @@ finalize_boot()
 {
     llSetText("", <1, 1, 1>, 1);
     llOwnerSay(llGetScriptName() + "[" + version + "] Seed complete; " + (string)total_channels + " channel(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
+    arm_autosync();
+}
+
+// Read QPP_CFG:AUTOSYNC and arm the timer accordingly. Idempotent: safe
+// to call from finalize_boot, linkset_data, or after manual changes.
+// Skips while seed cycle is still running so we don't trample the
+// 0.01s seed-step timer.
+arm_autosync()
+{
+    if (current_processing_channel < total_channels) return;
+    string s = llLinksetDataRead("QPP_CFG:AUTOSYNC");
+    if (s == "" || s == "Off")
+    {
+        bAutoSyncActive = FALSE;
+        llSetTimerEvent(0);
+        return;
+    }
+    bAutoSyncActive = TRUE;
+    llSetTimerEvent((float)s);
 }
 
 process_next_channel()
@@ -374,8 +402,24 @@ default
 
     timer()
     {
+        if (bAutoSyncActive)
+        {
+            // Re-Sync trigger per qs/PROTOCOL.md § 90271. Timer keeps
+            // firing at the configured interval (LSL repeats automatically
+            // until llSetTimerEvent(0)).
+            llMessageLinked(LINK_SET, 90271, "", "");
+            return;
+        }
         llSetTimerEvent(0);
         process_next_channel();
+    }
+
+    linkset_data(integer act, string name, string val)
+    {
+        // Re-arm whenever the AUTOSYNC config changes (from hudproxy's
+        // settings dialog) or the whole LSD is reset (/88 nuke).
+        if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
+            arm_autosync();
     }
 
     link_message(integer sender, integer num, string msg, key id)
