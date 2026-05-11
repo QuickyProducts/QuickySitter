@@ -17,7 +17,7 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.04";
+string version = "0.041";
 string helper_name = "[AV]helper";
 string prop_script = "[AV]prop";
 string expression_script = "[AV]faces";
@@ -276,6 +276,20 @@ new_menu()
             );
 }
 
+// Helper-mode cleanup without flipping ADJUSTMODE. Used by the explicit
+// [ADJUST] toggle in the main menu: the user wants to drop out of the
+// AVsitter helper overlay but keep QuickyHUD's ADJUSTMODE in whatever
+// state it's currently in — that's controlled separately via
+// [QUICKYHUD] → [ADJUST OFF] (or the HUD settings dialog). The
+// stand-up paths still go through end_helper_mode() so the
+// helper_method == 1 auto-Off safety net stays intact when the user
+// forgets to disable ADJUSTMODE before standing up.
+cleanup_helper_mode()
+{
+    llRegionSay(comm_channel, "DONEA");
+    helper_mode = FALSE;
+}
+
 end_helper_mode()
 {
     if (helper_method == 1)
@@ -283,8 +297,7 @@ end_helper_mode()
         llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
         helper_method = 0;
     }
-    llRegionSay(comm_channel, "DONEA");
-    helper_mode = FALSE;
+    cleanup_helper_mode();
 }
 
 // QuickyHUD's hudproxy (when present in the linkset) writes
@@ -559,7 +572,10 @@ default
                 }
                 if (msg == "[ADJUST]")
                 {
-                    end_helper_mode();
+                    // Explicit main-menu toggle: drop helper overlay but
+                    // leave ADJUSTMODE alone. Use [QUICKYHUD] → [ADJUST OFF]
+                    // to flip ADJUSTMODE off.
+                    cleanup_helper_mode();
                 }
                 return;
             }
