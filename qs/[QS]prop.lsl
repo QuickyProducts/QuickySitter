@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.004"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.005"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -437,39 +437,47 @@ integer load_props_from_lsd()
 }
 
 // Persist current parsed prop state to LSD. Called once after a successful
-// dataserver EOF. Clears any older cached entries first so a shrunk
-// notecard doesn't leave dangling keys.
+// dataserver EOF. Heap-tight on purpose: at this point the lists are full
+// (~10 KB), heap is around 6 KB free, so no intermediate list allocations.
+//
+// Atomicity: meta is the commit marker. We delete it first so a Stack-Heap
+// crash mid-write leaves the cache invalid (load() returns FALSE on empty
+// meta and falls back to the notecard read). Old-count is read once at the
+// top so we know which dangling indices to delete past the new count —
+// avoids llLinksetDataFindKeys, which allocates a key-list we can't afford.
 save_props_to_lsd()
 {
-    list oldKeys = llLinksetDataFindKeys("^qs:prop:.*", 0, 0);
-    integer nOld = llGetListLength(oldKeys);
-    integer iOld;
-    for (iOld = 0; iOld < nOld; iOld++)
-        llLinksetDataDelete(llList2String(oldKeys, iOld));
+    integer oldCount = 0;
+    string oldMeta = llLinksetDataRead(LSD_PROP_META);
+    if (oldMeta != "")
+        oldCount = (integer)llList2String(llParseStringKeepNulls(oldMeta, ["\t"], []), 1);
+    llLinksetDataDelete(LSD_PROP_META);  // invalidate before mutation
 
     integer count = llGetListLength(prop_triggers);
     integer i;
     for (i = 0; i < count; i++)
     {
-        string entry = llDumpList2String([
-            llList2String(prop_triggers,  i),
-            (string)llList2Integer(prop_types, i),
-            llList2String(prop_objects,   i),
-            llList2String(prop_groups,    i),
-            (string)llList2Vector(prop_positions, i),
-            (string)llList2Vector(prop_rotations, i),
-            llList2String(prop_points,    i)
-        ], "\t");
-        llLinksetDataWrite(LSD_PROP_PREFIX + (string)i, entry);
+        // Inline string-concat instead of llDumpList2String([...], "\t"):
+        // skips the 7-element temporary list allocation per iteration.
+        llLinksetDataWrite(LSD_PROP_PREFIX + (string)i,
+            llList2String(prop_triggers, i) + "\t"
+            + (string)llList2Integer(prop_types, i) + "\t"
+            + llList2String(prop_objects, i) + "\t"
+            + llList2String(prop_groups, i) + "\t"
+            + (string)llList2Vector(prop_positions, i) + "\t"
+            + (string)llList2Vector(prop_rotations, i) + "\t"
+            + llList2String(prop_points, i));
     }
+    for (i = count; i < oldCount; i++)
+        llLinksetDataDelete(LSD_PROP_PREFIX + (string)i);
 
     string currentKey = "";
     if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         currentKey = (string)llGetInventoryKey(notecard_name);
-    string seqJoined = llDumpList2String(sequential_prop_groups, "\n");
+    // Meta last — this is the commit point that re-validates the cache.
     llLinksetDataWrite(LSD_PROP_META,
         currentKey + "\t" + (string)count + "\t" + (string)WARN
-        + "\t" + seqJoined);
+        + "\t" + llDumpList2String(sequential_prop_groups, "\n"));
 }
 
 default
