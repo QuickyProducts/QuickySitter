@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.28";
+string version = "0.281";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -679,8 +679,7 @@ default
         // booting. Plugins that came up after us still get an answer via
         // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
         if (!SCRIPT_CHANNEL) qs_alive_reply();
-        llOwnerSay(llGetScriptName() + "[" + version + "] state_entry done slot="
-            + (string)SCRIPT_CHANNEL);
+        llOwnerSay(llGetScriptName() + "[" + version + "] Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
     }
 
     timer()
