@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.005"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.006"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -395,44 +395,43 @@ string element(string text, integer x)
 string LSD_PROP_META   = "qs:prop:meta";
 string LSD_PROP_PREFIX = "qs:prop:";
 
-// Try to load prop state from LSD. Returns TRUE on hit (lists populated),
-// FALSE on miss (caller falls back to notecard read).
+// Async-load state. pending_load_count > 0 ⇒ timer is reading batches.
+// Doing all 60 reads + 7-field parses in one frame Stack-Heap-collides
+// intermittently because there are no frame boundaries between iters
+// for LSL to free transients (unlike the notecard path, where the
+// dataserver replies arrive across frames). The 0.05 s timer tick
+// gives the runtime breathing room every BATCH_SIZE entries.
+integer pending_load_count;
+integer pending_load_index;
+integer BATCH_SIZE = 5;
+
+// Helper for the notecard-key fingerprint comparison.
+string current_notecard_key()
+{
+    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+        return (string)llGetInventoryKey(notecard_name);
+    return "";
+}
+
+// Validate the LSD cache and start an async load. Returns TRUE if the
+// cache is valid and a batched read is now in progress (timer armed);
+// FALSE if cache is empty / stale / count invalid — caller falls back
+// to the notecard read. List population happens incrementally in the
+// timer event; final meta-derived fields (WARN, sequential_prop_groups)
+// are filled in on the closing batch.
 integer load_props_from_lsd()
 {
     string meta = llLinksetDataRead(LSD_PROP_META);
     if (meta == "") return FALSE;
     list metaParts = llParseStringKeepNulls(meta, ["\t"], []);
     if (llGetListLength(metaParts) < 4) return FALSE;
-    string cachedKey = llList2String(metaParts, 0);
-    integer count    = (integer)llList2String(metaParts, 1);
+    if (llList2String(metaParts, 0) != current_notecard_key()) return FALSE;
+    integer count = (integer)llList2String(metaParts, 1);
+    if (count <= 0) return FALSE;
 
-    // Notecard fingerprint check — any inventory change to AVpos rotates
-    // the asset key, so a mismatch reliably forces a re-seed.
-    string currentKey = "";
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-        currentKey = (string)llGetInventoryKey(notecard_name);
-    if (cachedKey != currentKey) return FALSE;
-
-    integer i;
-    for (i = 0; i < count; i++)
-    {
-        string entry = llLinksetDataRead(LSD_PROP_PREFIX + (string)i);
-        if (entry == "") return FALSE;  // corrupt cache — bail to full read
-        list f = llParseStringKeepNulls(entry, ["\t"], []);
-        prop_triggers  += llList2String(f, 0);
-        prop_types     += (integer)llList2String(f, 1);
-        prop_objects   += llList2String(f, 2);
-        prop_groups    += llList2String(f, 3);
-        prop_positions += (vector)llList2String(f, 4);
-        prop_rotations += (vector)llList2String(f, 5);
-        prop_points    += llList2String(f, 6);
-        prop_post_rez_say += "";  // runtime-only, never cached
-    }
-
-    WARN = (integer)llList2String(metaParts, 2);
-    string seqJoined = llList2String(metaParts, 3);
-    if (seqJoined != "")
-        sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
+    pending_load_count = count;
+    pending_load_index = 0;
+    llSetTimerEvent(0.05);
     return TRUE;
 }
 
@@ -494,19 +493,86 @@ default
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
-        // [QS] fork: try LSD cache first. On hit we skip the (slow) async
-        // dataserver loop and announce Ready immediately. On miss (no
-        // meta, stale notecard key, or corrupt entry) fall through to
-        // the notecard read, which will repopulate LSD on EOF.
+        // [QS] fork: try LSD cache first. On hit we arm a timer that
+        // batches the reads across frames (avoids Stack-Heap on big
+        // notecards); the "Props Ready (cached)" announcement comes
+        // from the closing batch in timer(). On miss fall through to
+        // the notecard read.
         if (load_props_from_lsd())
         {
-            Out(0, (string)llGetListLength(prop_triggers)
-                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
+            Out(0, "Loading " + (string)pending_load_count + " props from cache...");
         }
         else if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
             Out(0, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, 0);
+        }
+    }
+
+    // Async LSD-cache batch loader. Only runs when pending_load_count > 0
+    // (set by load_props_from_lsd). Reads BATCH_SIZE entries per tick to
+    // keep peak heap below the Stack-Heap line on big notecards, then
+    // finalizes meta-derived state on the closing batch and disarms.
+    timer()
+    {
+        if (pending_load_count == 0) {
+            llSetTimerEvent(0);
+            return;
+        }
+        integer batchEnd = pending_load_index + BATCH_SIZE;
+        if (batchEnd > pending_load_count) batchEnd = pending_load_count;
+        integer i;
+        for (i = pending_load_index; i < batchEnd; i++)
+        {
+            string entry = llLinksetDataRead(LSD_PROP_PREFIX + (string)i);
+            if (entry == "")
+            {
+                // Corrupt cache mid-load: drop everything and start over
+                // from the notecard. Clean slate is safer than partial.
+                pending_load_count = 0;
+                llSetTimerEvent(0);
+                prop_triggers     = [];
+                prop_types        = [];
+                prop_objects      = [];
+                prop_groups       = [];
+                prop_positions    = [];
+                prop_rotations    = [];
+                prop_points       = [];
+                prop_post_rez_say = [];
+                if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+                {
+                    Out(0, "Cache corrupt, loading from notecard...");
+                    notecard_query = llGetNotecardLine(notecard_name, 0);
+                }
+                return;
+            }
+            list f = llParseStringKeepNulls(entry, ["\t"], []);
+            prop_triggers     += llList2String(f, 0);
+            prop_types        += (integer)llList2String(f, 1);
+            prop_objects      += llList2String(f, 2);
+            prop_groups       += llList2String(f, 3);
+            prop_positions    += (vector)llList2String(f, 4);
+            prop_rotations    += (vector)llList2String(f, 5);
+            prop_points       += llList2String(f, 6);
+            prop_post_rez_say += "";  // runtime-only, never cached
+        }
+        pending_load_index = batchEnd;
+
+        if (pending_load_index >= pending_load_count)
+        {
+            // Closing batch — re-read meta to harvest WARN + sequential
+            // groups. Avoids keeping a stale large string in a module
+            // variable across the whole load.
+            string meta = llLinksetDataRead(LSD_PROP_META);
+            list mp = llParseStringKeepNulls(meta, ["\t"], []);
+            WARN = (integer)llList2String(mp, 2);
+            string seqJoined = llList2String(mp, 3);
+            if (seqJoined != "")
+                sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
+            Out(0, (string)pending_load_count
+                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
+            pending_load_count = 0;
+            llSetTimerEvent(0);
         }
     }
 
