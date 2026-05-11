@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.007"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.008"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -435,7 +435,13 @@ integer load_props_from_lsd()
 
     pending_load_count = count;
     pending_load_index = 0;
-    llSetTimerEvent(0.05);
+    // 0.2 s tick instead of 0.05 — sim is heavily contested at boot
+    // (4× Hand Poses, LoveBridge, [QS]* etc. all parse their own
+    // notecards in parallel), so we need wider frame breaks for the
+    // LSL runtime to free per-iteration transients before the next
+    // batch piles on. 60 entries × 0.2 s ≈ 12 s; still acceptable
+    // compared to the multi-minute notecard read.
+    llSetTimerEvent(0.2);
     return TRUE;
 }
 
