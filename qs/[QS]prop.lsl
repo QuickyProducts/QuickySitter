@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.002"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.003"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -130,13 +130,16 @@ Out(integer level, string out)
 }
 
 // [QS] fork: was a stock inventory-walk on `main_script + " " + i`.
-// Now uses the QSALIVE cache. Default 1 keeps SITTERS sane during the
-// brief boot window before the first 90097 reply lands; the reply
-// handler re-runs init_sitters() if the cached count differs.
+// Now uses the QSALIVE cache. Default 7 (Quicky's per-furniture hard
+// cap on simultaneous sitters) so SITTERS is wide enough during the
+// brief boot window before the first 90097 reply lands — otherwise a
+// fast Sit on slot ≥ 1 would hit the `sitter >= len(SITTERS)` guard in
+// the 90280 handler and get rejected, dropping the HUD-rez. The reply
+// handler re-runs init_sitters() with the actual count once 90097 lands.
 integer get_number_of_scripts()
 {
     if (qs_alive) return qs_sitter_count_cached;
-    return 1;
+    return 7;
 }
 
 integer get_point(string text)
