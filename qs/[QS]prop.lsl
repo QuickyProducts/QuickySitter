@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.001"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.002"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -442,7 +442,12 @@ default
             integer type    = (integer)llList2String(params, 1);
             string  point   = llList2String(params, 2);
             integer sitter  = (integer)llList2String(params, 3);
-            string  postSay = llList2String(params, 4); // "" if list length is 4
+            // postSay may itself contain '|' (e.g. "*QUICKYTEXTURE*|<uuid>" or
+            // multi-command "<cmd1>;;<cmd2>" where each cmd is pipe-formatted).
+            // Rejoin everything from index 4 onward so the payload survives.
+            string  postSay = "";
+            if (llGetListLength(params) > 4)
+                postSay = llDumpList2String(llList2List(params, 4, -1), "|");
             if (obj == "") return;
             if (sitter < 0 || sitter >= llGetListLength(SITTERS)) return;
 
