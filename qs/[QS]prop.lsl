@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.003"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.004"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -376,6 +376,102 @@ string element(string text, integer x)
     return llList2String(llParseStringKeepNulls(text, ["|"], []), x);
 }
 
+// LSD-cache layer over the AVpos notecard parse. Big notecards take 5-10
+// minutes to read on busy regions; caching the parsed prop data in
+// linkset_data lets follow-up restarts skip the dataserver storm.
+//
+// Layout:
+//   "qs:prop:meta" = "<notecard_key>\t<count>\t<warn>\t<sequential_groups>"
+//     where sequential_groups is "\n"-joined.
+//   "qs:prop:<i>"  = "<trigger>\t<type>\t<object>\t<group>\t<pos>\t<rot>\t<point>"
+//     for i in 0..count-1.
+//
+// Validation: notecard_key in meta is compared against the current
+// llGetInventoryKey(notecard_name). Mismatch ⇒ stale cache, fall back to
+// the notecard read. Empty meta ⇒ never cached, same fallback.
+//
+// Tab is used as the field separator because pipe occurs inside
+// prop_triggers ("<sitter>|<trigger>") and prop_groups ("<sitter>|<group>").
+string LSD_PROP_META   = "qs:prop:meta";
+string LSD_PROP_PREFIX = "qs:prop:";
+
+// Try to load prop state from LSD. Returns TRUE on hit (lists populated),
+// FALSE on miss (caller falls back to notecard read).
+integer load_props_from_lsd()
+{
+    string meta = llLinksetDataRead(LSD_PROP_META);
+    if (meta == "") return FALSE;
+    list metaParts = llParseStringKeepNulls(meta, ["\t"], []);
+    if (llGetListLength(metaParts) < 4) return FALSE;
+    string cachedKey = llList2String(metaParts, 0);
+    integer count    = (integer)llList2String(metaParts, 1);
+
+    // Notecard fingerprint check — any inventory change to AVpos rotates
+    // the asset key, so a mismatch reliably forces a re-seed.
+    string currentKey = "";
+    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+        currentKey = (string)llGetInventoryKey(notecard_name);
+    if (cachedKey != currentKey) return FALSE;
+
+    integer i;
+    for (i = 0; i < count; i++)
+    {
+        string entry = llLinksetDataRead(LSD_PROP_PREFIX + (string)i);
+        if (entry == "") return FALSE;  // corrupt cache — bail to full read
+        list f = llParseStringKeepNulls(entry, ["\t"], []);
+        prop_triggers  += llList2String(f, 0);
+        prop_types     += (integer)llList2String(f, 1);
+        prop_objects   += llList2String(f, 2);
+        prop_groups    += llList2String(f, 3);
+        prop_positions += (vector)llList2String(f, 4);
+        prop_rotations += (vector)llList2String(f, 5);
+        prop_points    += llList2String(f, 6);
+        prop_post_rez_say += "";  // runtime-only, never cached
+    }
+
+    WARN = (integer)llList2String(metaParts, 2);
+    string seqJoined = llList2String(metaParts, 3);
+    if (seqJoined != "")
+        sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
+    return TRUE;
+}
+
+// Persist current parsed prop state to LSD. Called once after a successful
+// dataserver EOF. Clears any older cached entries first so a shrunk
+// notecard doesn't leave dangling keys.
+save_props_to_lsd()
+{
+    list oldKeys = llLinksetDataFindKeys("^qs:prop:.*", 0, 0);
+    integer nOld = llGetListLength(oldKeys);
+    integer iOld;
+    for (iOld = 0; iOld < nOld; iOld++)
+        llLinksetDataDelete(llList2String(oldKeys, iOld));
+
+    integer count = llGetListLength(prop_triggers);
+    integer i;
+    for (i = 0; i < count; i++)
+    {
+        string entry = llDumpList2String([
+            llList2String(prop_triggers,  i),
+            (string)llList2Integer(prop_types, i),
+            llList2String(prop_objects,   i),
+            llList2String(prop_groups,    i),
+            (string)llList2Vector(prop_positions, i),
+            (string)llList2Vector(prop_rotations, i),
+            llList2String(prop_points,    i)
+        ], "\t");
+        llLinksetDataWrite(LSD_PROP_PREFIX + (string)i, entry);
+    }
+
+    string currentKey = "";
+    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+        currentKey = (string)llGetInventoryKey(notecard_name);
+    string seqJoined = llDumpList2String(sequential_prop_groups, "\n");
+    llLinksetDataWrite(LSD_PROP_META,
+        currentKey + "\t" + (string)count + "\t" + (string)WARN
+        + "\t" + seqJoined);
+}
+
 default
 {
     state_entry()
@@ -383,14 +479,23 @@ default
         Out(0, "Mem=" + (string)(65536 - llGetUsedMemory()));
         // [QS] fork: probe QSALIVE first so the reply can update SITTERS
         // asynchronously while we keep initializing. init_sitters() runs
-        // against the default count=1; the 90097 handler re-runs it if
+        // against the default count; the 90097 handler re-runs it if
         // the cached count disagrees.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
-        if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+        // [QS] fork: try LSD cache first. On hit we skip the (slow) async
+        // dataserver loop and announce Ready immediately. On miss (no
+        // meta, stale notecard key, or corrupt entry) fall through to
+        // the notecard read, which will repopulate LSD on EOF.
+        if (load_props_from_lsd())
+        {
+            Out(0, (string)llGetListLength(prop_triggers)
+                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
+        }
+        else if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
             Out(0, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, 0);
@@ -757,6 +862,9 @@ default
         {
             if (data == EOF)
             {
+                // [QS] fork: persist parse result to LSD so the next state_entry
+                // can skip the dataserver loop. See load_props_from_lsd above.
+                save_props_to_lsd();
                 Out(0, (string)llGetListLength(prop_triggers) + " Props Ready, Mem=" + (string)llGetFreeMemory());
                 return;
             }
