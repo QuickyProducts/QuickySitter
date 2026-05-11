@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.28";
+string version = "0.282";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -49,7 +49,6 @@ string FIRST_MALE_ANIMATION_SEQUENCE;
 string FEMALE_POSENAME;
 string FIRST_FEMALE_ANIMATION_SEQUENCE;
 string CURRENT_ANIMATION_FILENAME;
-list SITTER_INFO = [FIRST_POSENAME]; //OSS::list SITTER_INFO; // Force error in LSO
 integer SEQUENCE_POINTER;
 vector FIRST_POSITION;
 vector FIRST_ROTATION;
@@ -87,7 +86,6 @@ integer menu_handle;
 string BRAND;
 string onSit;
 integer speed_index;
-integer verbose = 0;
 // SEP = U+FFFD. Initialized at runtime via llUnescapeURL because the
 // SL script editor mangles a literal U+FFFD to 0x20 (space) on upload,
 // which silently splits anim names containing spaces.
@@ -96,19 +94,6 @@ string SEP;
 // QuickySitter: notecard parsing + LSD writing moved to [QS]boot.lsl.
 // sitA reads its channel's LSD directly in state_entry — no message
 // round-trip during boot.
-
-Out(integer level, string out)
-{
-    if (verbose >= level)
-    {
-        llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
-    }
-}
-
-list order_buttons(list buttons)
-{
-    return llList2List(buttons, -3, -1) + llList2List(buttons, -6, -4) + llList2List(buttons, -9, -7) + llList2List(buttons, -12, -10);
-}
 
 integer get_number_of_scripts()
 {
@@ -131,49 +116,6 @@ dialog(string text, list menu_items)
              , menu_channel);
 }
 
-options_menu()
-{
-    list menu_items;
-    if (has_texture)
-    {
-        menu_items += "[TEXTURE]";
-    }
-    if (llGetInventoryType(expression_script) == INVENTORY_SCRIPT)
-    {
-        menu_items += "[FACES]";
-    }
-    if (has_security)
-    {
-        menu_items += "[SECURITY]";
-    }
-    integer i;
-    while (i < llGetListLength(ADJUST_MENU))
-    {
-        menu_items += llList2String(ADJUST_MENU, i);
-        i = i + 2;
-    }
-    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llGetInventoryType(adjust_script) == INVENTORY_SCRIPT)
-    {
-        menu_items += "[HELPER]";
-    }
-    // QuickyHUD-ADJUSTMODE entry point. hudproxy writes QPP_CFG:ADJUSTMODE
-    // unprotected; existence of the key is the capability probe (script-
-    // name matching deliberately avoided — see PROTOCOL.md). [QUICKYHUD]
-    // routes through the same 90100/90101 dispatch below as [HELPER];
-    // adjuster opens a submenu with [ADJUST OFF] / [BACK] from there.
-    if (llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
-    {
-        menu_items += "[QUICKYHUD]";
-    }
-    if (!llGetListLength(menu_items))
-    {
-        adjust_pose_menu();
-        return;
-    }
-    menu_items += "[POSE]";
-    dialog("Adjust:", ["[BACK]"] + menu_items);
-}
-
 adjust_pose_menu()
 {
     string posrot_button = "Position";
@@ -190,24 +132,6 @@ integer IsInteger(string data)
 {
     // This should allow for leading zeros, hence the "1"
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
-}
-
-wipe_sit_targets()
-{
-    integer i;
-    for (; i <= llGetNumberOfPrims(); i++)
-    {
-        string desc = (string)llGetLinkPrimitiveParams(i, [PRIM_DESC]);
-        if (desc != "-1" && "#-1" != llGetSubString(desc, -3, -1))
-        {
-            llLinkSitTarget(i, ZERO_VECTOR, ZERO_ROTATION);
-        }
-    }
-}
-
-primcount_error()
-{
-    llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
 }
 
 sittargets()
@@ -277,15 +201,6 @@ sittargets()
     }
 
     set_sittarget();
-}
-
-prep()
-{
-    has_security = has_texture = FALSE;
-    if (!SCRIPT_CHANNEL)
-    {
-        llMessageLinked(LINK_SET, 90201, "", ""); // 90201=Ask for info about plugins
-    }
 }
 
 release_sitter(integer i)
@@ -606,10 +521,6 @@ default
         for (gj = 0; gj < gn; ++gj)
             GENDERS += (integer)llList2String(gp, gj);
 
-        string s = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
-        if (s != "")
-            SITTER_INFO = llParseStringKeepNulls(s, [SEP], []);
-
         // Iterate poses; derive FIRST_POSENAME / MALE / FEMALE / FIRST_POSITION etc.
         FIRST_POSENAME = "";
         FIRST_ANIMATION_SEQUENCE = "";
@@ -679,8 +590,7 @@ default
         // booting. Plugins that came up after us still get an answer via
         // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
         if (!SCRIPT_CHANNEL) qs_alive_reply();
-        llOwnerSay(llGetScriptName() + "[" + version + "] state_entry done slot="
-            + (string)SCRIPT_CHANNEL);
+        llOwnerSay(llGetScriptName() + "[" + version + "] Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
     }
 
     timer()
@@ -1089,9 +999,10 @@ default
                     {
                         data += "[HELPER]";
                     }
-                    // [QUICKYHUD] entry point — see options_menu() above
-                    // for the rationale behind the LSD-key capability
-                    // probe.
+                    // [QUICKYHUD] entry point — LSD-key probe; existence
+                    // of QPP_CFG:ADJUSTMODE is the capability signal
+                    // (script-name matching avoided — see PROTOCOL.md).
+                    // Routes through 90100/90101 like [HELPER].
                     if (llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
                     {
                         data += "[QUICKYHUD]";
