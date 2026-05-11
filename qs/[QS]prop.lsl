@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.006"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.007"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -403,7 +403,11 @@ string LSD_PROP_PREFIX = "qs:prop:";
 // gives the runtime breathing room every BATCH_SIZE entries.
 integer pending_load_count;
 integer pending_load_index;
-integer BATCH_SIZE = 5;
+// One entry per tick. 5 still Stack-Heaped on a 60-prop notecard with
+// ~13 KB free at state_entry, so we drop to a strict one-per-frame.
+// 60 entries × 0.05 s = ~3 s total — still much better than the
+// multi-minute notecard read.
+integer BATCH_SIZE = 1;
 
 // Helper for the notecard-key fingerprint comparison.
 string current_notecard_key()
