@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.012"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.013"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -76,48 +76,13 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
 list SITTER_POSES;
-list ATTACH_POINTS =
-    [ ATTACH_CHEST,             "chest"
-    , ATTACH_HEAD,              "head"
-    , ATTACH_LSHOULDER,         "left shoulder"
-    , ATTACH_RSHOULDER,         "right shoulder"
-    , ATTACH_LHAND,             "left hand"
-    , ATTACH_RHAND,             "right hand"
-    , ATTACH_LFOOT,             "left foot"
-    , ATTACH_RFOOT,             "right foot"
-    , ATTACH_BACK,              "back"
-    , ATTACH_PELVIS,            "pelvis"
-    , ATTACH_MOUTH,             "mouth"
-    , ATTACH_CHIN,              "chin"
-    , ATTACH_LEAR,              "left ear"
-    , ATTACH_REAR,              "right ear"
-    , ATTACH_LEYE,              "left eye"
-    , ATTACH_REYE,              "right eye"
-    , ATTACH_NOSE,              "nose"
-    , ATTACH_RUARM,             "right upper arm"
-    , ATTACH_RLARM,             "right lower arm"
-    , ATTACH_LUARM,             "left upper arm"
-    , ATTACH_LLARM,             "left lower arm"
-    , ATTACH_RHIP,              "right hip"
-    , ATTACH_RULEG,             "right upper leg"
-    , ATTACH_RLLEG,             "right lower leg"
-    , ATTACH_LHIP,              "left hip"
-    , ATTACH_LULEG,             "left upper leg"
-    , ATTACH_LLLEG,             "left lower leg"
-    , ATTACH_BELLY,             "stomach"
-    , ATTACH_LEFT_PEC,          "left pectoral"
-    , ATTACH_RIGHT_PEC,         "right pectoral"
-    , ATTACH_HUD_CENTER_2,      "HUD center 2"
-    , ATTACH_HUD_TOP_RIGHT,     "HUD top right"
-    , ATTACH_HUD_TOP_CENTER,    "HUD top"
-    , ATTACH_HUD_TOP_LEFT,      "HUD top left"
-    , ATTACH_HUD_CENTER_1,      "HUD center"
-    , ATTACH_HUD_BOTTOM_LEFT,   "HUD bottom left"
-    , ATTACH_HUD_BOTTOM,        "HUD bottom"
-    , ATTACH_HUD_BOTTOM_RIGHT,  "HUD bottom right"
-    , ATTACH_NECK,              "neck"
-    , ATTACH_AVATAR_CENTER,     "avatar center"
-    ];
+// [QS] fork: ATTACH_POINTS lifted from global into get_point() as a
+// function-local — used only there, so making it global cost ~2 KB
+// of persistent heap for no benefit. The literal still costs the same
+// bytecode either way, but at runtime the 80-element list is only
+// instantiated for the duration of a get_point() call (rez_prop path,
+// not the cache-load hot path), then freed on return. Gives the cache
+// load ~2 KB extra headroom under heap pressure.
 
 integer verbose = 5;
 
@@ -144,6 +109,50 @@ integer get_number_of_scripts()
 
 integer get_point(string text)
 {
+    // [QS] fork: ATTACH_POINTS is now a function-local — see global
+    // declaration comment above. Allocated on entry, freed on return.
+    list ATTACH_POINTS =
+        [ ATTACH_CHEST,             "chest"
+        , ATTACH_HEAD,              "head"
+        , ATTACH_LSHOULDER,         "left shoulder"
+        , ATTACH_RSHOULDER,         "right shoulder"
+        , ATTACH_LHAND,             "left hand"
+        , ATTACH_RHAND,             "right hand"
+        , ATTACH_LFOOT,             "left foot"
+        , ATTACH_RFOOT,             "right foot"
+        , ATTACH_BACK,              "back"
+        , ATTACH_PELVIS,            "pelvis"
+        , ATTACH_MOUTH,             "mouth"
+        , ATTACH_CHIN,              "chin"
+        , ATTACH_LEAR,              "left ear"
+        , ATTACH_REAR,              "right ear"
+        , ATTACH_LEYE,              "left eye"
+        , ATTACH_REYE,              "right eye"
+        , ATTACH_NOSE,              "nose"
+        , ATTACH_RUARM,             "right upper arm"
+        , ATTACH_RLARM,             "right lower arm"
+        , ATTACH_LUARM,             "left upper arm"
+        , ATTACH_LLARM,             "left lower arm"
+        , ATTACH_RHIP,              "right hip"
+        , ATTACH_RULEG,             "right upper leg"
+        , ATTACH_RLLEG,             "right lower leg"
+        , ATTACH_LHIP,              "left hip"
+        , ATTACH_LULEG,             "left upper leg"
+        , ATTACH_LLLEG,             "left lower leg"
+        , ATTACH_BELLY,             "stomach"
+        , ATTACH_LEFT_PEC,          "left pectoral"
+        , ATTACH_RIGHT_PEC,         "right pectoral"
+        , ATTACH_HUD_CENTER_2,      "HUD center 2"
+        , ATTACH_HUD_TOP_RIGHT,     "HUD top right"
+        , ATTACH_HUD_TOP_CENTER,    "HUD top"
+        , ATTACH_HUD_TOP_LEFT,      "HUD top left"
+        , ATTACH_HUD_CENTER_1,      "HUD center"
+        , ATTACH_HUD_BOTTOM_LEFT,   "HUD bottom left"
+        , ATTACH_HUD_BOTTOM,        "HUD bottom"
+        , ATTACH_HUD_BOTTOM_RIGHT,  "HUD bottom right"
+        , ATTACH_NECK,              "neck"
+        , ATTACH_AVATAR_CENTER,     "avatar center"
+        ];
     integer i;
     for (i = 1; i < llGetListLength(ATTACH_POINTS); i = i + 2)
     {
