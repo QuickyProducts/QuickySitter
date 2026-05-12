@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.016"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.017"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -76,13 +76,48 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
 list SITTER_POSES;
-// [QS] fork: ATTACH_POINTS was originally a global 80-element list
-// (40 attach-point ID + name pairs), cost ~2 KB persistent heap.
-// 0.013 moved it to a function-local in get_point() — saved persistent
-// heap but still allocated ~2 KB temporarily per call. With the cache
-// loaded to Mem=778 free, that allocation Stack-Heap'd on the first
-// rez_prop. 0.015 replaces the list lookup with an if/else cascade:
-// zero heap allocation per call, smaller bytecode footprint too.
+list ATTACH_POINTS =
+    [ ATTACH_CHEST,             "chest"
+    , ATTACH_HEAD,              "head"
+    , ATTACH_LSHOULDER,         "left shoulder"
+    , ATTACH_RSHOULDER,         "right shoulder"
+    , ATTACH_LHAND,             "left hand"
+    , ATTACH_RHAND,             "right hand"
+    , ATTACH_LFOOT,             "left foot"
+    , ATTACH_RFOOT,             "right foot"
+    , ATTACH_BACK,              "back"
+    , ATTACH_PELVIS,            "pelvis"
+    , ATTACH_MOUTH,             "mouth"
+    , ATTACH_CHIN,              "chin"
+    , ATTACH_LEAR,              "left ear"
+    , ATTACH_REAR,              "right ear"
+    , ATTACH_LEYE,              "left eye"
+    , ATTACH_REYE,              "right eye"
+    , ATTACH_NOSE,              "nose"
+    , ATTACH_RUARM,             "right upper arm"
+    , ATTACH_RLARM,             "right lower arm"
+    , ATTACH_LUARM,             "left upper arm"
+    , ATTACH_LLARM,             "left lower arm"
+    , ATTACH_RHIP,              "right hip"
+    , ATTACH_RULEG,             "right upper leg"
+    , ATTACH_RLLEG,             "right lower leg"
+    , ATTACH_LHIP,              "left hip"
+    , ATTACH_LULEG,             "left upper leg"
+    , ATTACH_LLLEG,             "left lower leg"
+    , ATTACH_BELLY,             "stomach"
+    , ATTACH_LEFT_PEC,          "left pectoral"
+    , ATTACH_RIGHT_PEC,         "right pectoral"
+    , ATTACH_HUD_CENTER_2,      "HUD center 2"
+    , ATTACH_HUD_TOP_RIGHT,     "HUD top right"
+    , ATTACH_HUD_TOP_CENTER,    "HUD top"
+    , ATTACH_HUD_TOP_LEFT,      "HUD top left"
+    , ATTACH_HUD_CENTER_1,      "HUD center"
+    , ATTACH_HUD_BOTTOM_LEFT,   "HUD bottom left"
+    , ATTACH_HUD_BOTTOM,        "HUD bottom"
+    , ATTACH_HUD_BOTTOM_RIGHT,  "HUD bottom right"
+    , ATTACH_NECK,              "neck"
+    , ATTACH_AVATAR_CENTER,     "avatar center"
+    ];
 
 integer verbose = 5;
 
@@ -107,55 +142,16 @@ integer get_number_of_scripts()
     return 7;
 }
 
-// [QS] fork: zero-allocation get_point — see ATTACH_POINTS comment
-// above. Order matches the original ATTACH_POINTS list so the same
-// "first match wins" semantics apply (e.g. "HUD center 2" must be
-// checked before "HUD center" or the bare suffix would shadow it).
-// llSubStringIndex's "needle in haystack" behavior — the function
-// matches if `text` contains the attach-point name anywhere.
 integer get_point(string text)
 {
-    string s = llToUpper(text);
-    if (llSubStringIndex(s, "CHEST")           != -1) return ATTACH_CHEST;
-    if (llSubStringIndex(s, "HEAD")            != -1) return ATTACH_HEAD;
-    if (llSubStringIndex(s, "LEFT SHOULDER")   != -1) return ATTACH_LSHOULDER;
-    if (llSubStringIndex(s, "RIGHT SHOULDER")  != -1) return ATTACH_RSHOULDER;
-    if (llSubStringIndex(s, "LEFT HAND")       != -1) return ATTACH_LHAND;
-    if (llSubStringIndex(s, "RIGHT HAND")      != -1) return ATTACH_RHAND;
-    if (llSubStringIndex(s, "LEFT FOOT")       != -1) return ATTACH_LFOOT;
-    if (llSubStringIndex(s, "RIGHT FOOT")      != -1) return ATTACH_RFOOT;
-    if (llSubStringIndex(s, "BACK")            != -1) return ATTACH_BACK;
-    if (llSubStringIndex(s, "PELVIS")          != -1) return ATTACH_PELVIS;
-    if (llSubStringIndex(s, "MOUTH")           != -1) return ATTACH_MOUTH;
-    if (llSubStringIndex(s, "CHIN")            != -1) return ATTACH_CHIN;
-    if (llSubStringIndex(s, "LEFT EAR")        != -1) return ATTACH_LEAR;
-    if (llSubStringIndex(s, "RIGHT EAR")       != -1) return ATTACH_REAR;
-    if (llSubStringIndex(s, "LEFT EYE")        != -1) return ATTACH_LEYE;
-    if (llSubStringIndex(s, "RIGHT EYE")       != -1) return ATTACH_REYE;
-    if (llSubStringIndex(s, "NOSE")            != -1) return ATTACH_NOSE;
-    if (llSubStringIndex(s, "RIGHT UPPER ARM") != -1) return ATTACH_RUARM;
-    if (llSubStringIndex(s, "RIGHT LOWER ARM") != -1) return ATTACH_RLARM;
-    if (llSubStringIndex(s, "LEFT UPPER ARM")  != -1) return ATTACH_LUARM;
-    if (llSubStringIndex(s, "LEFT LOWER ARM")  != -1) return ATTACH_LLARM;
-    if (llSubStringIndex(s, "RIGHT HIP")       != -1) return ATTACH_RHIP;
-    if (llSubStringIndex(s, "RIGHT UPPER LEG") != -1) return ATTACH_RULEG;
-    if (llSubStringIndex(s, "RIGHT LOWER LEG") != -1) return ATTACH_RLLEG;
-    if (llSubStringIndex(s, "LEFT HIP")        != -1) return ATTACH_LHIP;
-    if (llSubStringIndex(s, "LEFT UPPER LEG")  != -1) return ATTACH_LULEG;
-    if (llSubStringIndex(s, "LEFT LOWER LEG")  != -1) return ATTACH_LLLEG;
-    if (llSubStringIndex(s, "STOMACH")         != -1) return ATTACH_BELLY;
-    if (llSubStringIndex(s, "LEFT PECTORAL")   != -1) return ATTACH_LEFT_PEC;
-    if (llSubStringIndex(s, "RIGHT PECTORAL")  != -1) return ATTACH_RIGHT_PEC;
-    if (llSubStringIndex(s, "HUD CENTER 2")    != -1) return ATTACH_HUD_CENTER_2;
-    if (llSubStringIndex(s, "HUD TOP RIGHT")   != -1) return ATTACH_HUD_TOP_RIGHT;
-    if (llSubStringIndex(s, "HUD TOP")         != -1) return ATTACH_HUD_TOP_CENTER;
-    if (llSubStringIndex(s, "HUD TOP LEFT")    != -1) return ATTACH_HUD_TOP_LEFT;
-    if (llSubStringIndex(s, "HUD CENTER")      != -1) return ATTACH_HUD_CENTER_1;
-    if (llSubStringIndex(s, "HUD BOTTOM LEFT") != -1) return ATTACH_HUD_BOTTOM_LEFT;
-    if (llSubStringIndex(s, "HUD BOTTOM")      != -1) return ATTACH_HUD_BOTTOM;
-    if (llSubStringIndex(s, "HUD BOTTOM RIGHT")!= -1) return ATTACH_HUD_BOTTOM_RIGHT;
-    if (llSubStringIndex(s, "NECK")            != -1) return ATTACH_NECK;
-    if (llSubStringIndex(s, "AVATAR CENTER")   != -1) return ATTACH_AVATAR_CENTER;
+    integer i;
+    for (i = 1; i < llGetListLength(ATTACH_POINTS); i = i + 2)
+    {
+        if (llSubStringIndex(llToUpper(text), llToUpper(llList2String(ATTACH_POINTS, i))) != -1)
+        {
+            return llList2Integer(ATTACH_POINTS, i - 1);
+        }
+    }
     return 0;
 }
 
@@ -380,119 +376,6 @@ string element(string text, integer x)
     return llList2String(llParseStringKeepNulls(text, ["|"], []), x);
 }
 
-// LSD-cache layer over the AVpos notecard parse. Big notecards take 5-10
-// minutes to read on busy regions; caching the parsed prop data in
-// linkset_data lets follow-up restarts skip the dataserver storm.
-//
-// Layout:
-//   "qs:prop:meta" = "<notecard_key>\t<count>\t<warn>\t<sequential_groups>"
-//     where sequential_groups is "\n"-joined.
-//   "qs:prop:<i>"  = "<trigger>\t<type>\t<object>\t<group>\t<pos>\t<rot>\t<point>"
-//     for i in 0..count-1.
-//
-// Validation: notecard_key in meta is compared against the current
-// llGetInventoryKey(notecard_name). Mismatch ⇒ stale cache, fall back to
-// the notecard read. Empty meta ⇒ never cached, same fallback.
-//
-// Tab is used as the field separator because pipe occurs inside
-// prop_triggers ("<sitter>|<trigger>") and prop_groups ("<sitter>|<group>").
-string LSD_PROP_META   = "qs:prop:meta";
-string LSD_PROP_PREFIX = "qs:prop:";
-
-// Async-load state. pending_load_count > 0 ⇒ timer is reading batches.
-// Doing all 60 reads + 7-field parses in one frame Stack-Heap-collides
-// intermittently because there are no frame boundaries between iters
-// for LSL to free transients (unlike the notecard path, where the
-// dataserver replies arrive across frames). The 0.05 s timer tick
-// gives the runtime breathing room every BATCH_SIZE entries.
-integer pending_load_count;
-integer pending_load_index;
-// One entry per tick. 5 still Stack-Heaped on a 60-prop notecard with
-// ~13 KB free at state_entry, so we drop to a strict one-per-frame.
-// 60 entries × 0.05 s = ~3 s total — still much better than the
-// multi-minute notecard read.
-integer BATCH_SIZE = 1;
-
-// Helper for the notecard-key fingerprint comparison.
-string current_notecard_key()
-{
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-        return (string)llGetInventoryKey(notecard_name);
-    return "";
-}
-
-// Validate the LSD cache and start an async load. Returns TRUE if the
-// cache is valid and a batched read is now in progress (timer armed);
-// FALSE if cache is empty / stale / count invalid — caller falls back
-// to the notecard read. List population happens incrementally in the
-// timer event; final meta-derived fields (WARN, sequential_prop_groups)
-// are filled in on the closing batch.
-integer load_props_from_lsd()
-{
-    string meta = llLinksetDataRead(LSD_PROP_META);
-    if (meta == "") return FALSE;
-    list metaParts = llParseStringKeepNulls(meta, ["\t"], []);
-    if (llGetListLength(metaParts) < 4) return FALSE;
-    if (llList2String(metaParts, 0) != current_notecard_key()) return FALSE;
-    integer count = (integer)llList2String(metaParts, 1);
-    if (count <= 0) return FALSE;
-
-    pending_load_count = count;
-    pending_load_index = 0;
-    // 1 s tick. 0.2 s wasn't long enough for the LSL runtime to free
-    // per-iter transients between batches under boot contention from
-    // sibling plugins (Hand Poses ×4, Faces ×4, LoveBridge etc. — they
-    // don't share OUR heap, but they share sim CPU which delays our
-    // GC). 60 entries × 1 s = 60 s — long, but a small fraction of
-    // the multi-minute notecard read it replaces.
-    llSetTimerEvent(1.0);
-    return TRUE;
-}
-
-// Persist current parsed prop state to LSD. Called once after a successful
-// dataserver EOF. Heap-tight on purpose: at this point the lists are full
-// (~10 KB), heap is around 6 KB free, so no intermediate list allocations.
-//
-// Atomicity: meta is the commit marker. We delete it first so a Stack-Heap
-// crash mid-write leaves the cache invalid (load() returns FALSE on empty
-// meta and falls back to the notecard read). Old-count is read once at the
-// top so we know which dangling indices to delete past the new count —
-// avoids llLinksetDataFindKeys, which allocates a key-list we can't afford.
-save_props_to_lsd()
-{
-    integer oldCount = 0;
-    string oldMeta = llLinksetDataRead(LSD_PROP_META);
-    if (oldMeta != "")
-        oldCount = (integer)llList2String(llParseStringKeepNulls(oldMeta, ["\t"], []), 1);
-    llLinksetDataDelete(LSD_PROP_META);  // invalidate before mutation
-
-    integer count = llGetListLength(prop_triggers);
-    integer i;
-    for (i = 0; i < count; i++)
-    {
-        // Inline string-concat instead of llDumpList2String([...], "\t"):
-        // skips the 7-element temporary list allocation per iteration.
-        llLinksetDataWrite(LSD_PROP_PREFIX + (string)i,
-            llList2String(prop_triggers, i) + "\t"
-            + (string)llList2Integer(prop_types, i) + "\t"
-            + llList2String(prop_objects, i) + "\t"
-            + llList2String(prop_groups, i) + "\t"
-            + (string)llList2Vector(prop_positions, i) + "\t"
-            + (string)llList2Vector(prop_rotations, i) + "\t"
-            + llList2String(prop_points, i));
-    }
-    for (i = count; i < oldCount; i++)
-        llLinksetDataDelete(LSD_PROP_PREFIX + (string)i);
-
-    string currentKey = "";
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-        currentKey = (string)llGetInventoryKey(notecard_name);
-    // Meta last — this is the commit point that re-validates the cache.
-    llLinksetDataWrite(LSD_PROP_META,
-        currentKey + "\t" + (string)count + "\t" + (string)WARN
-        + "\t" + llDumpList2String(sequential_prop_groups, "\n"));
-}
-
 default
 {
     state_entry()
@@ -500,103 +383,18 @@ default
         Out(0, "Mem=" + (string)(65536 - llGetUsedMemory()));
         // [QS] fork: probe QSALIVE first so the reply can update SITTERS
         // asynchronously while we keep initializing. init_sitters() runs
-        // against the default count; the 90097 handler re-runs it if
+        // against the default count=1; the 90097 handler re-runs it if
         // the cached count disagrees.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
-        // [QS] fork: try LSD cache first. On hit we arm a timer that
-        // batches the reads across frames (avoids Stack-Heap on big
-        // notecards); the "Props Ready (cached)" announcement comes
-        // from the closing batch in timer(). On miss fall through to
-        // the notecard read.
-        if (load_props_from_lsd())
-        {
-            Out(0, "Loading " + (string)pending_load_count + " props from cache...");
-        }
-        else if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
+        if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
             Out(0, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, 0);
         }
-    }
-
-    // Async LSD-cache batch loader. Only runs when pending_load_count > 0
-    // (set by load_props_from_lsd). Reads BATCH_SIZE entries per tick to
-    // keep peak heap below the Stack-Heap line on big notecards.
-    //
-    // pending_load_index encodes both progress and phase:
-    //   0..count-1 → still loading data entries (one per tick)
-    //   count      → all entries loaded; the next tick runs the closing
-    //                step (meta re-read + WARN + sequential_prop_groups).
-    //                Separating it gives the runtime a full tick of GC
-    //                between the last entry append and the meta parse.
-    //   > count    → idle (caught at the top and disarmed).
-    timer()
-    {
-        if (pending_load_count == 0) {
-            llSetTimerEvent(0);
-            return;
-        }
-
-        // Closing step: runs in its own tick after all entries are loaded.
-        if (pending_load_index >= pending_load_count)
-        {
-            string meta = llLinksetDataRead(LSD_PROP_META);
-            list mp = llParseStringKeepNulls(meta, ["\t"], []);
-            WARN = (integer)llList2String(mp, 2);
-            string seqJoined = llList2String(mp, 3);
-            if (seqJoined != "")
-                sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
-            Out(0, (string)pending_load_count
-                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
-            pending_load_count = 0;
-            llSetTimerEvent(0);
-            return;
-        }
-
-        integer batchEnd = pending_load_index + BATCH_SIZE;
-        if (batchEnd > pending_load_count) batchEnd = pending_load_count;
-        integer i;
-        for (i = pending_load_index; i < batchEnd; i++)
-        {
-            string entry = llLinksetDataRead(LSD_PROP_PREFIX + (string)i);
-            if (entry == "")
-            {
-                // Corrupt cache mid-load: drop everything and start over
-                // from the notecard. Clean slate is safer than partial.
-                pending_load_count = 0;
-                llSetTimerEvent(0);
-                prop_triggers     = [];
-                prop_types        = [];
-                prop_objects      = [];
-                prop_groups       = [];
-                prop_positions    = [];
-                prop_rotations    = [];
-                prop_points       = [];
-                prop_post_rez_say = [];
-                if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-                {
-                    Out(0, "Cache corrupt, loading from notecard...");
-                    notecard_query = llGetNotecardLine(notecard_name, 0);
-                }
-                return;
-            }
-            list f = llParseStringKeepNulls(entry, ["\t"], []);
-            prop_triggers     += llList2String(f, 0);
-            prop_types        += (integer)llList2String(f, 1);
-            prop_objects      += llList2String(f, 2);
-            prop_groups       += llList2String(f, 3);
-            prop_positions    += (vector)llList2String(f, 4);
-            prop_rotations    += (vector)llList2String(f, 5);
-            prop_points       += llList2String(f, 6);
-            prop_post_rez_say += "";  // runtime-only, never cached
-        }
-        pending_load_index = batchEnd;
-        // Don't fall through to the closing step on the same tick — let
-        // the runtime GC the per-iter transients first.
     }
 
     on_rez(integer start)
@@ -959,9 +757,6 @@ default
         {
             if (data == EOF)
             {
-                // [QS] fork: persist parse result to LSD so the next state_entry
-                // can skip the dataserver loop. See load_props_from_lsd above.
-                save_props_to_lsd();
                 Out(0, (string)llGetListLength(prop_triggers) + " Props Ready, Mem=" + (string)llGetFreeMemory());
                 return;
             }
