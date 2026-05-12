@@ -1,4 +1,20 @@
 /*
+ * [QS]faces - Use facial expressions in poses (QuickySitter fork of [AV]faces)
+ *
+ * Minimally-invasive fork of avstock/Plugins/AVfaces/[AV]faces.lsl (2.2p04).
+ * Diff against stock:
+ *   - Sitter count via QSALIVE (90096/90097) instead of inventory-walk on
+ *     "[AV]sitA " + i. Stock fails to detect multi-sitter QS furniture
+ *     because the script asset is named "[QS]sitA", not "[AV]sitA", so
+ *     facial expressions only ever fire for slot 0.
+ *   - get_number_of_scripts() now returns qs_sitter_count_cached
+ *     (default 7 until first QSALIVE reply lands, then the real count).
+ *
+ * Everything else is byte-identical to upstream. Stock hasn't shipped a
+ * change since 2016, so the rebase risk is negligible.
+ *
+ * Original [AV]faces license preserved below — fork inherits MPL 2.0.
+ *
  * [AV]faces - Use facial expressions in poses
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,10 +24,6 @@
  * Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
 integer is_running = TRUE;
@@ -43,9 +55,14 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string #version = "2.2p04";
+string version = "0.001";
 string notecard_name = "AVpos";
-string main_script = "[AV]sitA";
+// [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
+// + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive = FALSE;
+integer qs_sitter_count_cached = 1;
 key key_request;
 key notecard_key;
 key notecard_query;
@@ -60,14 +77,15 @@ list running_pointers;
 list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
 list SITTER_POSES;
 
+// [QS] fork: was a stock inventory-walk on `main_script + " " + i`.
+// Default 7 (Quicky's per-furniture hard cap) so SITTERS is sized for
+// every possible slot during the brief boot window before the first
+// 90097 reply lands. The reply re-runs init_sitters() if the cached
+// count disagrees.
 integer get_number_of_scripts()
 {
-    integer i = 1;
-    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT)
-    {
-        i++;
-    }
-    return i;
+    if (qs_alive) return qs_sitter_count_cached;
+    return 7;
 }
 
 integer verbose = 0;
@@ -225,6 +243,12 @@ default
 {
     state_entry()
     {
+        // [QS] fork: probe QSALIVE first so the reply can re-init SITTERS
+        // with the actual sitter count asynchronously. init_sitters() runs
+        // against the default (7) immediately so the script is usable
+        // before the reply lands.
+        qs_alive = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         init_sitters();
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
@@ -255,6 +279,23 @@ default
         integer i;
         integer sitter;
         integer x;
+        // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Cache the sitter
+        // count and mark sitA present; re-init SITTERS if the count differs
+        // from the boot default. See qs/PROTOCOL.md § QSALIVE.
+        if (num == QSALIVE_REPLY)
+        {
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                qs_alive = TRUE;
+                qs_sitter_count_cached = (integer)llList2String(d, 2);
+                if (qs_sitter_count_cached != llGetListLength(SITTERS))
+                {
+                    init_sitters();
+                }
+            }
+            return;
+        }
         if (num == 90100)
         {
             data = llParseString2List(msg, ["|"], []);
@@ -388,6 +429,11 @@ default
             {
                 llResetScript(); // llResetScript() never returns
             }
+            // [QS] fork: re-probe QSALIVE — sitA may have been added /
+            // removed / its slot count changed. Reply re-inits SITTERS
+            // if the cached count disagrees.
+            qs_alive = FALSE;
+            llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
             if (get_number_of_scripts() != llGetListLength(SITTERS))
             {
                 init_sitters();

@@ -1,5 +1,26 @@
 /*
- * [AV]sequence - Play sequences of poses.
+ * [QS]sequence - Play sequences of poses (QuickySitter fork of [AV]sequence)
+ *
+ * Minimally-invasive fork of avstock/Plugins/AVsequence/[AV]sequence.lsl
+ * (2.2p04). Diff against stock:
+ *   - Sitter count via QSALIVE (90096/90097) instead of inventory-walk on
+ *     "[AV]sitA " + i. Stock fails to detect multi-sitter QS furniture
+ *     because the script asset is named "[QS]sitA", not "[AV]sitA", so
+ *     sequence sitters only fire for slot 0.
+ *   - get_number_of_scripts() now returns qs_sitter_count_cached
+ *     (default 7 until first QSALIVE reply, then the real count).
+ *
+ * Probe is fired in `state running`'s state_entry so the link_message
+ * handler that receives the 90097 reply is already active. Pre-state-
+ * running 90097 broadcasts are intentionally ignored — `state default`
+ * is only the notecard-load phase, sitter handling lives in `running`.
+ *
+ * Everything else is byte-identical to upstream. Stock hasn't shipped a
+ * change since 2016, so the rebase risk is negligible.
+ *
+ * Original [AV]sequence license preserved below — fork inherits MPL 2.0.
+ *
+ * [AV]sequence - Play sequences of poses
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -8,15 +29,16 @@
  * Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
 string product = "AVsitter™ sequence";
-string #version = "2.2p04";
-string main_script = "[AV]sitA";
+string version = "0.001";
+// [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
+// + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive = FALSE;
+integer qs_sitter_count_cached = 1;
 list SITTERS;
 integer DEBUG;
 string notecard_name = "[AV]sequence_settings";
@@ -159,12 +181,13 @@ run_sequence()
     }
 }
 
+// [QS] fork: was a stock inventory-walk on `main_script + " " + i`.
+// Default 7 (Quicky's per-furniture hard cap) before the first QSALIVE
+// reply lands; reply re-runs sitter init if the cached count differs.
 integer get_number_of_scripts()
 {
-    integer i;
-    while (llGetInventoryType(main_script + " " + (string)(++i)) == INVENTORY_SCRIPT)
-        ;
-    return i;
+    if (qs_alive) return qs_sitter_count_cached;
+    return 7;
 }
 
 string parse_text(string say)
@@ -300,6 +323,12 @@ state running
 {
     state_entry()
     {
+        // [QS] fork: probe QSALIVE so the reply can re-init SITTERS with
+        // the real sitter count asynchronously. SITTERS starts at the
+        // default 7 (qs_alive == FALSE) so the script is usable before
+        // the reply lands.
+        qs_alive = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         Out(0, (string)llGetListLength(SEQUENCE_DATA_NAMES) + " Sequences Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
         integer i;
         for (i = 0; i < get_number_of_scripts(); i++)
@@ -310,6 +339,26 @@ state running
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Cache the sitter
+        // count; re-init SITTERS if the count differs from the boot
+        // default. See qs/PROTOCOL.md § QSALIVE.
+        if (num == QSALIVE_REPLY)
+        {
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                qs_alive = TRUE;
+                qs_sitter_count_cached = (integer)llList2String(d, 2);
+                if (qs_sitter_count_cached != llGetListLength(SITTERS))
+                {
+                    SITTERS = [];
+                    integer i;
+                    for (i = 0; i < qs_sitter_count_cached; i++)
+                        SITTERS += NULL_KEY;
+                }
+            }
+            return;
+        }
         if (sender == llGetLinkNumber())
         {
             if (num == 90065)
@@ -442,10 +491,16 @@ state running
         */
         if (change & CHANGED_INVENTORY)
         {
-            if (llGetInventoryKey(notecard_name) != notecard_key || get_number_of_scripts() != llGetListLength(SITTERS))
+            // [QS] fork: notecard-key change always resets. Sitter-count
+            // change is detected via QSALIVE — re-probe and let the reply
+            // handler re-init SITTERS; full reset isn't needed for a
+            // mere sitter-count adjustment.
+            if (llGetInventoryKey(notecard_name) != notecard_key)
             {
                 llResetScript();
             }
+            qs_alive = FALSE;
+            llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         }
     }
 }

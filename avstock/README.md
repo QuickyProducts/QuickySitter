@@ -74,6 +74,10 @@ versions if you need to see what changed.
 | `[QS]select.lsl` | `[AV]select.lsl` |
 | `[QS]sitA.lsl` | `[AV]sitA.lsl` |
 | `[QS]sitB.lsl` | `[AV]sitB.lsl` |
+| `[QS]prop.lsl` | `Plugins/AVprop/[AV]prop.lsl` |
+| `[QS]faces.lsl` | `Plugins/AVfaces/[AV]faces.lsl` |
+| `[QS]sequence.lsl` | `Plugins/AVsequence/[AV]sequence.lsl` |
+| `[QS]root-RLV.lsl` | `Plugins/AVcontrol/[AV]root-RLV.lsl` |
 
 `[QS]boot.lsl`, `[QS]debug.lsl`, and `[QS]offset.lsl` are
 QuickySitter-only — no upstream counterpart.
