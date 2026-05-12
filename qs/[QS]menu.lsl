@@ -1,4 +1,25 @@
 /*
+ * [QS]menu - Stand-alone prop menu (QuickySitter fork of [AV]menu)
+ *
+ * Minimally-invasive fork of avstock/Plugins/AVprop/[AV]menu.lsl (2.2p04).
+ * Diff against stock:
+ *   - check_avsit() decides whether a sit-system is present in the
+ *     linkset. Stock probed `llGetInventoryType("[AV]sitA")`, which
+ *     never matches in a QuickySitter setup (the asset is named
+ *     `[QS]sitA`). Result: [AV]menu stayed active alongside a QS sit
+ *     system, duplicating menu-management with [QS]adjuster.
+ *   - QSALIVE handshake replaces the inventory probe. Reply ⇒ sit
+ *     system present ⇒ remove_script (same outcome the stock check
+ *     produced in stock-AVsitter setups).
+ *   - check_avsit() is now reply-driven (was synchronous): the
+ *     QSALIVE_REPLY handler triggers it. If no reply arrives, the
+ *     script stays alive as stand-alone — the intended fallback.
+ *
+ * Everything else byte-identical to upstream. Stock hasn't shipped a
+ * change since 2016, rebase risk negligible.
+ *
+ * Original [AV]menu license preserved below — fork inherits MPL 2.0.
+ *
  * [AV]menu - Allow using props without using sitting scripts.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,18 +29,18 @@
  * Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
 string product = "AVmenu™";
-string #version = "2.2p04";
+string version = "0.001";
+// [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
+// inventory probe. See qs/PROTOCOL.md § QSALIVE.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive = FALSE;
 integer verbose = 0;
 string prop_script = "[AV]prop";
 string notecard_name = "AVpos";
-string main_script = "[AV]sitA";
 string custom_text;
 list MENUCONTROL_TYPES = ["ALL", "OWNER ONLY", "GROUP ONLY"];
 integer MENUCONTROL_INDEX;
@@ -63,9 +84,14 @@ integer pass_security(key id)
     return access_allowed;
 }
 
+// [QS] fork: was `llGetInventoryType(main_script) == INVENTORY_SCRIPT`.
+// Now reply-driven — qs_alive is set by the QSALIVE_REPLY handler when
+// [QS]sitA answers our probe. Stock-AVsitter installations don't reply
+// to 90096, so qs_alive stays FALSE there and this menu remains active
+// (correct: it's a stand-alone-AVprop deployment with no sit system).
 check_avsit()
 {
-    if (llGetInventoryType(main_script) == INVENTORY_SCRIPT)
+    if (qs_alive)
     {
         remove_script("This script can not be used with the sit script in the same prim. Removing script!");
     }
@@ -315,7 +341,13 @@ default
             remove_script("Use only one copy of this script!");
         }
         MENU_LIST = [];
-        check_avsit();
+        // [QS] fork: probe QSALIVE asynchronously. If a [QS]sitA replies,
+        // its reply handler triggers check_avsit() → remove_script. If no
+        // reply lands (stand-alone deployment), the script stays active.
+        // The notecard load continues regardless; in the to-be-removed
+        // case it's wasted parsing, but functionally harmless.
+        qs_alive = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         notecard_key = llGetInventoryKey(notecard_name);
         Out(0, "Loading...");
         notecard_query = llGetNotecardLine(notecard_name, notecard_line);
@@ -551,12 +583,31 @@ default
             {
                 llResetScript();
             }
-            check_avsit();
+            // [QS] fork: re-probe QSALIVE. If a sitter script was just
+            // added, the reply handler will trigger check_avsit() and
+            // remove this menu. Stock did a synchronous inventory check
+            // here — we move that to the async reply path.
+            qs_alive = FALSE;
+            llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         }
     }
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Means a QS sit
+        // system is in this linkset, so the stand-alone menu shouldn't
+        // be active here — defer to [QS]adjuster. check_avsit() does
+        // the removal. See qs/PROTOCOL.md § QSALIVE.
+        if (num == QSALIVE_REPLY)
+        {
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                qs_alive = TRUE;
+                check_avsit();
+            }
+            return;
+        }
         if (sender == llGetLinkNumber() || LMSOURCE == 1)
         {
             if (num == 90005) // send menu to id

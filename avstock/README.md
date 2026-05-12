@@ -75,6 +75,7 @@ versions if you need to see what changed.
 | `[QS]sitA.lsl` | `[AV]sitA.lsl` |
 | `[QS]sitB.lsl` | `[AV]sitB.lsl` |
 | `[QS]prop.lsl` | `Plugins/AVprop/[AV]prop.lsl` |
+| `[QS]menu.lsl` | `Plugins/AVprop/[AV]menu.lsl` |
 | `[QS]faces.lsl` | `Plugins/AVfaces/[AV]faces.lsl` |
 | `[QS]sequence.lsl` | `Plugins/AVsequence/[AV]sequence.lsl` |
 | `[QS]root-RLV.lsl` | `Plugins/AVcontrol/[AV]root-RLV.lsl` |
