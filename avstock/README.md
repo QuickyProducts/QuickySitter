@@ -37,17 +37,12 @@ avstock/
 ├── Plugins/
 │   ├── AVcamera/[AV]camera.lsl
 │   ├── AVcontrol/                ← RLV control + transport plugins
-│   │   ├── [AV]root-RLV.lsl
 │   │   ├── [AV]root-RLV-extra.lsl
 │   │   ├── [AV]root-control.lsl
 │   │   ├── LockGuard/, LockMeister/, Xcite!-Sensations/
-│   ├── AVfaces/[AV]faces.lsl
 │   ├── AVfavs/[AV]favs.lsl
-│   ├── AVprop/                   ← prop rezz + menu + driven object
-│   │   ├── [AV]prop.lsl
-│   │   ├── [AV]menu.lsl
-│   │   └── [AV]object.lsl
-│   └── AVsequence/[AV]sequence.lsl
+│   └── AVprop/[AV]object.lsl     ← rezzed-prop side (forked-out plugins
+                                  ←   [AV]prop, [AV]menu live in qs/)
 └── Utilities/                    ← creator-side helpers, not in furniture
     ├── AVpos-generator.lsl
     ├── AVpos-shifter.lsl
