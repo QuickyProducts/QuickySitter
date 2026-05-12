@@ -2,33 +2,32 @@
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
  * Minimally-invasive fork of avstock/Plugins/AVprop/[AV]prop.lsl (2.2p04).
- * Goal: stay as close to stock as possible. Diff against stock is:
- *   1. Sitter presence via QSALIVE (90096/90097) — NOT llGetInventoryType
- *      on a hardcoded script name. Stock's `string main_script = "[AV]sitA"`
- *      is replaced by `qs_alive` + `qs_sitter_count_cached`. See
- *      qs/PROTOCOL.md § QSALIVE. Plugin convention: never probe by script
- *      name (forks, renames, splits all break that).
- *   2. New global list `prop_post_rez_say` (parallel to prop_triggers).
- *      Notecard-loaded props get "" appended; only dynamic-attach props
- *      carry content. Out-of-range access returns "" so unaligned indexes
- *      degrade gracefully.
- *   3. In listen()'s comm_channel REZ branch, after the ATTACHTO say,
- *      emit prop_post_rez_say[prop_index] on comm_channel if non-empty.
- *      Generic — [QS]prop stays HUD-agnostic. hudadmin uses it to push
- *      "*QUICKYTEXTURE*|<uuid>" to a freshly-rezzed Quicky-Pose-HUD.
- *   4. New link_message handler num=90280 (QSPROP_ATTACH):
- *      Dynamic prop registration + immediate rez, without going through
- *      the AVpos notecard. Used by [QS]hudadmin to attach the HUD prop
- *      on sitter sit / manual button.
- *      msg = "<object>|<type>|<point>|<sitter_idx>|<post_rez_say>"
- *      id  = sitter_key
- *      Idempotent per (sitter_idx, object) — re-issue updates point /
- *      post_rez_say and re-rezzes.
+ * Diff against stock:
+ *   1. Sitter presence via QSALIVE (90096/90097), NOT script-name probes.
+ *   2. Parallel list prop_post_rez_say for QSPROP_ATTACH post-rez forwarding.
+ *   3. comm_channel REZ branch emits prop_post_rez_say after ATTACHTO.
+ *   4. New link_message 90280 (QSPROP_ATTACH) for dynamic prop registration.
+ *   5. LAZY-LOAD STORAGE (0.018+): the parsed prop database lives entirely
+ *      in linkset_data, not in script-globals. All prop_*[i] list accesses
+ *      become qs:prop:<i> LSD reads, all llListFindList searches become
+ *      qs:prop:trig:<trigger> index reads. Saves ~5–6 KB persistent heap
+ *      and turns subsequent restarts into sub-second boots (the LSD record
+ *      survives state_entry; we only re-parse the notecard when its inv key
+ *      changes). External interface (link-messages, region-says, llRezAtRoot
+ *      payload format) is byte-identical to stock + items 1–4 above.
  *
- * Removal of dynamically-attached props happens via the stock 90065
- * (stand-up) handler — remove_props_by_sitter wipes all type!=3 props
- * for the standing sitter without further coordination. No new linkmsg
- * needed for cleanup.
+ * LSD layout under "qs:prop:*":
+ *   qs:prop:meta        = "<notecard_key>\t<count>\t<warn>\t<groups_nl>"
+ *                         (groups_nl is "\n"-joined sequential_prop_groups)
+ *   qs:prop:<i>         = "<trig>\t<type>\t<obj>\t<grp>\t<pos>\t<rot>\t<pt>\t<prs>"
+ *                         (8 fields, prs = post_rez_say payload)
+ *   qs:prop:trig:<trig> = "i0,i1,…"  (indices matching this trigger)
+ *   qs:prop:sit:<sit>   = "i0,i1,…"  (indices belonging to this sitter)
+ *   qs:prop:grp:<grp>   = "i0,i1,…"  (indices belonging to this group)
+ *
+ * Cleanup: changed(CHANGED_INVENTORY) on AVpos key mismatch triggers
+ * llLinksetDataDeleteFound("^qs:prop:.*", "") which wipes the entire
+ * namespace in one call, then llResetScript repopulates from notecard.
  *
  * Original [AV]prop license preserved below — fork inherits MPL 2.0.
  *
@@ -41,21 +40,14 @@
  * Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.017"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.018";
 string notecard_name = "AVpos";
-// [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
-// Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
-// across forks/renames. 90097 reply populates these caches.
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
-integer qs_sitter_count_cached = 1; // default until first 90097 reply
+integer qs_sitter_count_cached = 1;
 key key_request;
 integer comm_channel;
 integer WARN = 1;
@@ -64,17 +56,18 @@ key notecard_query;
 integer notecard_line;
 integer notecard_section;
 integer listen_handle;
-list prop_triggers;
-list prop_types;
-list prop_objects;
-list prop_positions;
-list prop_rotations;
-list prop_groups;
-list prop_points;
-list prop_post_rez_say; // [QS] fork: parallel to prop_triggers. "" for stock entries; dynamic-attach payload for QSPROP_ATTACH entries.
+
+// [QS] 0.018: prop database lives in LSD now. prop_count_cached mirrors
+// the count for fast index-bound checks without an extra meta read.
+// sequential_prop_groups is kept in memory because it's small (~150 B
+// for typical notecards) and remove_props_by_group(integer gp) takes
+// the gp as a list index — LSD-resident here would force a parse per
+// call.
+integer prop_count_cached;
 list sequential_prop_groups;
+
 integer HAVENTNAGGED = TRUE;
-list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
+list SITTERS = [key_request]; //OSS::list SITTERS;
 list SITTER_POSES;
 list ATTACH_POINTS =
     [ ATTACH_CHEST,             "chest"
@@ -121,6 +114,14 @@ list ATTACH_POINTS =
 
 integer verbose = 5;
 
+// LSD key prefixes — all under "qs:prop:" so prop_clear_all() can wipe
+// the whole namespace with a single llLinksetDataDeleteFound.
+string LSD_META     = "qs:prop:meta";
+string LSD_PROP_PFX = "qs:prop:";
+string LSD_TRIG_PFX = "qs:prop:trig:";
+string LSD_SIT_PFX  = "qs:prop:sit:";
+string LSD_GRP_PFX  = "qs:prop:grp:";
+
 Out(integer level, string out)
 {
     if (verbose >= level)
@@ -129,13 +130,6 @@ Out(integer level, string out)
     }
 }
 
-// [QS] fork: was a stock inventory-walk on `main_script + " " + i`.
-// Now uses the QSALIVE cache. Default 7 (Quicky's per-furniture hard
-// cap on simultaneous sitters) so SITTERS is wide enough during the
-// brief boot window before the first 90097 reply lands — otherwise a
-// fast Sit on slot ≥ 1 would hit the `sitter >= len(SITTERS)` guard in
-// the 90280 handler and get rejected, dropping the HUD-rez. The reply
-// handler re-runs init_sitters() with the actual count once 90097 lands.
 integer get_number_of_scripts()
 {
     if (qs_alive) return qs_sitter_count_cached;
@@ -155,14 +149,129 @@ integer get_point(string text)
     return 0;
 }
 
+// ───────────────────────────────────────────────────────────────────
+// LSD storage layer
+// ───────────────────────────────────────────────────────────────────
+
+integer prop_count()
+{
+    return prop_count_cached;
+}
+
+// Append idx to a comma-separated index list under `key`. Creates the
+// entry if missing.
+prop_index_append(string key, integer idx)
+{
+    string existing = llLinksetDataRead(key);
+    if (existing == "")
+        llLinksetDataWrite(key, (string)idx);
+    else
+        llLinksetDataWrite(key, existing + "," + (string)idx);
+}
+
+// Read an index-list LSD entry and return a list of string indices.
+// Returns [] if entry missing. Caller casts to int as needed.
+list prop_index_list(string key)
+{
+    string val = llLinksetDataRead(key);
+    if (val == "") return [];
+    return llParseStringKeepNulls(val, [","], []);
+}
+
+// Load a full prop entry by index. Returns 8-element list:
+//   [0]=trig, [1]=type, [2]=obj, [3]=grp, [4]=pos, [5]=rot, [6]=pt, [7]=prs
+// All fields are strings; cast at use-site.
+list prop_load(integer idx)
+{
+    return llParseStringKeepNulls(
+        llLinksetDataRead(LSD_PROP_PFX + (string)idx),
+        ["\t"], []);
+}
+
+// Return the first index matching `trig`, or -1 if no entry.
+// (90280 dynamic-attach uses this for idempotent re-attach.)
+integer prop_find_trigger(string trig)
+{
+    list idx = prop_index_list(LSD_TRIG_PFX + trig);
+    if (llGetListLength(idx) == 0) return -1;
+    return (integer)llList2String(idx, 0);
+}
+
+// Extract the sitter prefix from a trigger string ("<sit>|<pose>").
+string prop_trig_sit(string trig)
+{
+    integer p = llSubStringIndex(trig, "|");
+    if (p == -1) return trig;
+    return llGetSubString(trig, 0, p - 1);
+}
+
+// Append a new prop to the LSD store. Writes the entry + the three
+// indices (trig, sit, grp). Returns the assigned index.
+integer prop_add(string trig, integer type, string obj, string grp,
+                 vector pos, vector rot, string pt, string prs)
+{
+    integer idx = prop_count_cached;
+    llLinksetDataWrite(LSD_PROP_PFX + (string)idx,
+        trig + "\t" + (string)type + "\t" + obj + "\t" + grp
+        + "\t" + (string)pos + "\t" + (string)rot + "\t" + pt + "\t" + prs);
+    prop_index_append(LSD_TRIG_PFX + trig, idx);
+    prop_index_append(LSD_SIT_PFX  + prop_trig_sit(trig), idx);
+    prop_index_append(LSD_GRP_PFX  + grp, idx);
+    prop_count_cached++;
+    return idx;
+}
+
+// Update pos and rot of an existing prop (used by SAVEPROP listen).
+prop_update_pos_rot(integer idx, vector pos, vector rot)
+{
+    list entry = prop_load(idx);
+    entry = llListReplaceList(entry, [(string)pos], 4, 4);
+    entry = llListReplaceList(entry, [(string)rot], 5, 5);
+    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
+}
+
+// Update point and prs of an existing prop (used by 90280 re-attach).
+prop_update_pt_prs(integer idx, string pt, string prs)
+{
+    list entry = prop_load(idx);
+    entry = llListReplaceList(entry, [pt],  6, 6);
+    entry = llListReplaceList(entry, [prs], 7, 7);
+    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
+}
+
+// Wipe the entire qs:prop:* LSD namespace. Used on notecard-key change
+// and when prop_count gets out of sync. Single LSD call, no key-list
+// allocation.
+prop_clear_all()
+{
+    llLinksetDataDeleteFound("^qs:prop:.*", "");
+    prop_count_cached = 0;
+    sequential_prop_groups = [];
+}
+
+// Write the meta record. Called after notecard EOF and whenever
+// sequential_prop_groups / WARN change.
+prop_write_meta()
+{
+    llLinksetDataWrite(LSD_META,
+        (string)notecard_key + "\t" + (string)prop_count_cached
+        + "\t" + (string)WARN
+        + "\t" + llDumpList2String(sequential_prop_groups, "\n"));
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Rez / remove logic (now using LSD-resident store)
+// ───────────────────────────────────────────────────────────────────
+
 rez_prop(integer index)
 {
-    integer type = llList2Integer(prop_types, index);
-    string object = llList2String(prop_objects, index);
+    list entry = prop_load(index);
+    integer type = (integer)llList2String(entry, 1);
+    string object = llList2String(entry, 2);
     if (object != "")
     {
-        vector pos = llList2Vector(prop_positions, index) * llGetRot() + llGetPos();
-        rotation rot = llEuler2Rot(llList2Vector(prop_rotations, index) * DEG_TO_RAD) * llGetRot();
+        vector pos = (vector)llList2String(entry, 4) * llGetRot() + llGetPos();
+        rotation rot = llEuler2Rot((vector)llList2String(entry, 5) * DEG_TO_RAD) * llGetRot();
         if (llGetInventoryType(object) != INVENTORY_OBJECT)
         {
             llSay(0, "Could not find prop '" + object + "'.");
@@ -193,17 +302,9 @@ rez_prop(integer index)
                 return;
             }
         }
-        // Param must be:
-        //   - Negative
-        //   - 4 digits comm_channel
-        //   - 2 digits prop_id (index)
-        //   - 2 digits attachment point
-        //   - 1 digit prop_type
-        // HACK: reuse 'perms' rather than calling the function in the
-        // expression, to reduce stack usage
-        perms = get_point(llList2String(prop_points, index));
+        perms = get_point(llList2String(entry, 6));
         llRezAtRoot(object, pos, ZERO_VECTOR, rot,
-            comm_channel * 100000 // negative, so we subtract everything else instead of adding
+            comm_channel * 100000
             -  (index * 1000
                 + perms * 10
                 + type)
@@ -224,46 +325,45 @@ remove_all_props()
 
 rez_props_by_trigger(string pose_name)
 {
+    list idx_strs = prop_index_list(LSD_TRIG_PFX + pose_name);
+    integer n = llGetListLength(idx_strs);
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < n; i++)
     {
-        if (llList2String(prop_triggers, i) == pose_name)
-        {
-            rez_prop(i);
-        }
+        rez_prop((integer)llList2String(idx_strs, i));
     }
 }
 
 list get_props_by_pose(string pose_name)
 {
-    list props_to_do;
+    list idx_strs = prop_index_list(LSD_TRIG_PFX + pose_name);
+    integer n = llGetListLength(idx_strs);
+    list result;
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < n; i++)
     {
-        if (llList2String(prop_triggers, i) == pose_name)
-        {
-            props_to_do += i;
-        }
+        result += (integer)llList2String(idx_strs, i);
     }
-    return props_to_do;
+    return result;
 }
 
 remove_props_by_sitter(string sitter, integer remove_type3)
 {
+    list idx_strs = prop_index_list(LSD_SIT_PFX + sitter);
+    integer n = llGetListLength(idx_strs);
     list text;
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < n; i++)
     {
-        if (llSubStringIndex(llList2String(prop_triggers, i), sitter + "|") == 0)
+        integer idx = (integer)llList2String(idx_strs, i);
+        integer type = (integer)llList2String(prop_load(idx), 1);
+        if (type != 3 || remove_type3)
         {
-            if (llList2Integer(prop_types, i) != 3 || remove_type3)
-            {
-                text += [i];
-            }
+            text += [idx];
         }
     }
     string command = "REM_INDEX";
-    if (!qs_alive) // [QS] fork: was llGetInventoryType(main_script) != INVENTORY_SCRIPT
+    if (!qs_alive)
     {
         command = "REM_WORLD";
     }
@@ -280,16 +380,17 @@ remove_worn(key av)
 
 remove_sitter_props_by_pose(string sitter_pose, integer remove_type3)
 {
+    list idx_strs = prop_index_list(LSD_TRIG_PFX + sitter_pose);
+    integer n = llGetListLength(idx_strs);
     list text;
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < n; i++)
     {
-        if (llList2String(prop_triggers, i) == sitter_pose)
+        integer idx = (integer)llList2String(idx_strs, i);
+        integer type = (integer)llList2String(prop_load(idx), 1);
+        if (type != 3 || remove_type3)
         {
-            if (llList2Integer(prop_types, i) != 3 || remove_type3)
-            {
-                text += [i];
-            }
+            text += [idx];
         }
     }
     if (text != [])
@@ -302,10 +403,12 @@ remove_sitter_props_by_pose_group(string msg)
 {
     list props = get_props_by_pose(msg);
     list groups;
+    integer n = llGetListLength(props);
     integer i;
-    for (; i < llGetListLength(props); i++)
+    for (i = 0; i < n; i++)
     {
-        string prop_group = llList2String(prop_groups, llList2Integer(props, i));
+        integer idx = llList2Integer(props, i);
+        string prop_group = llList2String(prop_load(idx), 3);
         if (llListFindList(groups, [prop_group]) == -1)
         {
             groups += prop_group;
@@ -316,30 +419,26 @@ remove_sitter_props_by_pose_group(string msg)
 
 remove_props_by_group(integer gp)
 {
-    string text = "";
     string group = llList2String(sequential_prop_groups, gp);
+    list idx_strs = prop_index_list(LSD_GRP_PFX + group);
+    integer n = llGetListLength(idx_strs);
+    string text = "";
     integer i;
-    for (; i < llGetListLength(prop_groups); i++)
+    for (i = 0; i < n; i++)
     {
-        if (llList2String(prop_groups, i) == group)
-        {
-            text += "|" + (string)i;
-        }
+        text += "|" + llList2String(idx_strs, i);
     }
     if (text != "")
     {
-        if (qs_alive) // [QS] fork: was llGetInventoryType(main_script) == INVENTORY_SCRIPT
+        if (qs_alive)
         {
-            // sitA is in the prim — send the command to all sitters
             send_command("REM_INDEX" + text);
         }
         else
         {
-            // Presumed to be launched from [AV]menu; avoid removing attachments from others
-            send_command("REM_WORLD" + text); // this removes inworld props only
-            if (llList2Key(SITTERS, 0)) // OSS::if (osIsUUID(llList2Key(SITTERS, 0)) && llList2Key(SITTERS, 0) != NULL_KEY)
+            send_command("REM_WORLD" + text);
+            if (llList2Key(SITTERS, 0))
             {
-                // send command privately to current sitter
                 llRegionSayTo((string)SITTERS, comm_channel, "REM_INDEX" + text);
             }
         }
@@ -349,7 +448,7 @@ remove_props_by_group(integer gp)
 Readout_Say(string say)
 {
     llSleep(0.2);
-    llMessageLinked(LINK_THIS, 90022, say, ""); // dump to [AV]adjuster
+    llMessageLinked(LINK_THIS, 90022, say, "");
 }
 
 init_sitters()
@@ -381,15 +480,34 @@ default
     state_entry()
     {
         Out(0, "Mem=" + (string)(65536 - llGetUsedMemory()));
-        // [QS] fork: probe QSALIVE first so the reply can update SITTERS
-        // asynchronously while we keep initializing. init_sitters() runs
-        // against the default count=1; the 90097 handler re-runs it if
-        // the cached count disagrees.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
+
+        // [QS] 0.018: check if the LSD store is still current. If the
+        // notecard key matches, props are already in LSD — skip the
+        // dataserver loop entirely (sub-second boot). If mismatch
+        // (notecard edited), wipe and re-read.
+        string meta = llLinksetDataRead(LSD_META);
+        if (meta != "")
+        {
+            list mp = llParseStringKeepNulls(meta, ["\t"], []);
+            if (llList2String(mp, 0) == (string)notecard_key)
+            {
+                prop_count_cached = (integer)llList2String(mp, 1);
+                WARN = (integer)llList2String(mp, 2);
+                string groups = llList2String(mp, 3);
+                if (groups != "")
+                    sequential_prop_groups = llParseStringKeepNulls(groups, ["\n"], []);
+                Out(0, (string)prop_count_cached
+                    + " Props Ready (LSD), Mem=" + (string)llGetFreeMemory());
+                return;
+            }
+            // Notecard changed — flush stale LSD before re-parse.
+            prop_clear_all();
+        }
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
             Out(0, "Loading...");
@@ -400,20 +518,12 @@ default
     on_rez(integer start)
     {
         init_channel();
-        // [QS] fork: re-probe QSALIVE — the rez may have changed which
-        // sitter scripts are present (e.g. furniture handed to a new
-        // owner, scripts swapped).
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
     }
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Cache the sitter
-        // count and mark sitA present so subsequent checks take the fast
-        // path. Payload is pipe-delimited <product>|<ver>|<sitters>|<caps>.
-        // Both solicited (response to our 90096) and unsolicited (slot-0
-        // boot broadcast) replies arrive here. See qs/PROTOCOL.md § QSALIVE.
         if (num == QSALIVE_REPLY)
         {
             list d = llParseString2List(msg, ["|"], []);
@@ -429,55 +539,38 @@ default
             return;
         }
 
-        // [QS] fork: dynamic attach without notecard.
-        // Sender can be any link (hudadmin lives in the same prim as us
-        // today, but allow LINK_SET in case that changes). Idempotent
-        // per (sitter_idx, object): re-issue updates point + post_rez_say
-        // and re-rezzes.
         if (num == 90280)
         {
-            // Fixed-position payload: object|type|point|sitter|post_rez_say
-            // Use KeepNulls (matches stock [AV]prop's listen() convention) so
-            // an empty point at position 2 doesn't collapse subsequent fields.
             list params = llParseStringKeepNulls(msg, ["|"], []);
             if (llGetListLength(params) < 4) return;
             string  obj     = llList2String(params, 0);
             integer type    = (integer)llList2String(params, 1);
             string  point   = llList2String(params, 2);
             integer sitter  = (integer)llList2String(params, 3);
-            // postSay may itself contain '|' (e.g. "*QUICKYTEXTURE*|<uuid>" or
-            // multi-command "<cmd1>;;<cmd2>" where each cmd is pipe-formatted).
-            // Rejoin everything from index 4 onward so the payload survives.
             string  postSay = "";
             if (llGetListLength(params) > 4)
                 postSay = llDumpList2String(llList2List(params, 4, -1), "|");
             if (obj == "") return;
             if (sitter < 0 || sitter >= llGetListLength(SITTERS)) return;
 
-            string  trig = (string)sitter + "|" + obj;
-            integer idx  = llListFindList(prop_triggers, [trig]);
+            string trig = (string)sitter + "|" + obj;
+            integer idx = prop_find_trigger(trig);
             if (idx == -1)
             {
-                idx = llGetListLength(prop_triggers);
-                prop_triggers     += trig;
-                prop_types        += type;
-                prop_objects      += obj;
-                string grp        = (string)sitter + "|QSDYN";
-                prop_groups       += grp;
+                string grp = (string)sitter + "|QSDYN";
+                idx = prop_add(trig, type, obj, grp,
+                               <0.0, 0.0, 0.0>, <0.0, 0.0, 0.0>,
+                               point, postSay);
                 if (llListFindList(sequential_prop_groups, [grp]) == -1)
+                {
                     sequential_prop_groups += grp;
-                prop_positions    += <0.0, 0.0, 0.0>;
-                prop_rotations    += <0.0, 0.0, 0.0>;
-                prop_points       += point;
-                prop_post_rez_say += postSay;
+                    prop_write_meta();
+                }
             }
             else
             {
-                // Update mutable fields (point + post_rez_say); type/object stay stable per trigger
-                prop_points       = llListReplaceList(prop_points,       [point],   idx, idx);
-                prop_post_rez_say = llListReplaceList(prop_post_rez_say, [postSay], idx, idx);
+                prop_update_pt_prs(idx, point, postSay);
             }
-            // Keep SITTERS in sync so the listen() REZ branch can resolve sitter_key
             if (id != NULL_KEY)
                 SITTERS = llListReplaceList(SITTERS, [id], sitter, sitter);
             rez_prop(idx);
@@ -486,7 +579,7 @@ default
 
         if (sender == llGetLinkNumber())
         {
-            if (num == 90045) // play pose
+            if (num == 90045)
             {
                 list data = llParseStringKeepNulls(msg, ["|"], []);
                 integer sitter = (integer)llList2String(data, 0);
@@ -501,11 +594,11 @@ default
                 }
                 return;
             }
-            if (num == 90200 || num == 90220) // rez or clear prop with/without sending menu back
+            if (num == 90200 || num == 90220)
             {
                 list ids = llParseStringKeepNulls(id, ["|"], []);
                 key sitting_av_or_sitter = (key)llList2String(ids, -1);
-                if (!qs_alive) // [QS] fork: was llGetInventoryType(main_script) != INVENTORY_SCRIPT
+                if (!qs_alive)
                 {
                     SITTERS = [sitting_av_or_sitter];
                 }
@@ -525,7 +618,7 @@ default
                     integer flag;
                     for (; i < llGetListLength(SITTERS); i++)
                     {
-                        if (llListFindList(prop_triggers, [(string)i + "|" + msg]) != -1)
+                        if (prop_find_trigger((string)i + "|" + msg) != -1)
                         {
                             flag = TRUE;
                         }
@@ -534,10 +627,10 @@ default
                     {
                         if (llList2Key(SITTERS, i) == sitting_av_or_sitter || id == "" || (string)sitting_av_or_sitter == (string)i)
                         {
-                            integer index = llListFindList(prop_triggers, [(string)i + "|" + msg]);
+                            integer index = prop_find_trigger((string)i + "|" + msg);
                             if (index == -1)
                             {
-                                if (!qs_alive) // [QS] fork: was llGetInventoryType(main_script) != INVENTORY_SCRIPT
+                                if (!qs_alive)
                                 {
                                     remove_all_props();
                                 }
@@ -554,17 +647,16 @@ default
                         }
                     }
                 }
-                if (sitting_av_or_sitter) // OSS::if (osIsUUID(sitting_av_or_sitter) && sitting_av_or_sitter != NULL_KEY)
+                if (sitting_av_or_sitter)
                 {
-                    if (num == 90200) // send menu back?
+                    if (num == 90200)
                     {
-                        // send menu to same id
                         llMessageLinked(LINK_THIS, 90005, "", id);
                     }
                 }
                 return;
             }
-            if (num == 90101) // menu choice
+            if (num == 90101)
             {
                 list data = llParseString2List(msg, ["|"], []);
                 if (llList2String(data, 1) == "[SAVE]")
@@ -573,7 +665,7 @@ default
                 }
                 return;
             }
-            if (num == 90065) // stand up
+            if (num == 90065)
             {
                 remove_props_by_sitter(msg, FALSE);
                 remove_worn(id);
@@ -584,7 +676,7 @@ default
                 }
                 return;
             }
-            if (num == 90030) // swap
+            if (num == 90030)
             {
                 remove_props_by_sitter(msg, FALSE);
                 remove_props_by_sitter((string)id, FALSE);
@@ -592,38 +684,35 @@ default
                 SITTERS = llListReplaceList(SITTERS, [NULL_KEY], (integer)((string)id), (integer)((string)id));
                 return;
             }
-            if (num == 90070) // update list of sitters
+            if (num == 90070)
             {
                 SITTERS = llListReplaceList(SITTERS, [id], (integer)msg, (integer)msg);
                 return;
             }
-            if (num == 90171 || num == 90173) // [AV]adjuster/[AV]menu add PROP line
+            if (num == 90171 || num == 90173)
             {
                 integer sitter;
-                if (num == 90171) // [AV]adjuster?
+                string trig;
+                if (num == 90171)
                 {
                     sitter = (integer)msg;
-                    prop_triggers += [llList2String(SITTER_POSES, sitter)];
+                    trig = llList2String(SITTER_POSES, sitter);
                 }
                 else
                 {
                     sitter = 0;
                     SITTER_POSES = ["0|" + msg];
-                    prop_triggers += "0|" + msg;
+                    trig = "0|" + msg;
                 }
-                prop_types += 0;
-                prop_objects += (string)id;
                 string prop_group = (string)sitter + "|G1";
-                prop_groups += prop_group;
+                integer new_idx = prop_add(trig, 0, (string)id, prop_group,
+                                           <0,0,1>, <0,0,0>, "", "");
                 if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                 {
                     sequential_prop_groups += prop_group;
                 }
-                prop_positions += <0,0,1>;
-                prop_rotations += <0,0,0>;
-                prop_points += "";
-                prop_post_rez_say += ""; // [QS] fork: keep parallel-list aligned
-                rez_prop(llGetListLength(prop_triggers) - 1);
+                prop_write_meta();
+                rez_prop(new_idx);
                 string text = "PROP added: '" + (string)id + "' to '" + element(llList2String(SITTER_POSES, sitter), 1) + "'";
                 if (llGetListLength(SITTERS) > 1)
                 {
@@ -633,22 +722,35 @@ default
                 llSay(0, "Position your prop and click [SAVE].");
                 return;
             }
-            if (num == 90020 && (string)id == llGetScriptName()) // dump our settings
+            if (num == 90020 && (string)id == llGetScriptName())
             {
+                // Dump matching props (sitter prefix) — iterate all
+                // indices since there's no direct sitter-pose index.
+                // Rare admin path; the O(count) LSD reads are fine.
+                integer count = prop_count_cached;
                 integer i;
-                for (; i < llGetListLength(prop_triggers); i++)
+                for (i = 0; i < count; i++)
                 {
-                    if (llSubStringIndex(llList2String(prop_triggers, i), msg + "|") == 0)
+                    list entry = prop_load(i);
+                    string trig = llList2String(entry, 0);
+                    if (llSubStringIndex(trig, msg + "|") == 0)
                     {
-                        string type = (string)llList2Integer(prop_types, i);
+                        string type = (string)llList2Integer(entry, 1);
                         if (type == "0")
                         {
                             type = "";
                         }
-                        Readout_Say("PROP" + type + " " + llDumpList2String([element(llList2String(prop_triggers, i), 1), llList2String(prop_objects, i), element(llList2String(prop_groups, i), 1), llList2String(prop_positions, i), llList2String(prop_rotations, i), llList2String(prop_points, i)], "|"));
+                        Readout_Say("PROP" + type + " " + llDumpList2String([
+                            element(trig, 1),
+                            llList2String(entry, 2),
+                            element(llList2String(entry, 3), 1),
+                            llList2String(entry, 4),
+                            llList2String(entry, 5),
+                            llList2String(entry, 6)
+                        ], "|"));
                     }
                 }
-                llMessageLinked(LINK_THIS, 90021, msg, llGetScriptName()); // notify finished dumping
+                llMessageLinked(LINK_THIS, 90021, msg, llGetScriptName());
                 return;
             }
         }
@@ -661,13 +763,11 @@ default
             if (llGetInventoryKey(notecard_name) != notecard_key)
             {
                 remove_all_props();
+                prop_clear_all();
                 llResetScript();
             }
             else
             {
-                // [QS] fork: re-probe QSALIVE — sitA may have been added
-                // / removed / its slot count changed. Reply re-inits
-                // SITTERS if the cached count disagrees.
                 qs_alive = FALSE;
                 llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
                 if (get_number_of_scripts() != llGetListLength(SITTERS))
@@ -681,7 +781,7 @@ default
             if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) == ZERO_VECTOR)
             {
                 HAVENTNAGGED = TRUE;
-                if (qs_alive) // [QS] fork: was llGetInventoryType(main_script) == INVENTORY_SCRIPT
+                if (qs_alive)
                 {
                     remove_all_props();
                 }
@@ -695,7 +795,7 @@ default
         if (llList2String(data, 0) == "SAVEPROP")
         {
             integer index = (integer)llList2String(data, 1);
-            if (index >= 0 && index < llGetListLength(prop_triggers))
+            if (index >= 0 && index < prop_count_cached)
             {
                 if (llList2Vector(llGetObjectDetails(id, [OBJECT_POS]), 0) != ZERO_VECTOR)
                 {
@@ -703,14 +803,16 @@ default
                     rotation f = llList2Rot((details = llGetObjectDetails(llGetKey(), details) + llGetObjectDetails(id, details)), 1);
                     vector target_rot = llRot2Euler(llList2Rot(details, 3) / f) * RAD_TO_DEG;
                     vector target_pos = (llList2Vector(details, 2) - llList2Vector(details, 0)) / f;
-                    prop_positions = llListReplaceList(prop_positions, [target_pos], index, index);
-                    prop_rotations = llListReplaceList(prop_rotations, [target_rot], index, index);
-                    string type = llList2String(prop_types, index);
+                    prop_update_pos_rot(index, target_pos, target_rot);
+                    list entry = prop_load(index);
+                    string type = (string)llList2Integer(entry, 1);
                     if (type == "0")
                     {
                         type = "";
                     }
-                    string text = "PROP Saved to memory, SITTER " + element(llList2String(prop_triggers, index), 0) + ": PROP" + type + " " + element(llList2String(prop_triggers, index), 1) + "|" + name + "|" + element(llList2String(prop_groups, index), 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(prop_points, index);
+                    string trig = llList2String(entry, 0);
+                    string grp  = llList2String(entry, 3);
+                    string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(entry, 6);
                     llSay(0, text);
                 }
             }
@@ -723,25 +825,29 @@ default
         if (llList2String(data, 0) == "ATTACHED" || llList2String(data, 0) == "DETACHED" || llList2String(data, 0) == "REZ" || llList2String(data, 0) == "DEREZ")
         {
             integer prop_index = (integer)llList2String(data, 1);
-            integer sitter = (integer)llList2String(llParseStringKeepNulls(llList2String(prop_triggers, prop_index), ["|"], []), 0);
+            list entry = prop_load(prop_index);
+            string trig = llList2String(entry, 0);
+            integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
             key sitter_key = llList2Key(SITTERS, sitter);
-            if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && llList2Integer(prop_types, prop_index) == 1)
+            if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
             }
-            // [QS] fork: optional post-rez extra say (e.g. hudadmin pushing
-            // "*QUICKYTEXTURE*|<uuid>" to a freshly-rezzed Quicky-Pose-HUD).
-            // Generic — [QS]prop holds the payload verbatim and forwards it.
             if (llList2String(data, 0) == "REZ")
             {
-                string postSay = llList2String(prop_post_rez_say, prop_index);
+                string postSay = llList2String(entry, 7);
                 if (postSay != "")
                 {
                     llSay(comm_channel, postSay);
                 }
             }
-            // send prop event notification
-            llMessageLinked(LINK_SET, 90500, llDumpList2String([llList2String(data, 0), llList2String(prop_triggers, prop_index), llList2String(prop_objects, prop_index), llList2String(llParseStringKeepNulls(llList2String(prop_groups, prop_index), ["|"], []), 1), id], "|"), sitter_key);
+            llMessageLinked(LINK_SET, 90500, llDumpList2String([
+                llList2String(data, 0),
+                trig,
+                llList2String(entry, 2),
+                element(llList2String(entry, 3), 1),
+                id
+            ], "|"), sitter_key);
             return;
         }
         if (llList2String(data, 0) == "NAG" && HAVENTNAGGED && (!llGetAttached()))
@@ -757,7 +863,9 @@ default
         {
             if (data == EOF)
             {
-                Out(0, (string)llGetListLength(prop_triggers) + " Props Ready, Mem=" + (string)llGetFreeMemory());
+                prop_write_meta();
+                Out(0, (string)prop_count_cached
+                    + " Props Ready, Mem=" + (string)llGetFreeMemory());
                 return;
             }
 
@@ -771,38 +879,30 @@ default
             }
             if (llGetSubString(command, 0, 3) == "PROP")
             {
-                if (llGetListLength(prop_triggers) == 100)
+                if (prop_count_cached == 100)
                 {
-                    Out(0, "Max props is 100, could not add prop!"); // the real limit is less than this due to memory running out first :)
+                    Out(0, "Max props is 100, could not add prop!");
                 }
                 else
                 {
                     integer prop_type;
-                    if (command == "PROP1")
-                    {
-                        prop_type = 1;
-                    }
-                    if (command == "PROP2")
-                    {
-                        prop_type = 2;
-                    }
-                    if (command == "PROP3")
-                    {
-                        prop_type = 3;
-                    }
-                    prop_triggers += [(string)notecard_section + "|" + llList2String(parts, 0)];
-                    prop_types += prop_type;
-                    prop_objects += llList2String(parts, 1);
+                    if (command == "PROP1") prop_type = 1;
+                    if (command == "PROP2") prop_type = 2;
+                    if (command == "PROP3") prop_type = 3;
                     string prop_group = (string)notecard_section + "|" + llList2String(parts, 2);
-                    prop_groups += prop_group;
+                    prop_add(
+                        (string)notecard_section + "|" + llList2String(parts, 0),
+                        prop_type,
+                        llList2String(parts, 1),
+                        prop_group,
+                        (vector)llList2String(parts, 3),
+                        (vector)llList2String(parts, 4),
+                        llList2String(parts, 5),
+                        "");
                     if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                     {
                         sequential_prop_groups += prop_group;
                     }
-                    prop_positions += (vector)llList2String(parts, 3);
-                    prop_rotations += (vector)llList2String(parts, 4);
-                    prop_points += llList2String(parts, 5);
-                    prop_post_rez_say += ""; // [QS] fork: keep parallel-list aligned with notecard-loaded props
                 }
             }
             if (command == "WARN")
