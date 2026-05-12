@@ -42,7 +42,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.018";
+string version = "0.019";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -158,22 +158,23 @@ integer prop_count()
     return prop_count_cached;
 }
 
-// Append idx to a comma-separated index list under `key`. Creates the
-// entry if missing.
-prop_index_append(string key, integer idx)
+// Append idx to a comma-separated index list under `lsd_key`. Creates the
+// entry if missing. (Param is `lsd_key`, not `key` — `key` is an LSL
+// type keyword and cannot be used as an identifier.)
+prop_index_append(string lsd_key, integer idx)
 {
-    string existing = llLinksetDataRead(key);
+    string existing = llLinksetDataRead(lsd_key);
     if (existing == "")
-        llLinksetDataWrite(key, (string)idx);
+        llLinksetDataWrite(lsd_key, (string)idx);
     else
-        llLinksetDataWrite(key, existing + "," + (string)idx);
+        llLinksetDataWrite(lsd_key, existing + "," + (string)idx);
 }
 
 // Read an index-list LSD entry and return a list of string indices.
 // Returns [] if entry missing. Caller casts to int as needed.
-list prop_index_list(string key)
+list prop_index_list(string lsd_key)
 {
-    string val = llLinksetDataRead(key);
+    string val = llLinksetDataRead(lsd_key);
     if (val == "") return [];
     return llParseStringKeepNulls(val, [","], []);
 }
