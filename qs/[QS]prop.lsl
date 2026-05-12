@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.013"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.014"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -444,13 +444,13 @@ integer load_props_from_lsd()
 
     pending_load_count = count;
     pending_load_index = 0;
-    // 0.2 s tick instead of 0.05 — sim is heavily contested at boot
-    // (4× Hand Poses, LoveBridge, [QS]* etc. all parse their own
-    // notecards in parallel), so we need wider frame breaks for the
-    // LSL runtime to free per-iteration transients before the next
-    // batch piles on. 60 entries × 0.2 s ≈ 12 s; still acceptable
-    // compared to the multi-minute notecard read.
-    llSetTimerEvent(0.2);
+    // 1 s tick. 0.2 s wasn't long enough for the LSL runtime to free
+    // per-iter transients between batches under boot contention from
+    // sibling plugins (Hand Poses ×4, Faces ×4, LoveBridge etc. — they
+    // don't share OUR heap, but they share sim CPU which delays our
+    // GC). 60 entries × 1 s = 60 s — long, but a small fraction of
+    // the multi-minute notecard read it replaces.
+    llSetTimerEvent(1.0);
     return TRUE;
 }
 
@@ -565,29 +565,14 @@ default
                 }
                 return;
             }
-            // Manual tab-split instead of llParseStringKeepNulls — saves
-            // ~250 B per iter (the 7-element parse-list allocation). Each
-            // llDeleteSubString shrinks the remaining entry transient by
-            // its already-consumed prefix, so peak per field stays small.
-            integer p = llSubStringIndex(entry, "\t");
-            prop_triggers  += llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            p = llSubStringIndex(entry, "\t");
-            prop_types     += (integer)llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            p = llSubStringIndex(entry, "\t");
-            prop_objects   += llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            p = llSubStringIndex(entry, "\t");
-            prop_groups    += llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            p = llSubStringIndex(entry, "\t");
-            prop_positions += (vector)llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            p = llSubStringIndex(entry, "\t");
-            prop_rotations += (vector)llGetSubString(entry, 0, p - 1);
-            entry = llDeleteSubString(entry, 0, p);
-            prop_points    += entry;  // last field, no more separator
+            list f = llParseStringKeepNulls(entry, ["\t"], []);
+            prop_triggers     += llList2String(f, 0);
+            prop_types        += (integer)llList2String(f, 1);
+            prop_objects      += llList2String(f, 2);
+            prop_groups       += llList2String(f, 3);
+            prop_positions    += (vector)llList2String(f, 4);
+            prop_rotations    += (vector)llList2String(f, 5);
+            prop_points       += llList2String(f, 6);
             prop_post_rez_say += "";  // runtime-only, never cached
         }
         pending_load_index = batchEnd;
