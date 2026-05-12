@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.011"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.012"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -556,14 +556,29 @@ default
                 }
                 return;
             }
-            list f = llParseStringKeepNulls(entry, ["\t"], []);
-            prop_triggers     += llList2String(f, 0);
-            prop_types        += (integer)llList2String(f, 1);
-            prop_objects      += llList2String(f, 2);
-            prop_groups       += llList2String(f, 3);
-            prop_positions    += (vector)llList2String(f, 4);
-            prop_rotations    += (vector)llList2String(f, 5);
-            prop_points       += llList2String(f, 6);
+            // Manual tab-split instead of llParseStringKeepNulls — saves
+            // ~250 B per iter (the 7-element parse-list allocation). Each
+            // llDeleteSubString shrinks the remaining entry transient by
+            // its already-consumed prefix, so peak per field stays small.
+            integer p = llSubStringIndex(entry, "\t");
+            prop_triggers  += llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            p = llSubStringIndex(entry, "\t");
+            prop_types     += (integer)llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            p = llSubStringIndex(entry, "\t");
+            prop_objects   += llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            p = llSubStringIndex(entry, "\t");
+            prop_groups    += llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            p = llSubStringIndex(entry, "\t");
+            prop_positions += (vector)llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            p = llSubStringIndex(entry, "\t");
+            prop_rotations += (vector)llGetSubString(entry, 0, p - 1);
+            entry = llDeleteSubString(entry, 0, p);
+            prop_points    += entry;  // last field, no more separator
             prop_post_rez_say += "";  // runtime-only, never cached
         }
         pending_load_index = batchEnd;
