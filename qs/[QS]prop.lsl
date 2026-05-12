@@ -54,7 +54,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.009"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.010"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -465,8 +465,11 @@ integer load_props_from_lsd()
     string meta = llLinksetDataRead(LSD_PROP_META);
     if (meta == "") return FALSE;
     list metaParts = llParseStringKeepNulls(meta, ["\t"], []);
-    if (llGetListLength(metaParts) < 5) return FALSE;
-    if (llList2String(metaParts, 4) != LSD_PROP_FORMAT) return FALSE;
+    if (llGetListLength(metaParts) < 4) return FALSE;
+    // Format-version marker is optional — v1 caches (0.005–0.008) had no
+    // marker; v2 adds "\tv2" at the end. Per-entry format is identical
+    // between v1 and v2 so v1 can be loaded as-is. The next save_props_
+    // to_lsd will rewrite with the v2 marker.
     if (llList2String(metaParts, 0) != current_notecard_key()) return FALSE;
     integer count = (integer)llList2String(metaParts, 1);
     if (count <= 0) return FALSE;
