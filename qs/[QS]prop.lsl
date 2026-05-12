@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.014"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.015"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -76,13 +76,13 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
 list SITTER_POSES;
-// [QS] fork: ATTACH_POINTS lifted from global into get_point() as a
-// function-local — used only there, so making it global cost ~2 KB
-// of persistent heap for no benefit. The literal still costs the same
-// bytecode either way, but at runtime the 80-element list is only
-// instantiated for the duration of a get_point() call (rez_prop path,
-// not the cache-load hot path), then freed on return. Gives the cache
-// load ~2 KB extra headroom under heap pressure.
+// [QS] fork: ATTACH_POINTS was originally a global 80-element list
+// (40 attach-point ID + name pairs), cost ~2 KB persistent heap.
+// 0.013 moved it to a function-local in get_point() — saved persistent
+// heap but still allocated ~2 KB temporarily per call. With the cache
+// loaded to Mem=778 free, that allocation Stack-Heap'd on the first
+// rez_prop. 0.015 replaces the list lookup with an if/else cascade:
+// zero heap allocation per call, smaller bytecode footprint too.
 
 integer verbose = 5;
 
@@ -107,60 +107,55 @@ integer get_number_of_scripts()
     return 7;
 }
 
+// [QS] fork: zero-allocation get_point — see ATTACH_POINTS comment
+// above. Order matches the original ATTACH_POINTS list so the same
+// "first match wins" semantics apply (e.g. "HUD center 2" must be
+// checked before "HUD center" or the bare suffix would shadow it).
+// llSubStringIndex's "needle in haystack" behavior — the function
+// matches if `text` contains the attach-point name anywhere.
 integer get_point(string text)
 {
-    // [QS] fork: ATTACH_POINTS is now a function-local — see global
-    // declaration comment above. Allocated on entry, freed on return.
-    list ATTACH_POINTS =
-        [ ATTACH_CHEST,             "chest"
-        , ATTACH_HEAD,              "head"
-        , ATTACH_LSHOULDER,         "left shoulder"
-        , ATTACH_RSHOULDER,         "right shoulder"
-        , ATTACH_LHAND,             "left hand"
-        , ATTACH_RHAND,             "right hand"
-        , ATTACH_LFOOT,             "left foot"
-        , ATTACH_RFOOT,             "right foot"
-        , ATTACH_BACK,              "back"
-        , ATTACH_PELVIS,            "pelvis"
-        , ATTACH_MOUTH,             "mouth"
-        , ATTACH_CHIN,              "chin"
-        , ATTACH_LEAR,              "left ear"
-        , ATTACH_REAR,              "right ear"
-        , ATTACH_LEYE,              "left eye"
-        , ATTACH_REYE,              "right eye"
-        , ATTACH_NOSE,              "nose"
-        , ATTACH_RUARM,             "right upper arm"
-        , ATTACH_RLARM,             "right lower arm"
-        , ATTACH_LUARM,             "left upper arm"
-        , ATTACH_LLARM,             "left lower arm"
-        , ATTACH_RHIP,              "right hip"
-        , ATTACH_RULEG,             "right upper leg"
-        , ATTACH_RLLEG,             "right lower leg"
-        , ATTACH_LHIP,              "left hip"
-        , ATTACH_LULEG,             "left upper leg"
-        , ATTACH_LLLEG,             "left lower leg"
-        , ATTACH_BELLY,             "stomach"
-        , ATTACH_LEFT_PEC,          "left pectoral"
-        , ATTACH_RIGHT_PEC,         "right pectoral"
-        , ATTACH_HUD_CENTER_2,      "HUD center 2"
-        , ATTACH_HUD_TOP_RIGHT,     "HUD top right"
-        , ATTACH_HUD_TOP_CENTER,    "HUD top"
-        , ATTACH_HUD_TOP_LEFT,      "HUD top left"
-        , ATTACH_HUD_CENTER_1,      "HUD center"
-        , ATTACH_HUD_BOTTOM_LEFT,   "HUD bottom left"
-        , ATTACH_HUD_BOTTOM,        "HUD bottom"
-        , ATTACH_HUD_BOTTOM_RIGHT,  "HUD bottom right"
-        , ATTACH_NECK,              "neck"
-        , ATTACH_AVATAR_CENTER,     "avatar center"
-        ];
-    integer i;
-    for (i = 1; i < llGetListLength(ATTACH_POINTS); i = i + 2)
-    {
-        if (llSubStringIndex(llToUpper(text), llToUpper(llList2String(ATTACH_POINTS, i))) != -1)
-        {
-            return llList2Integer(ATTACH_POINTS, i - 1);
-        }
-    }
+    string s = llToUpper(text);
+    if (llSubStringIndex(s, "CHEST")           != -1) return ATTACH_CHEST;
+    if (llSubStringIndex(s, "HEAD")            != -1) return ATTACH_HEAD;
+    if (llSubStringIndex(s, "LEFT SHOULDER")   != -1) return ATTACH_LSHOULDER;
+    if (llSubStringIndex(s, "RIGHT SHOULDER")  != -1) return ATTACH_RSHOULDER;
+    if (llSubStringIndex(s, "LEFT HAND")       != -1) return ATTACH_LHAND;
+    if (llSubStringIndex(s, "RIGHT HAND")      != -1) return ATTACH_RHAND;
+    if (llSubStringIndex(s, "LEFT FOOT")       != -1) return ATTACH_LFOOT;
+    if (llSubStringIndex(s, "RIGHT FOOT")      != -1) return ATTACH_RFOOT;
+    if (llSubStringIndex(s, "BACK")            != -1) return ATTACH_BACK;
+    if (llSubStringIndex(s, "PELVIS")          != -1) return ATTACH_PELVIS;
+    if (llSubStringIndex(s, "MOUTH")           != -1) return ATTACH_MOUTH;
+    if (llSubStringIndex(s, "CHIN")            != -1) return ATTACH_CHIN;
+    if (llSubStringIndex(s, "LEFT EAR")        != -1) return ATTACH_LEAR;
+    if (llSubStringIndex(s, "RIGHT EAR")       != -1) return ATTACH_REAR;
+    if (llSubStringIndex(s, "LEFT EYE")        != -1) return ATTACH_LEYE;
+    if (llSubStringIndex(s, "RIGHT EYE")       != -1) return ATTACH_REYE;
+    if (llSubStringIndex(s, "NOSE")            != -1) return ATTACH_NOSE;
+    if (llSubStringIndex(s, "RIGHT UPPER ARM") != -1) return ATTACH_RUARM;
+    if (llSubStringIndex(s, "RIGHT LOWER ARM") != -1) return ATTACH_RLARM;
+    if (llSubStringIndex(s, "LEFT UPPER ARM")  != -1) return ATTACH_LUARM;
+    if (llSubStringIndex(s, "LEFT LOWER ARM")  != -1) return ATTACH_LLARM;
+    if (llSubStringIndex(s, "RIGHT HIP")       != -1) return ATTACH_RHIP;
+    if (llSubStringIndex(s, "RIGHT UPPER LEG") != -1) return ATTACH_RULEG;
+    if (llSubStringIndex(s, "RIGHT LOWER LEG") != -1) return ATTACH_RLLEG;
+    if (llSubStringIndex(s, "LEFT HIP")        != -1) return ATTACH_LHIP;
+    if (llSubStringIndex(s, "LEFT UPPER LEG")  != -1) return ATTACH_LULEG;
+    if (llSubStringIndex(s, "LEFT LOWER LEG")  != -1) return ATTACH_LLLEG;
+    if (llSubStringIndex(s, "STOMACH")         != -1) return ATTACH_BELLY;
+    if (llSubStringIndex(s, "LEFT PECTORAL")   != -1) return ATTACH_LEFT_PEC;
+    if (llSubStringIndex(s, "RIGHT PECTORAL")  != -1) return ATTACH_RIGHT_PEC;
+    if (llSubStringIndex(s, "HUD CENTER 2")    != -1) return ATTACH_HUD_CENTER_2;
+    if (llSubStringIndex(s, "HUD TOP RIGHT")   != -1) return ATTACH_HUD_TOP_RIGHT;
+    if (llSubStringIndex(s, "HUD TOP")         != -1) return ATTACH_HUD_TOP_CENTER;
+    if (llSubStringIndex(s, "HUD TOP LEFT")    != -1) return ATTACH_HUD_TOP_LEFT;
+    if (llSubStringIndex(s, "HUD CENTER")      != -1) return ATTACH_HUD_CENTER_1;
+    if (llSubStringIndex(s, "HUD BOTTOM LEFT") != -1) return ATTACH_HUD_BOTTOM_LEFT;
+    if (llSubStringIndex(s, "HUD BOTTOM")      != -1) return ATTACH_HUD_BOTTOM;
+    if (llSubStringIndex(s, "HUD BOTTOM RIGHT")!= -1) return ATTACH_HUD_BOTTOM_RIGHT;
+    if (llSubStringIndex(s, "NECK")            != -1) return ATTACH_NECK;
+    if (llSubStringIndex(s, "AVATAR CENTER")   != -1) return ATTACH_AVATAR_CENTER;
     return 0;
 }
 
