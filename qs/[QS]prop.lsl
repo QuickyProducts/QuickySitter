@@ -47,7 +47,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.015"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.016"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -525,14 +525,38 @@ default
 
     // Async LSD-cache batch loader. Only runs when pending_load_count > 0
     // (set by load_props_from_lsd). Reads BATCH_SIZE entries per tick to
-    // keep peak heap below the Stack-Heap line on big notecards, then
-    // finalizes meta-derived state on the closing batch and disarms.
+    // keep peak heap below the Stack-Heap line on big notecards.
+    //
+    // pending_load_index encodes both progress and phase:
+    //   0..count-1 → still loading data entries (one per tick)
+    //   count      → all entries loaded; the next tick runs the closing
+    //                step (meta re-read + WARN + sequential_prop_groups).
+    //                Separating it gives the runtime a full tick of GC
+    //                between the last entry append and the meta parse.
+    //   > count    → idle (caught at the top and disarmed).
     timer()
     {
         if (pending_load_count == 0) {
             llSetTimerEvent(0);
             return;
         }
+
+        // Closing step: runs in its own tick after all entries are loaded.
+        if (pending_load_index >= pending_load_count)
+        {
+            string meta = llLinksetDataRead(LSD_PROP_META);
+            list mp = llParseStringKeepNulls(meta, ["\t"], []);
+            WARN = (integer)llList2String(mp, 2);
+            string seqJoined = llList2String(mp, 3);
+            if (seqJoined != "")
+                sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
+            Out(0, (string)pending_load_count
+                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
+            pending_load_count = 0;
+            llSetTimerEvent(0);
+            return;
+        }
+
         integer batchEnd = pending_load_index + BATCH_SIZE;
         if (batchEnd > pending_load_count) batchEnd = pending_load_count;
         integer i;
@@ -571,23 +595,8 @@ default
             prop_post_rez_say += "";  // runtime-only, never cached
         }
         pending_load_index = batchEnd;
-
-        if (pending_load_index >= pending_load_count)
-        {
-            // Closing batch — re-read meta to harvest WARN + sequential
-            // groups. Avoids keeping a stale large string in a module
-            // variable across the whole load.
-            string meta = llLinksetDataRead(LSD_PROP_META);
-            list mp = llParseStringKeepNulls(meta, ["\t"], []);
-            WARN = (integer)llList2String(mp, 2);
-            string seqJoined = llList2String(mp, 3);
-            if (seqJoined != "")
-                sequential_prop_groups = llParseStringKeepNulls(seqJoined, ["\n"], []);
-            Out(0, (string)pending_load_count
-                + " Props Ready (cached), Mem=" + (string)llGetFreeMemory());
-            pending_load_count = 0;
-            llSetTimerEvent(0);
-        }
+        // Don't fall through to the closing step on the same tick — let
+        // the runtime GC the per-iter transients first.
     }
 
     on_rez(integer start)
