@@ -8,13 +8,15 @@
  *      is replaced by `qs_alive` + `qs_sitter_count_cached`. See
  *      qs/PROTOCOL.md § QSALIVE. Plugin convention: never probe by script
  *      name (forks, renames, splits all break that).
- *   2. New global list `prop_post_rez_say` (parallel to prop_triggers).
- *      Notecard-loaded props get "" appended; only dynamic-attach props
- *      carry content. Out-of-range access returns "" so unaligned indexes
- *      degrade gracefully.
+ *   2. Consolidated prop_data list (stride 8) replacing stock's eight
+ *      parallel lists (prop_triggers/types/objects/groups/positions/
+ *      rotations/points/post_rez_say). Per-iter cache-load allocation
+ *      count drops from 8 to 1, halving heap fragmentation under the
+ *      sim-boot heap squeeze. prop_post_rez_say is the 8th field — ""
+ *      for stock entries, payload for QSPROP_ATTACH entries.
  *   3. In listen()'s comm_channel REZ branch, after the ATTACHTO say,
- *      emit prop_post_rez_say[prop_index] on comm_channel if non-empty.
- *      Generic — [QS]prop stays HUD-agnostic. hudadmin uses it to push
+ *      emit prop_data[i*8+7] on comm_channel if non-empty. Generic —
+ *      [QS]prop stays HUD-agnostic. hudadmin uses it to push
  *      "*QUICKYTEXTURE*|<uuid>" to a freshly-rezzed Quicky-Pose-HUD.
  *   4. New link_message handler num=90280 (QSPROP_ATTACH):
  *      Dynamic prop registration + immediate rez, without going through
@@ -24,6 +26,11 @@
  *      id  = sitter_key
  *      Idempotent per (sitter_idx, object) — re-issue updates point /
  *      post_rez_say and re-rezzes.
+ *   5. LSD cache (qs:prop:meta + qs:prop:<i>) skips the AVpos
+ *      dataserver loop on subsequent restarts. Format-version "v2"
+ *      gate invalidates older v1 caches automatically. Pre-allocates
+ *      prop_data via doubling and populates via llListReplaceList so
+ *      per-tick heap footprint stays constant.
  *
  * Removal of dynamically-attached props happens via the stock 90065
  * (stand-up) handler — remove_props_by_sitter wipes all type!=3 props
@@ -47,7 +54,7 @@
  * instructions can be found at http://avsitter.github.io
  */
 
-string version = "0.008"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
+string version = "0.009"; // [QS] fork: own QS version (forked from stock [AV]prop 2.2p04)
 string notecard_name = "AVpos";
 // [QS] fork: sitter presence via QSALIVE handshake (qs/PROTOCOL.md § QSALIVE).
 // Stock's `string main_script = "[AV]sitA"` is gone — script-name probes break
@@ -64,14 +71,20 @@ key notecard_query;
 integer notecard_line;
 integer notecard_section;
 integer listen_handle;
-list prop_triggers;
-list prop_types;
-list prop_objects;
-list prop_positions;
-list prop_rotations;
-list prop_groups;
-list prop_points;
-list prop_post_rez_say; // [QS] fork: parallel to prop_triggers. "" for stock entries; dynamic-attach payload for QSPROP_ATTACH entries.
+
+// [QS] fork: single consolidated prop list, stride 8.
+//   [i*8+0] trigger        (string,  e.g. "0|Hold")
+//   [i*8+1] type           (integer, 0..3)
+//   [i*8+2] object         (string,  inventory name)
+//   [i*8+3] group          (string,  e.g. "0|G1")
+//   [i*8+4] position       (vector)
+//   [i*8+5] rotation       (vector)
+//   [i*8+6] point          (string,  attach-point name, e.g. "chest")
+//   [i*8+7] post_rez_say   (string,  "" for stock, payload for QSPROP_ATTACH)
+// Stock kept these as eight parallel lists. Consolidating drops per-iter
+// allocation count by 8× during the cache load — same total bytes, much
+// lower fragmentation peaks. Helper functions handle count / find.
+list prop_data;
 list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS; // Force error in LSO
@@ -155,14 +168,34 @@ integer get_point(string text)
     return 0;
 }
 
+// Number of props currently in prop_data.
+integer prop_count()
+{
+    return llGetListLength(prop_data) / 8;
+}
+
+// Find a prop by trigger string. Returns the prop index (0..count-1)
+// or -1 if not found. Linear scan with stride 8.
+integer prop_find_trigger(string trig)
+{
+    integer n = llGetListLength(prop_data);
+    integer i;
+    for (i = 0; i < n; i += 8)
+    {
+        if (llList2String(prop_data, i) == trig) return i / 8;
+    }
+    return -1;
+}
+
 rez_prop(integer index)
 {
-    integer type = llList2Integer(prop_types, index);
-    string object = llList2String(prop_objects, index);
+    integer base = index * 8;
+    integer type = llList2Integer(prop_data, base + 1);
+    string object = llList2String(prop_data, base + 2);
     if (object != "")
     {
-        vector pos = llList2Vector(prop_positions, index) * llGetRot() + llGetPos();
-        rotation rot = llEuler2Rot(llList2Vector(prop_rotations, index) * DEG_TO_RAD) * llGetRot();
+        vector pos = llList2Vector(prop_data, base + 4) * llGetRot() + llGetPos();
+        rotation rot = llEuler2Rot(llList2Vector(prop_data, base + 5) * DEG_TO_RAD) * llGetRot();
         if (llGetInventoryType(object) != INVENTORY_OBJECT)
         {
             llSay(0, "Could not find prop '" + object + "'.");
@@ -201,7 +234,7 @@ rez_prop(integer index)
         //   - 1 digit prop_type
         // HACK: reuse 'perms' rather than calling the function in the
         // expression, to reduce stack usage
-        perms = get_point(llList2String(prop_points, index));
+        perms = get_point(llList2String(prop_data, base + 6));
         llRezAtRoot(object, pos, ZERO_VECTOR, rot,
             comm_channel * 100000 // negative, so we subtract everything else instead of adding
             -  (index * 1000
@@ -224,10 +257,11 @@ remove_all_props()
 
 rez_props_by_trigger(string pose_name)
 {
+    integer count = prop_count();
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < count; i++)
     {
-        if (llList2String(prop_triggers, i) == pose_name)
+        if (llList2String(prop_data, i * 8) == pose_name)
         {
             rez_prop(i);
         }
@@ -237,10 +271,11 @@ rez_props_by_trigger(string pose_name)
 list get_props_by_pose(string pose_name)
 {
     list props_to_do;
+    integer count = prop_count();
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < count; i++)
     {
-        if (llList2String(prop_triggers, i) == pose_name)
+        if (llList2String(prop_data, i * 8) == pose_name)
         {
             props_to_do += i;
         }
@@ -251,12 +286,14 @@ list get_props_by_pose(string pose_name)
 remove_props_by_sitter(string sitter, integer remove_type3)
 {
     list text;
+    integer count = prop_count();
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < count; i++)
     {
-        if (llSubStringIndex(llList2String(prop_triggers, i), sitter + "|") == 0)
+        integer base = i * 8;
+        if (llSubStringIndex(llList2String(prop_data, base), sitter + "|") == 0)
         {
-            if (llList2Integer(prop_types, i) != 3 || remove_type3)
+            if (llList2Integer(prop_data, base + 1) != 3 || remove_type3)
             {
                 text += [i];
             }
@@ -281,12 +318,14 @@ remove_worn(key av)
 remove_sitter_props_by_pose(string sitter_pose, integer remove_type3)
 {
     list text;
+    integer count = prop_count();
     integer i;
-    for (; i < llGetListLength(prop_triggers); i++)
+    for (i = 0; i < count; i++)
     {
-        if (llList2String(prop_triggers, i) == sitter_pose)
+        integer base = i * 8;
+        if (llList2String(prop_data, base) == sitter_pose)
         {
-            if (llList2Integer(prop_types, i) != 3 || remove_type3)
+            if (llList2Integer(prop_data, base + 1) != 3 || remove_type3)
             {
                 text += [i];
             }
@@ -302,10 +341,11 @@ remove_sitter_props_by_pose_group(string msg)
 {
     list props = get_props_by_pose(msg);
     list groups;
+    integer n = llGetListLength(props);
     integer i;
-    for (; i < llGetListLength(props); i++)
+    for (i = 0; i < n; i++)
     {
-        string prop_group = llList2String(prop_groups, llList2Integer(props, i));
+        string prop_group = llList2String(prop_data, llList2Integer(props, i) * 8 + 3);
         if (llListFindList(groups, [prop_group]) == -1)
         {
             groups += prop_group;
@@ -318,10 +358,11 @@ remove_props_by_group(integer gp)
 {
     string text = "";
     string group = llList2String(sequential_prop_groups, gp);
+    integer count = prop_count();
     integer i;
-    for (; i < llGetListLength(prop_groups); i++)
+    for (i = 0; i < count; i++)
     {
-        if (llList2String(prop_groups, i) == group)
+        if (llList2String(prop_data, i * 8 + 3) == group)
         {
             text += "|" + (string)i;
         }
@@ -376,37 +417,32 @@ string element(string text, integer x)
     return llList2String(llParseStringKeepNulls(text, ["|"], []), x);
 }
 
-// LSD-cache layer over the AVpos notecard parse. Big notecards take 5-10
-// minutes to read on busy regions; caching the parsed prop data in
-// linkset_data lets follow-up restarts skip the dataserver storm.
+// LSD-cache layer over the AVpos notecard parse. Big notecards take
+// 5-10 minutes to read on busy regions; caching the parsed prop data
+// in linkset_data lets follow-up restarts skip the dataserver storm.
 //
-// Layout:
-//   "qs:prop:meta" = "<notecard_key>\t<count>\t<warn>\t<sequential_groups>"
-//     where sequential_groups is "\n"-joined.
+// Format (v2 — invalidates v1 caches automatically):
+//   "qs:prop:meta" = "<notecard_key>\t<count>\t<warn>\t<seq>\tv2"
+//     where seq is the "\n"-joined sequential_prop_groups.
 //   "qs:prop:<i>"  = "<trigger>\t<type>\t<object>\t<group>\t<pos>\t<rot>\t<point>"
 //     for i in 0..count-1.
 //
 // Validation: notecard_key in meta is compared against the current
-// llGetInventoryKey(notecard_name). Mismatch ⇒ stale cache, fall back to
-// the notecard read. Empty meta ⇒ never cached, same fallback.
+// llGetInventoryKey(notecard_name). Mismatch ⇒ stale cache, fall back
+// to the notecard read. Empty meta or missing v2 marker ⇒ never
+// cached (or older format), same fallback.
 //
 // Tab is used as the field separator because pipe occurs inside
-// prop_triggers ("<sitter>|<trigger>") and prop_groups ("<sitter>|<group>").
+// trigger strings ("<sitter>|<trigger>") and group strings.
 string LSD_PROP_META   = "qs:prop:meta";
 string LSD_PROP_PREFIX = "qs:prop:";
+string LSD_PROP_FORMAT = "v2";
 
 // Async-load state. pending_load_count > 0 ⇒ timer is reading batches.
-// Doing all 60 reads + 7-field parses in one frame Stack-Heap-collides
-// intermittently because there are no frame boundaries between iters
-// for LSL to free transients (unlike the notecard path, where the
-// dataserver replies arrive across frames). The 0.05 s timer tick
-// gives the runtime breathing room every BATCH_SIZE entries.
+// BATCH_SIZE=1 at 0.2s tick: gives the LSL runtime a frame boundary
+// between each per-entry parse so transients can be freed.
 integer pending_load_count;
 integer pending_load_index;
-// One entry per tick. 5 still Stack-Heaped on a 60-prop notecard with
-// ~13 KB free at state_entry, so we drop to a strict one-per-frame.
-// 60 entries × 0.05 s = ~3 s total — still much better than the
-// multi-minute notecard read.
 integer BATCH_SIZE = 1;
 
 // Helper for the notecard-key fingerprint comparison.
@@ -419,35 +455,41 @@ string current_notecard_key()
 
 // Validate the LSD cache and start an async load. Returns TRUE if the
 // cache is valid and a batched read is now in progress (timer armed);
-// FALSE if cache is empty / stale / count invalid — caller falls back
-// to the notecard read. List population happens incrementally in the
-// timer event; final meta-derived fields (WARN, sequential_prop_groups)
-// are filled in on the closing batch.
+// FALSE if cache is empty / stale / wrong format / count invalid —
+// caller falls back to the notecard read. Pre-allocates prop_data to
+// final size via doubling so timer ticks can replace via
+// llListReplaceList rather than `+=` (constant per-tick peak instead
+// of growing).
 integer load_props_from_lsd()
 {
     string meta = llLinksetDataRead(LSD_PROP_META);
     if (meta == "") return FALSE;
     list metaParts = llParseStringKeepNulls(meta, ["\t"], []);
-    if (llGetListLength(metaParts) < 4) return FALSE;
+    if (llGetListLength(metaParts) < 5) return FALSE;
+    if (llList2String(metaParts, 4) != LSD_PROP_FORMAT) return FALSE;
     if (llList2String(metaParts, 0) != current_notecard_key()) return FALSE;
     integer count = (integer)llList2String(metaParts, 1);
     if (count <= 0) return FALSE;
 
+    // Pre-allocate prop_data to final size via doubling. Stores all entries
+    // as "" placeholders; timer will replace via llListReplaceList rather
+    // than `+=`, keeping per-tick allocation footprint constant.
+    integer target = count * 8;
+    list base = [""];
+    while (llGetListLength(base) < target)
+        base = base + base;
+    prop_data = llList2List(base, 0, target - 1);
+    base = [];
+
     pending_load_count = count;
     pending_load_index = 0;
-    // 0.2 s tick instead of 0.05 — sim is heavily contested at boot
-    // (4× Hand Poses, LoveBridge, [QS]* etc. all parse their own
-    // notecards in parallel), so we need wider frame breaks for the
-    // LSL runtime to free per-iteration transients before the next
-    // batch piles on. 60 entries × 0.2 s ≈ 12 s; still acceptable
-    // compared to the multi-minute notecard read.
     llSetTimerEvent(0.2);
     return TRUE;
 }
 
 // Persist current parsed prop state to LSD. Called once after a successful
-// dataserver EOF. Heap-tight on purpose: at this point the lists are full
-// (~10 KB), heap is around 6 KB free, so no intermediate list allocations.
+// dataserver EOF. Heap-tight on purpose: at this point prop_data is full,
+// heap is around 6 KB free, so no intermediate list allocations.
 //
 // Atomicity: meta is the commit marker. We delete it first so a Stack-Heap
 // crash mid-write leaves the cache invalid (load() returns FALSE on empty
@@ -462,31 +504,30 @@ save_props_to_lsd()
         oldCount = (integer)llList2String(llParseStringKeepNulls(oldMeta, ["\t"], []), 1);
     llLinksetDataDelete(LSD_PROP_META);  // invalidate before mutation
 
-    integer count = llGetListLength(prop_triggers);
+    integer count = prop_count();
     integer i;
     for (i = 0; i < count; i++)
     {
+        integer b = i * 8;
         // Inline string-concat instead of llDumpList2String([...], "\t"):
         // skips the 7-element temporary list allocation per iteration.
         llLinksetDataWrite(LSD_PROP_PREFIX + (string)i,
-            llList2String(prop_triggers, i) + "\t"
-            + (string)llList2Integer(prop_types, i) + "\t"
-            + llList2String(prop_objects, i) + "\t"
-            + llList2String(prop_groups, i) + "\t"
-            + (string)llList2Vector(prop_positions, i) + "\t"
-            + (string)llList2Vector(prop_rotations, i) + "\t"
-            + llList2String(prop_points, i));
+            llList2String(prop_data, b) + "\t"
+            + (string)llList2Integer(prop_data, b + 1) + "\t"
+            + llList2String(prop_data, b + 2) + "\t"
+            + llList2String(prop_data, b + 3) + "\t"
+            + (string)llList2Vector(prop_data, b + 4) + "\t"
+            + (string)llList2Vector(prop_data, b + 5) + "\t"
+            + llList2String(prop_data, b + 6));
     }
     for (i = count; i < oldCount; i++)
         llLinksetDataDelete(LSD_PROP_PREFIX + (string)i);
 
-    string currentKey = "";
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-        currentKey = (string)llGetInventoryKey(notecard_name);
     // Meta last — this is the commit point that re-validates the cache.
     llLinksetDataWrite(LSD_PROP_META,
-        currentKey + "\t" + (string)count + "\t" + (string)WARN
-        + "\t" + llDumpList2String(sequential_prop_groups, "\n"));
+        current_notecard_key() + "\t" + (string)count + "\t" + (string)WARN
+        + "\t" + llDumpList2String(sequential_prop_groups, "\n")
+        + "\t" + LSD_PROP_FORMAT);
 }
 
 default
@@ -520,9 +561,10 @@ default
     }
 
     // Async LSD-cache batch loader. Only runs when pending_load_count > 0
-    // (set by load_props_from_lsd). Reads BATCH_SIZE entries per tick to
-    // keep peak heap below the Stack-Heap line on big notecards, then
-    // finalizes meta-derived state on the closing batch and disarms.
+    // (set by load_props_from_lsd). Reads BATCH_SIZE entries per tick and
+    // replaces into the pre-allocated prop_data slot via llListReplaceList
+    // — no growth, constant per-tick peak. Finalizes meta-derived state
+    // on the closing batch and disarms the timer.
     timer()
     {
         if (pending_load_count == 0) {
@@ -541,14 +583,7 @@ default
                 // from the notecard. Clean slate is safer than partial.
                 pending_load_count = 0;
                 llSetTimerEvent(0);
-                prop_triggers     = [];
-                prop_types        = [];
-                prop_objects      = [];
-                prop_groups       = [];
-                prop_positions    = [];
-                prop_rotations    = [];
-                prop_points       = [];
-                prop_post_rez_say = [];
+                prop_data = [];
                 if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
                 {
                     Out(0, "Cache corrupt, loading from notecard...");
@@ -557,14 +592,17 @@ default
                 return;
             }
             list f = llParseStringKeepNulls(entry, ["\t"], []);
-            prop_triggers     += llList2String(f, 0);
-            prop_types        += (integer)llList2String(f, 1);
-            prop_objects      += llList2String(f, 2);
-            prop_groups       += llList2String(f, 3);
-            prop_positions    += (vector)llList2String(f, 4);
-            prop_rotations    += (vector)llList2String(f, 5);
-            prop_points       += llList2String(f, 6);
-            prop_post_rez_say += "";  // runtime-only, never cached
+            integer b = i * 8;
+            prop_data = llListReplaceList(prop_data, [
+                llList2String(f, 0),
+                (integer)llList2String(f, 1),
+                llList2String(f, 2),
+                llList2String(f, 3),
+                (vector)llList2String(f, 4),
+                (vector)llList2String(f, 5),
+                llList2String(f, 6),
+                ""
+            ], b, b + 7);
         }
         pending_load_index = batchEnd;
 
@@ -644,27 +682,24 @@ default
             if (sitter < 0 || sitter >= llGetListLength(SITTERS)) return;
 
             string  trig = (string)sitter + "|" + obj;
-            integer idx  = llListFindList(prop_triggers, [trig]);
+            integer idx  = prop_find_trigger(trig);
             if (idx == -1)
             {
-                idx = llGetListLength(prop_triggers);
-                prop_triggers     += trig;
-                prop_types        += type;
-                prop_objects      += obj;
-                string grp        = (string)sitter + "|QSDYN";
-                prop_groups       += grp;
+                idx = prop_count();
+                string grp = (string)sitter + "|QSDYN";
+                prop_data += [trig, type, obj, grp,
+                              <0.0, 0.0, 0.0>, <0.0, 0.0, 0.0>,
+                              point, postSay];
                 if (llListFindList(sequential_prop_groups, [grp]) == -1)
                     sequential_prop_groups += grp;
-                prop_positions    += <0.0, 0.0, 0.0>;
-                prop_rotations    += <0.0, 0.0, 0.0>;
-                prop_points       += point;
-                prop_post_rez_say += postSay;
             }
             else
             {
-                // Update mutable fields (point + post_rez_say); type/object stay stable per trigger
-                prop_points       = llListReplaceList(prop_points,       [point],   idx, idx);
-                prop_post_rez_say = llListReplaceList(prop_post_rez_say, [postSay], idx, idx);
+                // Update mutable fields (point + post_rez_say); type/object
+                // stay stable per trigger.
+                integer b = idx * 8;
+                prop_data = llListReplaceList(prop_data, [point],   b + 6, b + 6);
+                prop_data = llListReplaceList(prop_data, [postSay], b + 7, b + 7);
             }
             // Keep SITTERS in sync so the listen() REZ branch can resolve sitter_key
             if (id != NULL_KEY)
@@ -714,7 +749,7 @@ default
                     integer flag;
                     for (; i < llGetListLength(SITTERS); i++)
                     {
-                        if (llListFindList(prop_triggers, [(string)i + "|" + msg]) != -1)
+                        if (prop_find_trigger((string)i + "|" + msg) != -1)
                         {
                             flag = TRUE;
                         }
@@ -723,7 +758,7 @@ default
                     {
                         if (llList2Key(SITTERS, i) == sitting_av_or_sitter || id == "" || (string)sitting_av_or_sitter == (string)i)
                         {
-                            integer index = llListFindList(prop_triggers, [(string)i + "|" + msg]);
+                            integer index = prop_find_trigger((string)i + "|" + msg);
                             if (index == -1)
                             {
                                 if (!qs_alive) // [QS] fork: was llGetInventoryType(main_script) != INVENTORY_SCRIPT
@@ -789,30 +824,26 @@ default
             if (num == 90171 || num == 90173) // [AV]adjuster/[AV]menu add PROP line
             {
                 integer sitter;
+                string trig;
                 if (num == 90171) // [AV]adjuster?
                 {
                     sitter = (integer)msg;
-                    prop_triggers += [llList2String(SITTER_POSES, sitter)];
+                    trig = llList2String(SITTER_POSES, sitter);
                 }
                 else
                 {
                     sitter = 0;
                     SITTER_POSES = ["0|" + msg];
-                    prop_triggers += "0|" + msg;
+                    trig = "0|" + msg;
                 }
-                prop_types += 0;
-                prop_objects += (string)id;
                 string prop_group = (string)sitter + "|G1";
-                prop_groups += prop_group;
+                prop_data += [trig, 0, (string)id, prop_group,
+                              <0,0,1>, <0,0,0>, "", ""];
                 if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                 {
                     sequential_prop_groups += prop_group;
                 }
-                prop_positions += <0,0,1>;
-                prop_rotations += <0,0,0>;
-                prop_points += "";
-                prop_post_rez_say += ""; // [QS] fork: keep parallel-list aligned
-                rez_prop(llGetListLength(prop_triggers) - 1);
+                rez_prop(prop_count() - 1);
                 string text = "PROP added: '" + (string)id + "' to '" + element(llList2String(SITTER_POSES, sitter), 1) + "'";
                 if (llGetListLength(SITTERS) > 1)
                 {
@@ -824,17 +855,27 @@ default
             }
             if (num == 90020 && (string)id == llGetScriptName()) // dump our settings
             {
+                integer count = prop_count();
                 integer i;
-                for (; i < llGetListLength(prop_triggers); i++)
+                for (i = 0; i < count; i++)
                 {
-                    if (llSubStringIndex(llList2String(prop_triggers, i), msg + "|") == 0)
+                    integer b = i * 8;
+                    string trig = llList2String(prop_data, b);
+                    if (llSubStringIndex(trig, msg + "|") == 0)
                     {
-                        string type = (string)llList2Integer(prop_types, i);
+                        string type = (string)llList2Integer(prop_data, b + 1);
                         if (type == "0")
                         {
                             type = "";
                         }
-                        Readout_Say("PROP" + type + " " + llDumpList2String([element(llList2String(prop_triggers, i), 1), llList2String(prop_objects, i), element(llList2String(prop_groups, i), 1), llList2String(prop_positions, i), llList2String(prop_rotations, i), llList2String(prop_points, i)], "|"));
+                        Readout_Say("PROP" + type + " " + llDumpList2String([
+                            element(trig, 1),
+                            llList2String(prop_data, b + 2),
+                            element(llList2String(prop_data, b + 3), 1),
+                            (string)llList2Vector(prop_data, b + 4),
+                            (string)llList2Vector(prop_data, b + 5),
+                            llList2String(prop_data, b + 6)
+                        ], "|"));
                     }
                 }
                 llMessageLinked(LINK_THIS, 90021, msg, llGetScriptName()); // notify finished dumping
@@ -884,7 +925,7 @@ default
         if (llList2String(data, 0) == "SAVEPROP")
         {
             integer index = (integer)llList2String(data, 1);
-            if (index >= 0 && index < llGetListLength(prop_triggers))
+            if (index >= 0 && index < prop_count())
             {
                 if (llList2Vector(llGetObjectDetails(id, [OBJECT_POS]), 0) != ZERO_VECTOR)
                 {
@@ -892,14 +933,17 @@ default
                     rotation f = llList2Rot((details = llGetObjectDetails(llGetKey(), details) + llGetObjectDetails(id, details)), 1);
                     vector target_rot = llRot2Euler(llList2Rot(details, 3) / f) * RAD_TO_DEG;
                     vector target_pos = (llList2Vector(details, 2) - llList2Vector(details, 0)) / f;
-                    prop_positions = llListReplaceList(prop_positions, [target_pos], index, index);
-                    prop_rotations = llListReplaceList(prop_rotations, [target_rot], index, index);
-                    string type = llList2String(prop_types, index);
+                    integer b = index * 8;
+                    prop_data = llListReplaceList(prop_data, [target_pos], b + 4, b + 4);
+                    prop_data = llListReplaceList(prop_data, [target_rot], b + 5, b + 5);
+                    string type = (string)llList2Integer(prop_data, b + 1);
                     if (type == "0")
                     {
                         type = "";
                     }
-                    string text = "PROP Saved to memory, SITTER " + element(llList2String(prop_triggers, index), 0) + ": PROP" + type + " " + element(llList2String(prop_triggers, index), 1) + "|" + name + "|" + element(llList2String(prop_groups, index), 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(prop_points, index);
+                    string trig = llList2String(prop_data, b);
+                    string grp  = llList2String(prop_data, b + 3);
+                    string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(prop_data, b + 6);
                     llSay(0, text);
                 }
             }
@@ -912,9 +956,11 @@ default
         if (llList2String(data, 0) == "ATTACHED" || llList2String(data, 0) == "DETACHED" || llList2String(data, 0) == "REZ" || llList2String(data, 0) == "DEREZ")
         {
             integer prop_index = (integer)llList2String(data, 1);
-            integer sitter = (integer)llList2String(llParseStringKeepNulls(llList2String(prop_triggers, prop_index), ["|"], []), 0);
+            integer b = prop_index * 8;
+            string trig = llList2String(prop_data, b);
+            integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
             key sitter_key = llList2Key(SITTERS, sitter);
-            if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && llList2Integer(prop_types, prop_index) == 1)
+            if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && llList2Integer(prop_data, b + 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
             }
@@ -923,14 +969,20 @@ default
             // Generic — [QS]prop holds the payload verbatim and forwards it.
             if (llList2String(data, 0) == "REZ")
             {
-                string postSay = llList2String(prop_post_rez_say, prop_index);
+                string postSay = llList2String(prop_data, b + 7);
                 if (postSay != "")
                 {
                     llSay(comm_channel, postSay);
                 }
             }
             // send prop event notification
-            llMessageLinked(LINK_SET, 90500, llDumpList2String([llList2String(data, 0), llList2String(prop_triggers, prop_index), llList2String(prop_objects, prop_index), llList2String(llParseStringKeepNulls(llList2String(prop_groups, prop_index), ["|"], []), 1), id], "|"), sitter_key);
+            llMessageLinked(LINK_SET, 90500, llDumpList2String([
+                llList2String(data, 0),
+                trig,
+                llList2String(prop_data, b + 2),
+                element(llList2String(prop_data, b + 3), 1),
+                id
+            ], "|"), sitter_key);
             return;
         }
         if (llList2String(data, 0) == "NAG" && HAVENTNAGGED && (!llGetAttached()))
@@ -949,7 +1001,7 @@ default
                 // [QS] fork: persist parse result to LSD so the next state_entry
                 // can skip the dataserver loop. See load_props_from_lsd above.
                 save_props_to_lsd();
-                Out(0, (string)llGetListLength(prop_triggers) + " Props Ready, Mem=" + (string)llGetFreeMemory());
+                Out(0, (string)prop_count() + " Props Ready, Mem=" + (string)llGetFreeMemory());
                 return;
             }
 
@@ -963,7 +1015,7 @@ default
             }
             if (llGetSubString(command, 0, 3) == "PROP")
             {
-                if (llGetListLength(prop_triggers) == 100)
+                if (prop_count() == 100)
                 {
                     Out(0, "Max props is 100, could not add prop!"); // the real limit is less than this due to memory running out first :)
                 }
@@ -982,19 +1034,21 @@ default
                     {
                         prop_type = 3;
                     }
-                    prop_triggers += [(string)notecard_section + "|" + llList2String(parts, 0)];
-                    prop_types += prop_type;
-                    prop_objects += llList2String(parts, 1);
                     string prop_group = (string)notecard_section + "|" + llList2String(parts, 2);
-                    prop_groups += prop_group;
+                    prop_data += [
+                        (string)notecard_section + "|" + llList2String(parts, 0),
+                        prop_type,
+                        llList2String(parts, 1),
+                        prop_group,
+                        (vector)llList2String(parts, 3),
+                        (vector)llList2String(parts, 4),
+                        llList2String(parts, 5),
+                        ""
+                    ];
                     if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                     {
                         sequential_prop_groups += prop_group;
                     }
-                    prop_positions += (vector)llList2String(parts, 3);
-                    prop_rotations += (vector)llList2String(parts, 4);
-                    prop_points += llList2String(parts, 5);
-                    prop_post_rez_say += ""; // [QS] fork: keep parallel-list aligned with notecard-loaded props
                 }
             }
             if (command == "WARN")
