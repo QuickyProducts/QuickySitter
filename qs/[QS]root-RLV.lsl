@@ -32,8 +32,13 @@
  */
 
 string product = "AVsitter™ RLV";
-string version = "0.002";
-string main_script = "[AV]sitA";
+string version = "0.003";
+// [QS] fork (experimental, v0.003): probe targets "[QS]sitA 1" instead
+// of stock "[AV]sitA 1" so the multi-sitter detection actually fires
+// in QS-converted furniture. Test reverts the v0.002 cleanup. If the
+// [STOP]/Menu...-disappears regression re-appears, we know it's the
+// 90030 SWAP path; if not, this is the correct probe.
+string main_script = "[QS]sitA";
 integer ignorenextswap;
 string notecard_name = "AVpos";
 string unDressScript = "[AV]root-RLV-extra";
