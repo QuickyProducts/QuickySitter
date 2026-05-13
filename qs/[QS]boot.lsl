@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.033";
+string version = "0.034";
 string notecard_name = "AVpos";
 // expression/camera plugin names are AVsitter protocol constants — stock
 // plugins probe and reply by literal script name. Once these forks adopt
@@ -140,12 +140,11 @@ string qs_p_key(integer ch, integer i)
 }
 
 // Memfull-aware LSD write. Sets boot_failed on memfull (llLinksetDataWrite
-// return = 2 — literal here because the named constant varies between
-// viewer versions: LINKSETDATA_MEMFULL / LINKSETDATA_MEMORY / sometimes
-// undefined entirely). Surfaces a dialog offering a full llLinksetDataReset()
-// — or, if the user already accepted a wipe and we're retrying, declares
-// the notecard too large. Cheap to call on every write: no extra cost on
-// success.
+// return = 2 — literal here because the named constant for this return
+// code is not portable across SL viewer versions). Surfaces a dialog
+// offering a full llLinksetDataReset() — or, if the user already accepted
+// a wipe and we're retrying, declares the notecard too large. Cheap to
+// call on every write: no extra cost on success.
 show_wipe_dialog()
 {
     dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
