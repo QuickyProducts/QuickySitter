@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.027";
+string version = "0.028";
 string notecard_name = "AVpos";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -138,7 +138,7 @@ show_wipe_dialog()
     dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     dialog_handle  = llListen(dialog_channel, "", llGetOwner(), "");
     llDialog(llGetOwner(),
-        "LSD-Speicher voll während Boot.\n\nKompletten LSD-Speicher löschen?\n\nACHTUNG: alle LSD-Keys (auch QPP_CFG/AUTOSYNC, HUD-Configs) gehen verloren.",
+        "LSD storage full during boot.\n\nWipe entire LSD store?\n\nWARNING: ALL LSD keys (including QPP_CFG/AUTOSYNC and HUD configs) will be lost.",
         ["Wipe", "Cancel"],
         dialog_channel);
 }
@@ -419,7 +419,7 @@ default
         // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
         // (or a manual reset) restarts boot fresh; wipe_attempted clears
         // automatically via llResetScript().
-        llOwnerSay(llGetScriptName() + "[" + version + "] Boot abgebrochen — LSD-Wipe nicht bestätigt.");
+        llOwnerSay(llGetScriptName() + "[" + version + "] Boot aborted — LSD wipe declined.");
     }
 
     timer()
