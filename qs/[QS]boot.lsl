@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.028";
+string version = "0.029";
 string notecard_name = "AVpos";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -138,7 +138,7 @@ show_wipe_dialog()
     dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     dialog_handle  = llListen(dialog_channel, "", llGetOwner(), "");
     llDialog(llGetOwner(),
-        "LSD storage full during boot.\n\nWipe entire LSD store?\n\nWARNING: ALL LSD keys (including QPP_CFG/AUTOSYNC and HUD configs) will be lost.",
+        "Storage full during boot.\n\nWipe entire storage?\n\nWARNING: all storage entries (including QPP_CFG/AUTOSYNC and HUD configs) will be lost.",
         ["Wipe", "Cancel"],
         dialog_channel);
 }
@@ -148,13 +148,13 @@ qs_lsd_write(string k, string v)
     if (boot_failed) return;
     if (llLinksetDataWrite(k, v) != LINKSETDATA_MEMFULL) return;
     boot_failed = TRUE;
-    llSetText("ERROR: LSD full during boot", <1, 0, 0>, 1);
+    llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
     if (wipe_attempted)
     {
-        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: LSD still full after full wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
+        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage still full after wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
         return;
     }
-    llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: LSD full at " + k + " — see dialog to wipe entire LSD and retry.");
+    llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage full at " + k + " — see dialog to wipe entire storage and retry.");
     show_wipe_dialog();
 }
 
@@ -412,14 +412,14 @@ default
         {
             llLinksetDataReset();
             wipe_attempted = TRUE;
-            llOwnerSay(llGetScriptName() + "[" + version + "] LSD wiped — retrying boot.");
+            llOwnerSay(llGetScriptName() + "[" + version + "] Storage wiped — retrying boot.");
             start_boot();
             return;
         }
         // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
         // (or a manual reset) restarts boot fresh; wipe_attempted clears
         // automatically via llResetScript().
-        llOwnerSay(llGetScriptName() + "[" + version + "] Boot aborted — LSD wipe declined.");
+        llOwnerSay(llGetScriptName() + "[" + version + "] Boot aborted — storage wipe declined.");
     }
 
     timer()
