@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.030";
+string version = "0.031";
 string notecard_name = "AVpos";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -237,7 +237,7 @@ finalize_boot()
     }
     boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
-    llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
+    llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
     arm_autosync();
 }
 
