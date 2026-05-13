@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.026";
+string version = "0.027";
 string notecard_name = "AVpos";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -86,9 +86,18 @@ vector CURRENT_ROTATION;
 
 // Boot orchestration. total_channels emerges at notecard EOF as
 // current_channel + 1 (count of SITTER directives seen). boot_done flips
-// TRUE in finalize_boot — arm_autosync gates on it.
+// TRUE in finalize_boot — arm_autosync gates on it. boot_failed flips on
+// LSD-memfull during seeding; wipe_attempted records that we've already
+// offered (and the user accepted) a full LSD wipe, so a second memfull
+// in the same run skips the dialog and surfaces "AVpos too large".
 integer total_channels;
 integer boot_done;
+integer boot_failed;
+integer wipe_attempted;
+
+// Wipe-confirmation dialog state. dialog_channel is per-instance random.
+integer dialog_channel;
+integer dialog_handle;
 
 // Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
 // qs:p:* keys it writes during seed are exactly what dump emits back).
@@ -120,9 +129,38 @@ string qs_p_key(integer ch, integer i)
     return "qs:p:" + (string)ch + ":" + (string)i;
 }
 
+// Memfull-aware LSD write. Sets boot_failed on LINKSETDATA_MEMFULL and
+// surfaces a dialog offering a full llLinksetDataReset() — or, if the
+// user already accepted a wipe and we're retrying, declares the notecard
+// too large. Cheap to call on every write: no extra cost on success.
+show_wipe_dialog()
+{
+    dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
+    dialog_handle  = llListen(dialog_channel, "", llGetOwner(), "");
+    llDialog(llGetOwner(),
+        "LSD-Speicher voll während Boot.\n\nKompletten LSD-Speicher löschen?\n\nACHTUNG: alle LSD-Keys (auch QPP_CFG/AUTOSYNC, HUD-Configs) gehen verloren.",
+        ["Wipe", "Cancel"],
+        dialog_channel);
+}
+
+qs_lsd_write(string k, string v)
+{
+    if (boot_failed) return;
+    if (llLinksetDataWrite(k, v) != LINKSETDATA_MEMFULL) return;
+    boot_failed = TRUE;
+    llSetText("ERROR: LSD full during boot", <1, 0, 0>, 1);
+    if (wipe_attempted)
+    {
+        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: LSD still full after full wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
+        return;
+    }
+    llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: LSD full at " + k + " — see dialog to wipe entire LSD and retry.");
+    show_wipe_dialog();
+}
+
 qs_p_write(integer ch, integer i, string name, string type, string anim, string pos, string rot)
 {
-    llLinksetDataWrite(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
+    qs_lsd_write(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
 string qs_str_replace(string s, string find, string replace)
@@ -180,7 +218,7 @@ reset_channel_locals()
 // across all SITTER directives.
 flush_channel_sitter(integer ch)
 {
-    llLinksetDataWrite("qs:sitter:" + (string)ch, llDumpList2String(SITTER_INFO, SEP));
+    qs_lsd_write("qs:sitter:" + (string)ch, llDumpList2String(SITTER_INFO, SEP));
 }
 
 // Done seeding. sitA/sitB poll qs:meta:<ch> in their state_entry and pick
@@ -192,13 +230,29 @@ finalize_boot()
     integer ch;
     for (ch = 0; ch < total_channels; ++ch)
     {
-        llLinksetDataWrite("qs:cfg:" + (string)ch, cfg);
-        llLinksetDataWrite("qs:meta:" + (string)ch, "qs1");
+        qs_lsd_write("qs:cfg:" + (string)ch, cfg);
+        if (boot_failed) return;
+        qs_lsd_write("qs:meta:" + (string)ch, "qs1");
+        if (boot_failed) return;
     }
     boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
     llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
     arm_autosync();
+}
+
+// Kick off (or restart) the notecard read. Called from state_entry and
+// from the wipe-confirmation listen handler after llLinksetDataReset().
+start_boot()
+{
+    current_channel = -1;
+    boot_done = FALSE;
+    boot_failed = FALSE;
+    reused_key = llGetNumberOfNotecardLines(notecard_name);
+    reused_variable = 0;
+    notecard_lines = 0;
+    llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
+    notecard_query = llGetNotecardLine(notecard_name, 0);
 }
 
 // Read QPP_CFG:AUTOSYNC and arm the timer accordingly. Idempotent: safe
@@ -346,13 +400,26 @@ default
             llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
             return;
         }
-        current_channel = -1;
-        boot_done = FALSE;
-        reused_key = llGetNumberOfNotecardLines(notecard_name);
-        reused_variable = 0;
-        notecard_lines = 0;
-        llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
-        notecard_query = llGetNotecardLine(notecard_name, 0);
+        start_boot();
+    }
+
+    listen(integer chan, string name, key id, string msg)
+    {
+        if (chan != dialog_channel) return;
+        llListenRemove(dialog_handle);
+        dialog_handle = 0;
+        if (msg == "Wipe")
+        {
+            llLinksetDataReset();
+            wipe_attempted = TRUE;
+            llOwnerSay(llGetScriptName() + "[" + version + "] LSD wiped — retrying boot.");
+            start_boot();
+            return;
+        }
+        // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
+        // (or a manual reset) restarts boot fresh; wipe_attempted clears
+        // automatically via llResetScript().
+        llOwnerSay(llGetScriptName() + "[" + version + "] Boot abgebrochen — LSD-Wipe nicht bestätigt.");
     }
 
     timer()
@@ -557,6 +624,8 @@ default
             return;
         }
         if (query_id != notecard_query)
+            return;
+        if (boot_failed)
             return;
         if (data == EOF)
         {
