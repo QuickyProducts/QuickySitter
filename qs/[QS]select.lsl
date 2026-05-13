@@ -20,14 +20,13 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.022";
+string version = "0.023";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
 key notecard_key;
 key notecard_query;
 string notecard_name = "AVpos";
-string adjust_script = "[QS]adjuster";
 string helper_object = "[AV]helper";
 
 // QSALIVE — sitter-count cache (replaces the legacy

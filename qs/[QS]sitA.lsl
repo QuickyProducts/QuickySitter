@@ -15,12 +15,18 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.283";
+string version = "0.284";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
 string helper_object = "[AV]helper";
-string adjust_script = "[QS]adjuster";
+
+// QS_ADJUSTER_HELLO — [QS]adjuster broadcasts this on its own
+// state_entry and in response to slot-0 sitA's QSALIVE-reply. We
+// cache the flag and gate the [HELPER] menu item on it (replaces
+// the legacy llGetInventoryType("[QS]adjuster") probe).
+integer QS_ADJUSTER_HELLO = 90091;
+integer adjuster_present  = FALSE;
 integer SCRIPT_CHANNEL;
 list SITTERS;
 integer SWAPPED;
@@ -844,6 +850,11 @@ default
             if (SCRIPT_CHANNEL == 0) qs_alive_reply();
             return;
         }
+        if (num == QS_ADJUSTER_HELLO) // 90091=adjuster announces presence
+        {
+            adjuster_present = TRUE;
+            return;
+        }
         if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
         {
             do_resync_tick();
@@ -995,7 +1006,7 @@ default
                         data += llList2String(ADJUST_MENU, i);
                         i = i + 2;
                     }
-                    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llGetInventoryType(adjust_script) == INVENTORY_SCRIPT)
+                    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && adjuster_present)
                     {
                         data += "[HELPER]";
                     }

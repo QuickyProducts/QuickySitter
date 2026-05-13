@@ -17,7 +17,7 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.043";
+string version = "0.044";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -31,6 +31,12 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
+
+// QS_ADJUSTER_HELLO — broadcast from this script on state_entry and
+// in response to slot-0 sitA's QSALIVE-reply. sitA listens for it to
+// gate the [HELPER] menu item (replaces the legacy
+// llGetInventoryType("[QS]adjuster") inventory probe).
+integer QS_ADJUSTER_HELLO = 90091;
 // Tracks the one-time solo-channel offset applied when we first learn
 // count == 1 (legacy state_entry behavior, deferred to QSALIVE-reply
 // time because the count isn't known synchronously anymore).
@@ -479,6 +485,11 @@ default
         qs_alive = FALSE;
         solo_offset_applied = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce ourselves so sitA can gate the [HELPER] menu item
+        // without script-name inventory probes. sitA caches the flag;
+        // we re-announce in the QSALIVE_REPLY handler so a late sitA
+        // boot also catches us.
+        llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
         init_lists();
     }
 
@@ -507,6 +518,9 @@ default
                     comm_channel -= 1000000000;
                     solo_offset_applied = TRUE;
                 }
+                // Re-announce so sitA-slot-0 (which just reset and
+                // broadcast 90097) catches our presence flag.
+                llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
             }
             return;
         }
