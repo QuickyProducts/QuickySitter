@@ -37,6 +37,7 @@ avstock/
 ├── Plugins/
 │   ├── AVcamera/[AV]camera.lsl
 │   ├── AVcontrol/                ← RLV control + transport plugins
+│   │   ├── [AV]root-RLV.lsl
 │   │   ├── [AV]root-RLV-extra.lsl
 │   │   ├── [AV]root-control.lsl
 │   │   ├── LockGuard/, LockMeister/, Xcite!-Sensations/
@@ -73,7 +74,6 @@ versions if you need to see what changed.
 | `[QS]menu.lsl` | `Plugins/AVprop/[AV]menu.lsl` |
 | `[QS]faces.lsl` | `Plugins/AVfaces/[AV]faces.lsl` |
 | `[QS]sequence.lsl` | `Plugins/AVsequence/[AV]sequence.lsl` |
-| `[QS]root-RLV.lsl` | `Plugins/AVcontrol/[AV]root-RLV.lsl` |
 
 `[QS]boot.lsl`, `[QS]debug.lsl`, and `[QS]offset.lsl` are
 QuickySitter-only — no upstream counterpart.

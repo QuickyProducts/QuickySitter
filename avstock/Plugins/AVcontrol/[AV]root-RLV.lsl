@@ -1,25 +1,4 @@
 /*
- * [QS]root-RLV - RLV plugin for QuickySitter (renamed clone of [AV]root-RLV)
- *
- * As of v0.002 this file is BYTE-EQUIVALENT (modulo the script name + this
- * header) to upstream avstock/Plugins/AVcontrol/[AV]root-RLV.lsl (2.2p04).
- *
- * History: v0.001 carried a QSALIVE (90096/90097) handshake to replace
- * stock's `llGetInventoryType("[AV]sitA 1")` multi-sitter probe (which
- * fails in QS setup because the sitter script is named [QS]sitA). The
- * fork drove a `90030` SWAP message in find_seat for multi-sitter
- * furniture. Inworld test surfaced a regression: the SWAP put sitters
- * into the "wrong" slot relative to DESIGNATIONS_NOW, and the resulting
- * state caused `rlv_top_menu` to hide the [STOP] / Menu... buttons for
- * the Sub. Stock behaviour (no SWAP, DESIGNATIONS_NOW set independently)
- * works correctly with [QS]sitA's swap handler. v0.002 reverts to that.
- *
- * The file remains as a renamed clone so the installer's suffix-swap
- * rule ([AV]X → [QS]X) can migrate furniture from stock to the QS
- * naming convention. No runtime behaviour difference vs stock.
- *
- * Original [AV]root-RLV license preserved below — fork inherits MPL 2.0.
- *
  * [AV]root-RLV - RLV plugin for AVsitter
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -29,17 +8,14 @@
  * Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
+ *
+ * Please consider supporting continued development of AVsitter and
+ * receive automatic updates and other benefits! All details and user
+ * instructions can be found at http://avsitter.github.io
  */
 
 string product = "AVsitter™ RLV";
-string version = "0.004";
-// [QS] fork: probe stays on "[AV]sitA 1" — in a QS-converted prim that
-// name is never present, so the multi-sitter branch (90030 SWAP path)
-// never fires. The v0.003 experiment confirmed: probing "[QS]sitA 1"
-// makes the SWAP fire and breaks rlv_top_menu's [STOP]/Menu... buttons
-// for the Sub. The single-sitter fallback runs cleanly in 2-sitter
-// QS furniture because [QS]sitA handles slot assignment correctly via
-// its own sit-target API; root-RLV doesn't need to do the SWAP itself.
+string version = "2.2p04";
 string main_script = "[AV]sitA";
 integer ignorenextswap;
 string notecard_name = "AVpos";
