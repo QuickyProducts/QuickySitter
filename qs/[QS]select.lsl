@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.02";
+string version = "0.021";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
@@ -88,7 +88,11 @@ menu(key av)
 integer get_number_of_scripts()
 {
     integer i = 1;
-    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT)
+    // Probe both [QS]sitA and [AV]sitA so stock-AVsitter furniture keeps
+    // working without renaming. main_script is "[QS]sitA"; fallback is
+    // hardcoded so the loop stops cleanly when neither prefix is present.
+    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT
+        || llGetInventoryType("[AV]sitA " + (string)i) == INVENTORY_SCRIPT)
     {
         i++;
     }

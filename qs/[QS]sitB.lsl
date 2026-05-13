@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.03";
+string version = "0.031";
 string BRAND;
 integer OLD_HELPER_METHOD;
 string main_script = "[QS]sitA";
@@ -92,9 +92,18 @@ memory()
     llOwnerSay(llGetScriptName() + "[" + version + "] " + (string)llGetListLength(MENU_LIST) + " Items Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
 }
 
+// Probe [QS]select or [AV]select so stock-AVsitter furniture keeps
+// working without renaming. Wrapping the dual probe keeps the four
+// call sites below readable.
+integer select_present()
+{
+    return llGetInventoryType(select_script) == INVENTORY_SCRIPT
+        || llGetInventoryType("[AV]select") == INVENTORY_SCRIPT;
+}
+
 integer animation_menu(integer animation_menu_function)
 {
-    if ((animation_menu_function == -1 || llGetListLength(MENU_LIST) < 2) && (!helper_mode) && llGetInventoryType(select_script) == INVENTORY_SCRIPT)
+    if ((animation_menu_function == -1 || llGetListLength(MENU_LIST) < 2) && (!helper_mode) && select_present())
     {
         llMessageLinked(LINK_SET, 90009, CONTROLLER, MY_SITTER);
     }
@@ -149,7 +158,7 @@ integer animation_menu(integer animation_menu_function)
         }
         list menu_items0;
         list menu_items2;
-        if (current_menu != -1 || llGetInventoryType(select_script) == INVENTORY_SCRIPT)
+        if (current_menu != -1 || select_present())
         {
             menu_items0 += "[BACK]";
         }
@@ -177,7 +186,7 @@ integer animation_menu(integer animation_menu_function)
                 menu_items2 += "[ADJUST]";
             }
         }
-        if (llSubStringIndex(onSit, "ASK") && ((current_menu == -1 && SWAP == 1) || SWAP == 2 || llSubStringIndex(submenu_info, "S") != -1) && (number_of_sitters > 1 && llGetInventoryType(select_script) != INVENTORY_SCRIPT))
+        if (llSubStringIndex(onSit, "ASK") && ((current_menu == -1 && SWAP == 1) || SWAP == 2 || llSubStringIndex(submenu_info, "S") != -1) && (number_of_sitters > 1 && !select_present()))
         {
             menu_items2 += "[SWAP]";
         }
@@ -288,9 +297,12 @@ qs_load_from_lsd()
         ++i;
     }
 
-    // number_of_sitters = total [QS]sitA scripts in the prim.
+    // number_of_sitters = total [QS]sitA or [AV]sitA scripts in the prim.
+    // Probe both prefixes so stock-AVsitter furniture keeps working
+    // without renaming.
     i = 1;
-    while (llGetInventoryType("[QS]sitA " + (string)i) == INVENTORY_SCRIPT)
+    while (llGetInventoryType("[QS]sitA " + (string)i) == INVENTORY_SCRIPT
+        || llGetInventoryType("[AV]sitA " + (string)i) == INVENTORY_SCRIPT)
         ++i;
     number_of_sitters = i;
 }
@@ -390,7 +402,7 @@ default
             menu_page = 0;
             if (current_menu == -1)
             {
-                if (llGetInventoryType(select_script) == INVENTORY_SCRIPT)
+                if (select_present())
                 {
                     llMessageLinked(LINK_SET, 90009, "", id);
                 }
