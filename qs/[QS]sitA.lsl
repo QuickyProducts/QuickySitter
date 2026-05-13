@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.282";
+string version = "0.283";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
 string expression_script = "[AV]faces";
@@ -475,10 +475,10 @@ default
     {
         SEP = llUnescapeURL("%EF%BF%BD");
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
-        while (llGetInventoryType(memoryscript) != INVENTORY_SCRIPT)
-        {
-            llSleep(0.1);
-        }
+        // Install-time sitB-wait dropped in 0.283 (same fix boot got in
+        // 0.025). The LSD-meta wait below covers the "boot is ready"
+        // sanity check; the changed(CHANGED_INVENTORY) sibling check
+        // resets the script if sitB appears/disappears later.
         integer i;
         while (llGetInventoryType(main_script + " " + (string)(++i)) == INVENTORY_SCRIPT)
             ;
