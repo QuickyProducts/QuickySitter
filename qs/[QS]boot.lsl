@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.02";
+string version = "0.024";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
 string memoryscript = "[QS]sitB";
@@ -90,7 +90,6 @@ vector CURRENT_ROTATION;
 // Boot orchestration.
 integer total_channels;
 integer current_processing_channel;
-integer load_t0;
 
 // Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
 // qs:p:* keys it writes during seed are exactly what dump emits back).
@@ -145,7 +144,7 @@ string qs_cfg_pack()
         ], "\n");
 }
 
-// Render bar + ETA. 20-cell bar sliced from a pre-built constant.
+// Render bar. 20-cell bar sliced from a pre-built constant.
 qs_loading_text(integer cur, integer total, string msg)
 {
     if (total <= 0) total = 1;
@@ -153,18 +152,7 @@ qs_loading_text(integer cur, integer total, string msg)
     if (pct > 100) pct = 100;
     integer filled = pct / 5;
     string bar = llGetSubString("████████████████████░░░░░░░░░░░░░░░░░░░░", 20 - filled, 39 - filled);
-    integer elapsed = llGetUnixTime() - load_t0;
-    string eta;
-    if (cur >= total) eta = "Done";
-    else if (cur > 0 && elapsed > 0)
-    {
-        integer r = elapsed * (total - cur) / cur;
-        if (r > 60) eta = "Est. " + (string)((r + 30) / 60) + " min";
-        else if (r > 0) eta = "Est. " + (string)r + " sec";
-        else eta = "Est. <1 sec";
-    }
-    else eta = "Estimating…";
-    llSetText(msg + "\n[" + bar + "] " + (string)pct + "%\n" + eta, <1, 1, 0>, 1);
+    llSetText(msg + "\n[" + bar + "] " + (string)pct + "%", <1, 1, 0>, 1);
 }
 
 reset_channel_locals()
@@ -227,7 +215,7 @@ start_seed_for_channel(integer ch)
 finalize_boot()
 {
     llSetText("", <1, 1, 1>, 1);
-    llOwnerSay(llGetScriptName() + "[" + version + "] Seed complete; " + (string)total_channels + " channel(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
+    llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
     arm_autosync();
 }
 
@@ -395,8 +383,7 @@ default
         total_channels = count_channels();
         notecard_key = llGetInventoryKey(notecard_name);
         current_processing_channel = 0;
-        load_t0 = llGetUnixTime();
-        llOwnerSay(llGetScriptName() + "[" + version + "] Seeding " + (string)total_channels + " channel(s)...");
+        llOwnerSay(llGetScriptName() + "[" + version + "] Loading " + (string)total_channels + " sitter(s)...");
         process_next_channel();
     }
 
@@ -614,7 +601,7 @@ default
             return;
         }
         if (notecard_lines)
-            qs_loading_text(reused_variable, notecard_lines, "Seeding channel " + (string)SCRIPT_CHANNEL + " from " + notecard_name);
+            qs_loading_text(reused_variable, notecard_lines, "Loading sitter " + (string)SCRIPT_CHANNEL + " from " + notecard_name);
 
         notecard_query = llGetNotecardLine(notecard_name, ++reused_variable);
 
@@ -781,9 +768,18 @@ default
         if (change & CHANGED_INVENTORY)
         {
             // Reset only on actual content change — notecard swap or sitA-count.
-            if (llGetInventoryKey(notecard_name) != notecard_key
-                || count_channels() != total_channels)
+            integer notecard_changed = (llGetInventoryKey(notecard_name) != notecard_key);
+            integer count_changed    = (count_channels() != total_channels);
+            if (notecard_changed || count_changed)
             {
+                // Notecard-Save/-Swap erzeugt neuen Asset-Key. Wenn wir nur
+                // resetten, blockiert der qs:meta:<ch>-Skip in
+                // process_next_channel den Re-Seed. Also alle Seed-Outputs
+                // wipen, damit die neue Notecard wirklich gelesen wird.
+                // Count-only-Change (neuer [QS]sitA N) lässt qs:* stehen,
+                // damit Adjuster-Edits bestehender Channels nicht verfallen.
+                if (notecard_changed)
+                    llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
                 llResetScript();
             }
         }
