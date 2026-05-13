@@ -1,21 +1,22 @@
 /*
- * [QS]root-RLV - RLV plugin for QuickySitter (fork of [AV]root-RLV)
+ * [QS]root-RLV - RLV plugin for QuickySitter (renamed clone of [AV]root-RLV)
  *
- * Minimally-invasive fork of avstock/Plugins/AVcontrol/[AV]root-RLV.lsl
- * (2.2p04). Diff against stock:
- *   - Multi-sitter detection via QSALIVE (90096/90097) instead of
- *     llGetInventoryType("[AV]sitA 1"). Stock check fails in QS setup
- *     (script is named [QS]sitA, not [AV]sitA), so RLV silently falls
- *     back to single-sitter mode — captures target wrong sitter on
- *     multi-slot furniture.
- *   - main_script global dropped; checks use `qs_sitter_count_cached > 1`.
+ * As of v0.002 this file is BYTE-EQUIVALENT (modulo the script name + this
+ * header) to upstream avstock/Plugins/AVcontrol/[AV]root-RLV.lsl (2.2p04).
  *
- * Probe is fired in `state running`'s state_entry (default state is just
- * the duplicate-copy guard). The reply lands while sequence's link_message
- * handler is active.
+ * History: v0.001 carried a QSALIVE (90096/90097) handshake to replace
+ * stock's `llGetInventoryType("[AV]sitA 1")` multi-sitter probe (which
+ * fails in QS setup because the sitter script is named [QS]sitA). The
+ * fork drove a `90030` SWAP message in find_seat for multi-sitter
+ * furniture. Inworld test surfaced a regression: the SWAP put sitters
+ * into the "wrong" slot relative to DESIGNATIONS_NOW, and the resulting
+ * state caused `rlv_top_menu` to hide the [STOP] / Menu... buttons for
+ * the Sub. Stock behaviour (no SWAP, DESIGNATIONS_NOW set independently)
+ * works correctly with [QS]sitA's swap handler. v0.002 reverts to that.
  *
- * Everything else is byte-identical to upstream. Stock hasn't shipped a
- * change since 2016.
+ * The file remains as a renamed clone so the installer's suffix-swap
+ * rule ([AV]X → [QS]X) can migrate furniture from stock to the QS
+ * naming convention. No runtime behaviour difference vs stock.
  *
  * Original [AV]root-RLV license preserved below — fork inherits MPL 2.0.
  *
@@ -31,14 +32,8 @@
  */
 
 string product = "AVsitter™ RLV";
-string version = "0.001";
-// [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
-// + inventory probe `llGetInventoryType(main_script + " 1")`. See
-// qs/PROTOCOL.md § QSALIVE.
-integer QSALIVE_PROBE = 90096;
-integer QSALIVE_REPLY = 90097;
-integer qs_alive = FALSE;
-integer qs_sitter_count_cached = 1;
+string version = "0.002";
+string main_script = "[AV]sitA";
 integer ignorenextswap;
 string notecard_name = "AVpos";
 string unDressScript = "[AV]root-RLV-extra";
@@ -287,9 +282,7 @@ capture_attempt(key id, string target_sitter)
         GETCAPTURESTATUShandle = llListen(RELAY_GETCAPTURESTATUSchannel, "", "", "");
         relay(id, "@getstatus=" + (string)RELAY_GETCAPTURESTATUSchannel);
     }
-    // [QS] fork: stock probed `llGetInventoryType(main_script + " 1")` to
-    // detect multi-sitter setups. QSALIVE cache replaces that.
-    if (qs_sitter_count_cached > 1)
+    if (llGetInventoryType(main_script + " 1") == INVENTORY_SCRIPT)
     {
         playpose(SUBPOSE, target_sitter);
     }
@@ -489,9 +482,7 @@ find_seat(key id, integer index, string msg, integer captureSub)
             }
             if (first_available != index)
             {
-                // [QS] fork: stock probed inventory for sitter " 1".
-                // QSALIVE cache replaces that.
-                if (qs_sitter_count_cached > 1)
+                if (llGetInventoryType(main_script + " 1") == INVENTORY_SCRIPT)
                 {
                     llSleep(1);
                     llMessageLinked(LINK_SET, 90030, (string)index, (string)first_available);
@@ -649,11 +640,6 @@ state running
 {
     state_entry()
     {
-        // [QS] fork: probe QSALIVE so the reply caches the real sitter
-        // count. Multi-sitter detection elsewhere in this script uses
-        // qs_sitter_count_cached > 1.
-        qs_alive = FALSE;
-        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         llSetTimerEvent(0);
         hovertext();
         get_unique_channels();
@@ -666,18 +652,6 @@ state running
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Cache sitter
-        // count for multi-sitter detection. See qs/PROTOCOL.md § QSALIVE.
-        if (num == QSALIVE_REPLY)
-        {
-            list d = llParseString2List(msg, ["|"], []);
-            if (llList2String(d, 0) == "QuickySitter")
-            {
-                qs_alive = TRUE;
-                qs_sitter_count_cached = (integer)llList2String(d, 2);
-            }
-            return;
-        }
         integer one = (integer)msg;
         integer two;
         if (num == 90030)
@@ -1256,11 +1230,6 @@ state running
             {
                 llResetScript();
             }
-            // [QS] fork: re-probe QSALIVE in case sitA count changed
-            // (scripts added / removed). Multi-sitter detection on
-            // qs_sitter_count_cached needs to stay fresh.
-            qs_alive = FALSE;
-            llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         }
     }
 
