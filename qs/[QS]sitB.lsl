@@ -13,14 +13,13 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.034";
+string version = "0.035";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
 // plus an unused channel-suffix mutation, dead since stock parity.
 // The count loop in qs_load_from_lsd now derives the sitA basename
 // from this script's own name (sitB → sitA replacement).
-string select_script = "[QS]select";
 integer SET;
 integer ETYPE;
 integer MTYPE;
@@ -36,6 +35,13 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive      = FALSE;
 integer number_of_sitters = 1;
+
+// QS_SELECT_HELLO — [QS]select broadcasts this on its own state_entry
+// and in response to slot-0 sitA's QSALIVE-reply. We cache the flag
+// and use it in select_present(), with the legacy [AV]select probe
+// kept as a stock-AVsitter backward-compat fallback.
+integer QS_SELECT_HELLO   = 90092;
+integer qs_select_present = FALSE;
 string CUSTOM_TEXT;
 string SITTER_INFO;
 list MENU_LIST;
@@ -101,12 +107,13 @@ memory()
     llOwnerSay(llGetScriptName() + "[" + version + "] " + (string)llGetListLength(MENU_LIST) + " Items Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
 }
 
-// Probe [QS]select or [AV]select so stock-AVsitter furniture keeps
-// working without renaming. Wrapping the dual probe keeps the four
-// call sites below readable.
+// QS-side presence is QS_SELECT_HELLO-cached (90092); falls back to
+// the [AV]select inventory probe so a stock-AVsitter furniture (no
+// QS broadcaster) still gets detected. select_script declaration is
+// no longer needed for the [QS] path — the cache flag carries it.
 integer select_present()
 {
-    return llGetInventoryType(select_script) == INVENTORY_SCRIPT
+    return qs_select_present
         || llGetInventoryType("[AV]select") == INVENTORY_SCRIPT;
 }
 
@@ -488,6 +495,13 @@ default
                 qs_alive = TRUE;
                 number_of_sitters = (integer)llList2String(d, 2);
             }
+            return;
+        }
+        if (num == QS_SELECT_HELLO)
+        {
+            // [QS]select announces presence (covers both initial state_entry
+            // broadcast and the re-announce triggered by our QSALIVE-reply).
+            qs_select_present = TRUE;
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)

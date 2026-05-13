@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.023";
+string version = "0.024";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
@@ -36,6 +36,13 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
+
+// QS_SELECT_HELLO — broadcast from this script on state_entry and
+// in response to slot-0 sitA's QSALIVE-reply. sitB listens for it
+// to gate select-driven menu logic without script-name inventory
+// probes for [QS]select. (The legacy [AV]select probe in sitB
+// stays as a stock-AVsitter backward-compat fallback.)
+integer QS_SELECT_HELLO = 90092;
 string CUSTOM_TEXT;
 list SITTERS;
 list SYNCS = [CUSTOM_TEXT]; //OSS::list SYNCS; // Force error in LSO
@@ -133,6 +140,10 @@ default
         // re-runs it once we know the actual count.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce ourselves so sitB can gate select-driven menu logic
+        // without script-name inventory probes. Re-broadcast on
+        // QSALIVE_REPLY receipt below covers a late sitB boot.
+        llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
         init_lists();
         notecard_key = llGetInventoryKey(notecard_name);
         Out(0, "Loading...");
@@ -198,6 +209,9 @@ default
                     qs_sitter_count_cached = new_count;
                     init_lists();
                 }
+                // Re-announce so sitB-slot-0 (which just reset and
+                // broadcast 90097) catches our presence flag.
+                llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
             }
             return;
         }

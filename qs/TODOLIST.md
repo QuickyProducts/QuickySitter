@@ -11,14 +11,14 @@ names so creators can rename/repackage without breaking detection.
 See `qs/PROTOCOL.md` § QSALIVE and § QSDUMP for the announce/probe
 patterns the migrated paths use.
 
-## Current state (after sitA 0.285, sitB 0.034, adjuster 0.044, select 0.023, etc.)
+## Current state (after sitA 0.285, sitB 0.035, adjuster 0.044, select 0.024, etc.)
 
 | File | Line | Variable / String | Purpose | Migration option |
 |------|------|-------------------|---------|------------------|
 | `[QS]boot.lsl` | 506 | `dump_plugins + [expression_script, camera_script]` | DUMP cascade plugin discovery | prop already announces via QSDUMP; expression/camera need the same once forked |
 | `[QS]sitA.lsl` | 984 | `expression_script="[AV]faces"` | FACE-directive integration | wait for `[QS]faces` fork; either keep hardcoded or migrate via a QSPLUGIN-announce style protocol |
 | `[QS]sitA.lsl` | 1293 | `memoryscript` | sibling check for reset trigger | acceptable runtime defensive; could migrate via sitB QS_HELLO announce later |
-| `[QS]sitB.lsl` | 97, 152, 180, 393 | `select_present()` (probes `[QS]select` + `[AV]select`) | menu logic varies if select is installed | wrapped in helper (0.031); could become QSALIVE-cap on `[QS]select` |
+| `[QS]sitB.lsl` | `select_present()` body | `[AV]select` fallback inventory probe | stock-AVsitter backward-compat | keep — defensive, fires only when QS_SELECT_HELLO flag missed |
 | `[QS]adjuster.lsl` | 406, 694, 822 | `camera_script="[AV]camera"` | CAMERA submenu visibility | needs `[QS]camera` fork before QSDUMP-style migration |
 | `[QS]adjuster.lsl` | 787 | `prop_script="[QS]prop"` | PROP submenu visibility | could read boot's `dump_plugins` via a new probe, or QSDUMP-cap on prop |
 | `[QS]adjuster.lsl` | 800 | `expression_script="[AV]faces"` | EXPRESSION submenu visibility | wait for `[QS]faces` fork |
@@ -32,6 +32,7 @@ patterns the migrated paths use.
 - `[QS]sitA` L101/L483/L1289 `main_script` hardcode — sitA 0.285 derives the basename from `llGetScriptName()` (strip slot suffix), so the `"[QS]sitA"` literal is gone. Creator-renamed forks ("[AV]sitA", "[FOO]sitA") work without touching this file as long as all sitA scripts share the basename.
 - `[QS]sitB` L19/L317 dead `main_script` global + L293 dual-probe count loop — sitB 0.032 derives the sitA basename from its own name via `sitB`→`sitA` string-replace; dropped the unused global and the `[QS]/[AV]` dual probe.
 - `[QS]sitB` derived-prefix count loop — sitB 0.034 swaps the sitB→sitA derivation for QSALIVE-cached `number_of_sitters` (same pattern as adjuster/select). Last inventory-probe-for-sitter-discovery gone from sitB.
+- `[QS]sitB` `[QS]select` probe in `select_present()` — replaced by QS_SELECT_HELLO (90092) announce from select 0.024, cached in sitB 0.035. `[AV]select` literal stays as stock backward-compat fallback (fires only when no QS broadcaster is present).
 
 ## Migration patterns by cluster
 
@@ -63,12 +64,6 @@ for menu-item visibility. These could also be replaced by an
 "is this plugin DUMP-capable?" probe consuming boot's `dump_plugins`
 list, or by a separate per-feature QSALIVE-cap protocol.
 
-### Select-plugin presence
-
-sitB's `select_present()` wraps both `[QS]select` and `[AV]select`
-probes (0.031). Migrating to QSALIVE-cap on `[QS]select` would
-remove even the literal `[AV]select` fallback eventually.
-
 ## Big refactor — slot identity without script names
 
 The intrinsic `[QS]sitA N` naming convention forces sitA scripts to
@@ -90,11 +85,6 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
    new "active DUMP plugins?" probe, or extend QSDUMP with a
    per-plugin "I'm here" cap that menu can cache (mirrors the
    QS_ADJUSTER_HELLO pattern).
-2. `[QS]sitB` select_present — could migrate to a
-   `QS_SELECT_HELLO` announce from select (same pattern as
-   QS_ADJUSTER_HELLO, 0.044). Saves the hardcoded `"[QS]select"` /
-   `"[AV]select"` probe pair on every call site. (The sitA-count
-   loop part of this Quick Win was completed in sitB 0.034.)
-3. `[QS]sitA` L1293 memoryscript sibling-check — sitB could announce
+2. `[QS]sitA` L1293 memoryscript sibling-check — sitB could announce
    via `QS_SITB_HELLO` so sitA caches presence rather than probing
    inventory in the CHANGED_INVENTORY handler.
