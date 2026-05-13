@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.029";
+string version = "0.030";
 string notecard_name = "AVpos";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -809,12 +809,11 @@ default
     {
         if (change & CHANGED_INVENTORY)
         {
-            // Notecard is the source of truth — Notecard-Save/-Swap erzeugt
-            // einen neuen Asset-Key, das triggert Reset + Re-Seed. Inventar-
-            // Änderungen ohne Notecard-Touch (z.B. extra [QS]sitA dropped)
-            // werden ignoriert — wer einen Slot hinzufügen will, muss eine
-            // entsprechende SITTER-Direktive in AVpos ergänzen, was den
-            // Asset-Key sowieso flippt.
+            // Notecard is the source of truth — a notecard save/swap mints
+            // a new asset key, which triggers reset + re-seed. Inventory
+            // changes without a notecard touch (e.g. an extra [QS]sitA
+            // dropped) are ignored — adding a slot requires a matching
+            // SITTER directive in AVpos, which flips the asset key anyway.
             if (llGetInventoryKey(notecard_name) != notecard_key)
             {
                 llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
