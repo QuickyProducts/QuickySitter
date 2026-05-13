@@ -19,13 +19,21 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.02";
+string version = "0.034";
 string notecard_name = "AVpos";
-string main_script = "[QS]sitA";
-string memoryscript = "[QS]sitB";
-string prop_script = "[AV]prop";
+// expression/camera plugin names are AVsitter protocol constants — stock
+// plugins probe and reply by literal script name. Once these forks adopt
+// the QSDUMP announce protocol below, the constants can go too.
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
+
+// QSDUMP — DUMP plugin discovery via announce/probe handshake, mirroring
+// the QSALIVE pattern. Plugins announce themselves on state_entry/on_rez;
+// boot probes once during its state_entry to wake plugins that came up
+// before boot. See qs/PROTOCOL.md § QSDUMP for the full contract.
+integer QSDUMP_PROBE = 90094;
+integer QSDUMP_HELLO = 90095;
+list dump_plugins;
 
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
 // Readout_Say, web() flushes to the AVsitter settings service every
@@ -63,11 +71,10 @@ list GENDERS;
 // after finalize_boot, FALSE during seeding.
 integer bAutoSyncActive;
 
-// Per-current-channel parse state. Reset on each channel switch.
-integer SCRIPT_CHANNEL;
+// Per-channel parse state. Reset on each SITTER directive.
+integer current_channel = -1;
 list SITTER_INFO;
 list seed_names;
-integer reading_notecard_section;
 
 // Mirror stock AVsitter sitA's parser locals exactly so the parsing flow
 // is byte-for-byte identical. They aren't used by boot, but having them
@@ -87,10 +94,20 @@ vector DEFAULT_ROTATION;
 vector CURRENT_POSITION;
 vector CURRENT_ROTATION;
 
-// Boot orchestration.
+// Boot orchestration. total_channels emerges at notecard EOF as
+// current_channel + 1 (count of SITTER directives seen). boot_done flips
+// TRUE in finalize_boot — arm_autosync gates on it. boot_failed flips on
+// LSD-memfull during seeding; wipe_attempted records that we've already
+// offered (and the user accepted) a full LSD wipe, so a second memfull
+// in the same run skips the dialog and surfaces "AVpos too large".
 integer total_channels;
-integer current_processing_channel;
-integer load_t0;
+integer boot_done;
+integer boot_failed;
+integer wipe_attempted;
+
+// Wipe-confirmation dialog state. dialog_channel is per-instance random.
+integer dialog_channel;
+integer dialog_handle;
 
 // Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
 // qs:p:* keys it writes during seed are exactly what dump emits back).
@@ -122,9 +139,40 @@ string qs_p_key(integer ch, integer i)
     return "qs:p:" + (string)ch + ":" + (string)i;
 }
 
+// Memfull-aware LSD write. Sets boot_failed on memfull (llLinksetDataWrite
+// return = 2 — literal here because the named constant for this return
+// code is not portable across SL viewer versions). Surfaces a dialog
+// offering a full llLinksetDataReset() — or, if the user already accepted
+// a wipe and we're retrying, declares the notecard too large. Cheap to
+// call on every write: no extra cost on success.
+show_wipe_dialog()
+{
+    dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
+    dialog_handle  = llListen(dialog_channel, "", llGetOwner(), "");
+    llDialog(llGetOwner(),
+        "Storage full during boot.\n\nWipe entire storage?\n\nWARNING: all storage entries (including QPP_CFG/AUTOSYNC and HUD configs) will be lost.",
+        ["Wipe", "Cancel"],
+        dialog_channel);
+}
+
+qs_lsd_write(string k, string v)
+{
+    if (boot_failed) return;
+    if (llLinksetDataWrite(k, v) != 2) return;  // 2 = memfull
+    boot_failed = TRUE;
+    llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
+    if (wipe_attempted)
+    {
+        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage still full after wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
+        return;
+    }
+    llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage full at " + k + " — see dialog to wipe entire storage and retry.");
+    show_wipe_dialog();
+}
+
 qs_p_write(integer ch, integer i, string name, string type, string anim, string pos, string rot)
 {
-    llLinksetDataWrite(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
+    qs_lsd_write(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
 string qs_str_replace(string s, string find, string replace)
@@ -145,7 +193,7 @@ string qs_cfg_pack()
         ], "\n");
 }
 
-// Render bar + ETA. 20-cell bar sliced from a pre-built constant.
+// Render bar. 20-cell bar sliced from a pre-built constant.
 qs_loading_text(integer cur, integer total, string msg)
 {
     if (total <= 0) total = 1;
@@ -153,18 +201,7 @@ qs_loading_text(integer cur, integer total, string msg)
     if (pct > 100) pct = 100;
     integer filled = pct / 5;
     string bar = llGetSubString("████████████████████░░░░░░░░░░░░░░░░░░░░", 20 - filled, 39 - filled);
-    integer elapsed = llGetUnixTime() - load_t0;
-    string eta;
-    if (cur >= total) eta = "Done";
-    else if (cur > 0 && elapsed > 0)
-    {
-        integer r = elapsed * (total - cur) / cur;
-        if (r > 60) eta = "Est. " + (string)((r + 30) / 60) + " min";
-        else if (r > 0) eta = "Est. " + (string)r + " sec";
-        else eta = "Est. <1 sec";
-    }
-    else eta = "Estimating…";
-    llSetText(msg + "\n[" + bar + "] " + (string)pct + "%\n" + eta, <1, 1, 0>, 1);
+    llSetText(msg + "\n[" + bar + "] " + (string)pct + "%", <1, 1, 0>, 1);
 }
 
 reset_channel_locals()
@@ -184,60 +221,58 @@ reset_channel_locals()
 }
 
 // ========================================================================
-// Boot state machine
+// Boot state machine — single-pass notecard read
 // ========================================================================
 
-integer count_channels()
+// Flush the channel we just finished parsing (called at SITTER N>0 with
+// current_channel = N-1, and at EOF with current_channel = last seen).
+// qs:cfg/qs:meta are deferred until EOF because GENDERS accumulates
+// across all SITTER directives.
+flush_channel_sitter(integer ch)
 {
-    integer i = 1;
-    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT)
-        ++i;
-    return i;
-}
-
-start_seed_for_channel(integer ch)
-{
-    SCRIPT_CHANNEL = ch;
-    reading_notecard_section = FALSE;
-    reset_channel_locals();
-    // Wipe any partial state from a prior aborted seed on this channel.
-    llLinksetDataDeleteFound("^qs:p:" + (string)ch + ":[0-9]+$", "");
-
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-    {
-        // Refresh line count per channel so the bar resets cleanly each pass.
-        reused_key = llGetNumberOfNotecardLines(notecard_name);
-        reused_variable = 0;
-        notecard_lines = 0;
-        notecard_query = llGetNotecardLine(notecard_name, 0);
-    }
-    else
-    {
-        // No notecard. Seed channel as empty and advance.
-        llLinksetDataWrite("qs:cfg:" + (string)ch, qs_cfg_pack());
-        llLinksetDataWrite("qs:sitter:" + (string)ch, "");
-        llLinksetDataWrite("qs:meta:" + (string)ch, "qs1");
-        ++current_processing_channel;
-        llSetTimerEvent(0.01);
-    }
+    qs_lsd_write("qs:sitter:" + (string)ch, llDumpList2String(SITTER_INFO, SEP));
 }
 
 // Done seeding. sitA/sitB poll qs:meta:<ch> in their state_entry and pick
 // up the data themselves once we've written meta. No reset needed.
 finalize_boot()
 {
+    total_channels = current_channel + 1;
+    string cfg = qs_cfg_pack();
+    integer ch;
+    for (ch = 0; ch < total_channels; ++ch)
+    {
+        qs_lsd_write("qs:cfg:" + (string)ch, cfg);
+        if (boot_failed) return;
+        qs_lsd_write("qs:meta:" + (string)ch, "qs1");
+        if (boot_failed) return;
+    }
+    boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
-    llOwnerSay(llGetScriptName() + "[" + version + "] Seed complete; " + (string)total_channels + " channel(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
+    llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
     arm_autosync();
+}
+
+// Kick off (or restart) the notecard read. Called from state_entry and
+// from the wipe-confirmation listen handler after llLinksetDataReset().
+start_boot()
+{
+    current_channel = -1;
+    boot_done = FALSE;
+    boot_failed = FALSE;
+    reused_key = llGetNumberOfNotecardLines(notecard_name);
+    reused_variable = 0;
+    notecard_lines = 0;
+    llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
+    notecard_query = llGetNotecardLine(notecard_name, 0);
 }
 
 // Read QPP_CFG:AUTOSYNC and arm the timer accordingly. Idempotent: safe
 // to call from finalize_boot, linkset_data, or after manual changes.
-// Skips while seed cycle is still running so we don't trample the
-// 0.01s seed-step timer.
+// Skips while boot is still running so we don't trample the boot flow.
 arm_autosync()
 {
-    if (current_processing_channel < total_channels) return;
+    if (!boot_done) return;
     string s = llLinksetDataRead("QPP_CFG:AUTOSYNC");
     if (s == "" || s == "Off")
     {
@@ -247,27 +282,6 @@ arm_autosync()
     }
     bAutoSyncActive = TRUE;
     llSetTimerEvent((float)s);
-}
-
-process_next_channel()
-{
-    if (current_processing_channel >= total_channels)
-    {
-        finalize_boot();
-        return;
-    }
-    integer ch = current_processing_channel;
-    if (llLinksetDataRead("qs:meta:" + (string)ch) != "")
-    {
-        // Already seeded — skip and advance.
-        ++current_processing_channel;
-        llSetTimerEvent(0.01);
-    }
-    else
-    {
-        // Needs seed — read notecard.
-        start_seed_for_channel(ch);
-    }
 }
 
 // ========================================================================
@@ -388,16 +402,39 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
-        // Wait for [QS]sitB (channel 0) to exist as a sanity check.
-        while (llGetInventoryType(memoryscript) != INVENTORY_SCRIPT)
-            llSleep(0.1);
-
-        total_channels = count_channels();
         notecard_key = llGetInventoryKey(notecard_name);
-        current_processing_channel = 0;
-        load_t0 = llGetUnixTime();
-        llOwnerSay(llGetScriptName() + "[" + version + "] Seeding " + (string)total_channels + " channel(s)...");
-        process_next_channel();
+        if (llGetInventoryType(notecard_name) != INVENTORY_NOTECARD)
+        {
+            // No notecard → no slot config. Refuse to boot. Re-arm on
+            // CHANGED_INVENTORY: notecard_key is NULL_KEY here, so adding
+            // the notecard will flip the asset-key compare and reset.
+            llSetText("ERROR: " + notecard_name + " notecard missing", <1, 0, 0>, 1);
+            llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
+            return;
+        }
+        start_boot();
+        // Wake any DUMP plugins that came up before boot. Late starters
+        // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
+        llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
+    }
+
+    listen(integer chan, string name, key id, string msg)
+    {
+        if (chan != dialog_channel) return;
+        llListenRemove(dialog_handle);
+        dialog_handle = 0;
+        if (msg == "Wipe")
+        {
+            llLinksetDataReset();
+            wipe_attempted = TRUE;
+            llOwnerSay(llGetScriptName() + "[" + version + "] Storage wiped — retrying boot.");
+            start_boot();
+            return;
+        }
+        // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
+        // (or a manual reset) restarts boot fresh; wipe_attempted clears
+        // automatically via llResetScript().
+        llOwnerSay(llGetScriptName() + "[" + version + "] Boot aborted — storage wipe declined.");
     }
 
     timer()
@@ -410,8 +447,8 @@ default
             llMessageLinked(LINK_SET, 90271, "", "");
             return;
         }
+        // Defensive: stop unexpected ticks.
         llSetTimerEvent(0);
-        process_next_channel();
     }
 
     linkset_data(integer act, string name, string val)
@@ -425,6 +462,16 @@ default
     link_message(integer sender, integer num, string msg, key id)
     {
         if (sender != llGetLinkNumber()) return;
+        if (num == QSDUMP_HELLO)
+        {
+            // DUMP plugin announce. id = announcer's script name. Dedup
+            // so repeat announces (on_rez, probe-reply, state_entry race)
+            // don't grow the list.
+            string plugin = (string)id;
+            if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
+                dump_plugins += plugin;
+            return;
+        }
         if (num == 90098)
         {
             qs_dump_start((integer)msg);
@@ -440,12 +487,13 @@ default
             // Plugin probe + next-channel cascade. Boot owns this now —
             // when one channel finishes (qs_dump_tick sends 90021, or a
             // plugin script's 90020 worker echoes back 90021), probe the
-            // remaining plugin scripts ([AV]prop / [AV]faces / [AV]camera)
-            // for this channel; once they're done, advance to the next
-            // channel via 90098 (back to qs_dump_start) or finalize the
-            // upload and shout the URL.
+            // remaining plugin scripts (dump_plugins, populated dynamically
+            // via QSDUMP_HELLO; plus the hardcoded stock plugins for which
+            // we don't yet control the source) for this channel; once
+            // they're done, advance to the next channel via 90098 (back to
+            // qs_dump_start) or finalize the upload and shout the URL.
             integer script_channel = (integer)msg;
-            list scripts = [prop_script, expression_script, camera_script];
+            list scripts = dump_plugins + [expression_script, camera_script];
             integer i = llListFindList(scripts, [(string)id]);
             while (i < llGetListLength(scripts))
             {
@@ -461,7 +509,7 @@ default
                     return;
                 }
             }
-            if (llGetInventoryType(main_script + " " + (string)(script_channel + 1)) == INVENTORY_SCRIPT)
+            if (script_channel + 1 < total_channels)
             {
                 llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
             }
@@ -603,18 +651,20 @@ default
         }
         if (query_id != notecard_query)
             return;
+        if (boot_failed)
+            return;
         if (data == EOF)
         {
-            // Persist this channel's settings + sitter row, mark meta last.
-            llLinksetDataWrite("qs:cfg:" + (string)SCRIPT_CHANNEL, qs_cfg_pack());
-            llLinksetDataWrite("qs:sitter:" + (string)SCRIPT_CHANNEL, llDumpList2String(SITTER_INFO, SEP));
-            llLinksetDataWrite("qs:meta:" + (string)SCRIPT_CHANNEL, "qs1");
-            ++current_processing_channel;
-            llSetTimerEvent(0.01);
+            // Flush the last channel's sitter row, then finalize (writes
+            // qs:cfg + qs:meta for all channels with the now-complete
+            // GENDERS list).
+            if (current_channel >= 0)
+                flush_channel_sitter(current_channel);
+            finalize_boot();
             return;
         }
-        if (notecard_lines)
-            qs_loading_text(reused_variable, notecard_lines, "Seeding channel " + (string)SCRIPT_CHANNEL + " from " + notecard_name);
+        if (notecard_lines && current_channel >= 0)
+            qs_loading_text(reused_variable, notecard_lines, "Loading sitter " + (string)current_channel + " from " + notecard_name);
 
         notecard_query = llGetNotecardLine(notecard_name, ++reused_variable);
 
@@ -639,20 +689,24 @@ default
 
         if (command == "SITTER")
         {
-            reading_notecard_section = FALSE;
             integer s_ch = (integer)part0;
+            // Flush the previous channel's sitter row before resetting
+            // per-channel locals. qs:cfg/qs:meta wait until EOF — GENDERS
+            // is still accumulating across the rest of the notecard.
+            if (current_channel >= 0)
+                flush_channel_sitter(current_channel);
             if (s_ch == 0)
                 GENDERS = [];
             integer g = -1;
             if (llList2String(parts, 2) == "M") g = 1;
             else if (llList2String(parts, 2) == "F") g = 0;
             GENDERS += g;
-            if (s_ch == SCRIPT_CHANNEL)
-            {
-                reading_notecard_section = TRUE;
-                if (llGetListLength(parts) > 1)
-                    SITTER_INFO = llList2List(parts, 1, 99999);
-            }
+            current_channel = s_ch;
+            reset_channel_locals();
+            // Wipe any stale pose entries from a prior boot at this channel.
+            llLinksetDataDeleteFound("^qs:p:" + (string)s_ch + ":[0-9]+$", "");
+            if (llGetListLength(parts) > 1)
+                SITTER_INFO = llList2List(parts, 1, 99999);
             return;
         }
         if (command == "MTYPE")  { MTYPE = (integer)part0; return; }
@@ -695,8 +749,9 @@ default
         // Only difference: where stock dispatches 90300/90301 to sitB, we
         // also write to LSD. Locals (FIRST_POSENAME etc.) are kept even
         // though boot doesn't use them, so the parser flow matches stock
-        // byte-for-byte.
-        if (reading_notecard_section)
+        // byte-for-byte. Pose lines are only written once we're past the
+        // first SITTER directive (current_channel >= 0).
+        if (current_channel >= 0)
         {
             if (llGetSubString(data, 0, 0) == "{")
             {
@@ -715,8 +770,8 @@ default
                     si = llListFindList(seed_names, ["P:" + command]);
                 if (si != -1)
                 {
-                    list cur = llParseStringKeepNulls(llLinksetDataRead(qs_p_key(SCRIPT_CHANNEL, si)), ["|"], []);
-                    qs_p_write(SCRIPT_CHANNEL, si,
+                    list cur = llParseStringKeepNulls(llLinksetDataRead(qs_p_key(current_channel, si)), ["|"], []);
+                    qs_p_write(current_channel, si,
                         llList2String(cur, 0),
                         llList2String(cur, 1),
                         llList2String(cur, 2),
@@ -770,7 +825,7 @@ default
                     string t = llGetSubString(command, 0, 0);
                     integer si = llGetListLength(seed_names);
                     seed_names += part0;
-                    qs_p_write(SCRIPT_CHANNEL, si, part0, t, part1, "", "");
+                    qs_p_write(current_channel, si, part0, t, part1, "", "");
                 }
             }
         }
@@ -780,10 +835,14 @@ default
     {
         if (change & CHANGED_INVENTORY)
         {
-            // Reset only on actual content change — notecard swap or sitA-count.
-            if (llGetInventoryKey(notecard_name) != notecard_key
-                || count_channels() != total_channels)
+            // Notecard is the source of truth — a notecard save/swap mints
+            // a new asset key, which triggers reset + re-seed. Inventory
+            // changes without a notecard touch (e.g. an extra [QS]sitA
+            // dropped) are ignored — adding a slot requires a matching
+            // SITTER directive in AVpos, which flips the asset key anyway.
+            if (llGetInventoryKey(notecard_name) != notecard_key)
             {
+                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
                 llResetScript();
             }
         }
