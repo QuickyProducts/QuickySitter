@@ -53,6 +53,7 @@ notice.
 
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
+| `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
 | `90094` | between stock `90076` and `90100` | `[QS]boot` → all plugins: QSDUMP probe ("announce yourself if DUMP-capable") |
 | `90095` | same | DUMP plugin → `[QS]boot`: QSDUMP hello (id = announcer's script name) |
 | `90096` | same | plugin → `[QS]sitA`: QSALIVE presence probe |

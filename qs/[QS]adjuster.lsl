@@ -17,13 +17,30 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.042";
+string version = "0.045";
 string helper_name = "[AV]helper";
-string prop_script = "[AV]prop";
+string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
-string main_script = "[QS]sitA";
 string notecard_name = "AVpos";
+
+// QSALIVE — sitter-count cache (replaces the legacy
+// llGetInventoryType("[QS]sitA " + i) loop). See qs/PROTOCOL.md § QSALIVE.
+// Fallback default 7 is a sensible upper bound until slot-0 sitA replies.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive = FALSE;
+integer qs_sitter_count_cached = 1;
+
+// QS_ADJUSTER_HELLO — broadcast from this script on state_entry and
+// in response to slot-0 sitA's QSALIVE-reply. sitA listens for it to
+// gate the [HELPER] menu item (replaces the legacy
+// llGetInventoryType("[QS]adjuster") inventory probe).
+integer QS_ADJUSTER_HELLO = 90091;
+// Tracks the one-time solo-channel offset applied when we first learn
+// count == 1 (legacy state_entry behavior, deferred to QSALIVE-reply
+// time because the count isn't known synchronously anymore).
+integer solo_offset_applied;
 list POS_LIST;
 list ROT_LIST;
 list HELPER_KEY_LIST;
@@ -333,10 +350,30 @@ Out(string out)
 
 integer get_number_of_scripts()
 {
+    if (qs_alive) return qs_sitter_count_cached;
+    return 7;  // pre-QSALIVE-reply fallback — sensible upper bound.
+}
+
+// Reset all sitter-tracking lists to the current count. Called from
+// state_entry (with fallback count) and again from the QSALIVE_REPLY
+// handler when the real count differs.
+init_lists()
+{
+    SITTERS = [];
+    POS_LIST = [];
+    ROT_LIST = [];
+    HELPER_KEY_LIST = [];
+    SITTER_POSES = [];
+    integer count = get_number_of_scripts();
     integer i;
-    while (llGetInventoryType(main_script + " " + (string)(++i)) == INVENTORY_SCRIPT)
-        ;
-    return i;
+    for (i = 0; i < count; ++i)
+    {
+        SITTERS += 0;
+        POS_LIST += 0;
+        ROT_LIST += 0;
+        HELPER_KEY_LIST += 0;
+        SITTER_POSES += "";
+    }
 }
 
 string convert_to_world_positions(integer num)
@@ -444,19 +481,19 @@ default
         }
         llListen(chat_channel, "", llGetOwner(), "");
         comm_channel = ((integer)llFrand(99999) + 1) * 1000 * -1;
-        integer i;
-        while (i++ < get_number_of_scripts())
-        {
-            SITTERS += 0;
-            POS_LIST += 0;
-            ROT_LIST += 0;
-            HELPER_KEY_LIST += 0;
-            SITTER_POSES += "";
-        }
-        if (llGetListLength(SITTERS) == 1)
-        {
-            comm_channel -= 1000000000;
-        }
+        // QSALIVE probe — slot-0 sitA replies with the real sitter count.
+        // Until then, init_lists pre-sizes to the fallback (7). The solo
+        // -1e9 offset on comm_channel is applied later, from the QSALIVE
+        // handler, once we actually know count == 1.
+        qs_alive = FALSE;
+        solo_offset_applied = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce ourselves so sitA can gate the [HELPER] menu item
+        // without script-name inventory probes. sitA caches the flag;
+        // we re-announce in the QSALIVE_REPLY handler so a late sitA
+        // boot also catches us.
+        llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
+        init_lists();
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -464,6 +501,32 @@ default
         integer one = (integer)msg;
         integer two = (integer)((string)id);
         integer i;
+        if (num == QSALIVE_REPLY)
+        {
+            // Slot-0 sitA reports the real sitter count. Resize the
+            // tracking lists if needed and apply the solo-channel offset
+            // once on first reply with count == 1.
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                integer new_count = (integer)llList2String(d, 2);
+                qs_alive = TRUE;
+                if (new_count != qs_sitter_count_cached)
+                {
+                    qs_sitter_count_cached = new_count;
+                    init_lists();
+                }
+                if (!solo_offset_applied && new_count == 1)
+                {
+                    comm_channel -= 1000000000;
+                    solo_offset_applied = TRUE;
+                }
+                // Re-announce so sitA-slot-0 (which just reset and
+                // broadcast 90097) catches our presence flag.
+                llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
+            }
+            return;
+        }
         if (sender == llGetLinkNumber())
         {
             list data = llParseStringKeepNulls(msg, ["|"], []);

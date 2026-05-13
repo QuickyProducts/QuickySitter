@@ -20,9 +20,12 @@
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
-string version = "0.01";
+string version = "0.011";
 string script_basename = "[QS]sitA";
 string menu_script = "[AV]menu";
+// Stock-AVsitter fallback — added so root works in both [QS]- and
+// [AV]-prefixed setups.
+string av_script_basename = "[AV]sitA";
 key A;
 list B = [A]; //OSS::list B; // Force error in LSO
 
@@ -30,7 +33,9 @@ default
 {
     touch_end(integer touched)
     {
-        if (llGetInventoryType(script_basename) != INVENTORY_SCRIPT && llGetInventoryType(menu_script) != INVENTORY_SCRIPT)
+        if (llGetInventoryType(script_basename) != INVENTORY_SCRIPT
+         && llGetInventoryType(av_script_basename) != INVENTORY_SCRIPT
+         && llGetInventoryType(menu_script) != INVENTORY_SCRIPT)
         {
             llMessageLinked(LINK_ALL_OTHERS, 90005, llList2String(B, 0), llDetectedKey(0));
             B = [];
