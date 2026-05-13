@@ -17,7 +17,7 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.043";
+string version = "0.044";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -328,8 +328,17 @@ integer hudproxy_present()
 // when the user is mid-adjustment via the HUD's own X+/Y+/Z+ buttons.
 quickyhud_menu()
 {
+    // hudcontrol announces its version via *HUDVERSION* on activate;
+    // hudproxy writes it to QPP_CFG:HUD_VERSION. If empty, no HUD has
+    // checked in yet — show no version line rather than a misleading
+    // placeholder.
+    string hudVer = llLinksetDataRead("QPP_CFG:HUD_VERSION");
+    string header = "";
+    if (hudVer != "")
+        header = "Quicky-HUD v" + hudVer + "\n\n";
     llDialog(controller,
-        "\nQuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[BACK] keeps it on and closes this dialog.",
+        "\n" + header
+        + "QuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[BACK] keeps it on and closes this dialog.",
         ["[BACK]", "[ADJUST OFF]"],
         comm_channel);
 }
