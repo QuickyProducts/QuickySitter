@@ -1,4 +1,32 @@
-# QuickySitter — script-name probe migration TODO
+# QuickySitter — TODO list
+
+## Open bugs
+
+### ADJUSTMODE lost on SWAP
+
+After 2026-05-13's SWAP-picker migration from hudproxy to hudadmin
+(quicky-hud commit `d2ac411`, hudproxy 1.468 / hudadmin 1.232),
+performing a SWAP drops the ADJUSTMODE state — the HUD reverts to
+the non-adjust layout.
+
+Likely culprits to check:
+- hudproxy's 90030 handler "arms backoff" but doesn't re-broadcast
+  ADJUSTMODE on the 953 channel. Pre-migration the SWAP-picker
+  listen handler was inline in hudproxy and may have triggered a
+  side-effect that the new hudadmin path doesn't reproduce.
+- hudmatrix's `bAdjustMode` is a local flag; after a SWAP the
+  sitter UUID for the user might change, and the per-sitter 953
+  channel is owner-derived. If hudproxy targets the wrong key
+  post-SWAP, the live broadcast lands somewhere the new owner
+  isn't listening on.
+- Alternative: hudproxy's `setAdjustmode()` doesn't re-broadcast
+  to the now-swapped sitter; only `wipeAllOffsets` runs on On→.
+
+Reproduce: ≥3 sitter furniture, enable ADJUSTMODE, click *SWAP*
+on HUD matrix, pick a slot. Expected: ADJUSTMODE stays On.
+Observed: layout flips back to the non-adjust matrix.
+
+## Script-name probe migration
 
 Inventory of remaining `llGetInventoryType(<script_name>) == INVENTORY_SCRIPT`
 probes across the QS fork, with the rationale for each and the migration
