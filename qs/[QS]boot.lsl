@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.032";
+string version = "0.033";
 string notecard_name = "AVpos";
 // expression/camera plugin names are AVsitter protocol constants — stock
 // plugins probe and reply by literal script name. Once these forks adopt
@@ -139,10 +139,13 @@ string qs_p_key(integer ch, integer i)
     return "qs:p:" + (string)ch + ":" + (string)i;
 }
 
-// Memfull-aware LSD write. Sets boot_failed on LINKSETDATA_MEMFULL and
-// surfaces a dialog offering a full llLinksetDataReset() — or, if the
-// user already accepted a wipe and we're retrying, declares the notecard
-// too large. Cheap to call on every write: no extra cost on success.
+// Memfull-aware LSD write. Sets boot_failed on memfull (llLinksetDataWrite
+// return = 2 — literal here because the named constant varies between
+// viewer versions: LINKSETDATA_MEMFULL / LINKSETDATA_MEMORY / sometimes
+// undefined entirely). Surfaces a dialog offering a full llLinksetDataReset()
+// — or, if the user already accepted a wipe and we're retrying, declares
+// the notecard too large. Cheap to call on every write: no extra cost on
+// success.
 show_wipe_dialog()
 {
     dialog_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
@@ -156,7 +159,7 @@ show_wipe_dialog()
 qs_lsd_write(string k, string v)
 {
     if (boot_failed) return;
-    if (llLinksetDataWrite(k, v) != LINKSETDATA_MEMFULL) return;
+    if (llLinksetDataWrite(k, v) != 2) return;  // 2 = memfull
     boot_failed = TRUE;
     llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
     if (wipe_attempted)
