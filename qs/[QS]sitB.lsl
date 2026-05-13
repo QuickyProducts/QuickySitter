@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.033";
+string version = "0.034";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -27,7 +27,15 @@ integer MTYPE;
 integer SWAP;
 integer AMENU;
 integer SCRIPT_CHANNEL;
-integer number_of_sitters;
+// QSALIVE-driven sitter count cache (replaces the legacy "sitB → sitA"
+// derived inventory probe). Slot-0 sitA sends an unsolicited 90097 on
+// its own state_entry; we cache the count from the payload's field 2.
+// Default 1 = solo behavior until the reply lands, which matches the
+// safest mis-render direction (multi-sitter UI elements stay hidden).
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive      = FALSE;
+integer number_of_sitters = 1;
 string CUSTOM_TEXT;
 string SITTER_INFO;
 list MENU_LIST;
@@ -298,18 +306,9 @@ qs_load_from_lsd()
         ++i;
     }
 
-    // number_of_sitters = count of sitA scripts in the prim. Derive the
-    // sitA basename from our own (sitB → sitA), so creator-renamed
-    // installs ("[AV]sitB" + "[AV]sitA N", or any other prefix) work
-    // without hardcoding [QS]/[AV].
-    string my_base = llGetScriptName();
-    integer space = llSubStringIndex(my_base, " ");
-    if (space != -1) my_base = llGetSubString(my_base, 0, space - 1);
-    string sita_prefix = llDumpList2String(llParseStringKeepNulls(my_base, ["sitB"], []), "sitA");
-    i = 1;
-    while (llGetInventoryType(sita_prefix + " " + (string)i) == INVENTORY_SCRIPT)
-        ++i;
-    number_of_sitters = i;
+    // number_of_sitters is now QSALIVE-cached (see link_message handler
+    // for QSALIVE_REPLY). No inventory probe needed — slot-0 sitA owns
+    // the canonical count via its own get_number_of_scripts().
 }
 
 default
@@ -318,6 +317,12 @@ default
     {
         SEP = llUnescapeURL("%EF%BF%BD");
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
+        // QSALIVE probe — slot-0 sitA replies with the real sitter count
+        // (handled in link_message below). Reply lands well before the
+        // first user-driven animation_menu call, which is the first reader
+        // of number_of_sitters.
+        qs_alive = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         // Wait for [QS]boot to finish seeding this channel.
         while (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) == "")
             llSleep(0.1);
@@ -473,6 +478,18 @@ default
         integer two = (integer)((string)id);
         integer index;
         list data;
+        if (num == QSALIVE_REPLY)
+        {
+            // Slot-0 sitA reports the real sitter count. Use it as the
+            // canonical number_of_sitters source.
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                qs_alive = TRUE;
+                number_of_sitters = (integer)llList2String(d, 2);
+            }
+            return;
+        }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
         {
             index = llListFindList(MENU_LIST, [msg]);

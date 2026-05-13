@@ -11,7 +11,7 @@ names so creators can rename/repackage without breaking detection.
 See `qs/PROTOCOL.md` § QSALIVE and § QSDUMP for the announce/probe
 patterns the migrated paths use.
 
-## Current state (after sitA 0.285, sitB 0.032, adjuster 0.044, select 0.023, etc.)
+## Current state (after sitA 0.285, sitB 0.034, adjuster 0.044, select 0.023, etc.)
 
 | File | Line | Variable / String | Purpose | Migration option |
 |------|------|-------------------|---------|------------------|
@@ -31,6 +31,7 @@ patterns the migrated paths use.
 - `[QS]sitA` L998 adjuster-presence — replaced by QS_ADJUSTER_HELLO (90091) broadcast from adjuster 0.044, cached in sitA 0.284
 - `[QS]sitA` L101/L483/L1289 `main_script` hardcode — sitA 0.285 derives the basename from `llGetScriptName()` (strip slot suffix), so the `"[QS]sitA"` literal is gone. Creator-renamed forks ("[AV]sitA", "[FOO]sitA") work without touching this file as long as all sitA scripts share the basename.
 - `[QS]sitB` L19/L317 dead `main_script` global + L293 dual-probe count loop — sitB 0.032 derives the sitA basename from its own name via `sitB`→`sitA` string-replace; dropped the unused global and the `[QS]/[AV]` dual probe.
+- `[QS]sitB` derived-prefix count loop — sitB 0.034 swaps the sitB→sitA derivation for QSALIVE-cached `number_of_sitters` (same pattern as adjuster/select). Last inventory-probe-for-sitter-discovery gone from sitB.
 
 ## Migration patterns by cluster
 
@@ -89,10 +90,11 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
    new "active DUMP plugins?" probe, or extend QSDUMP with a
    per-plugin "I'm here" cap that menu can cache (mirrors the
    QS_ADJUSTER_HELLO pattern).
-2. `[QS]sitB` select_present + count loop — could migrate to a
+2. `[QS]sitB` select_present — could migrate to a
    `QS_SELECT_HELLO` announce from select (same pattern as
-   QS_ADJUSTER_HELLO, 0.044). Saves a hardcoded `"[QS]select"` /
-   `"[AV]select"` probe pair on every call site.
+   QS_ADJUSTER_HELLO, 0.044). Saves the hardcoded `"[QS]select"` /
+   `"[AV]select"` probe pair on every call site. (The sitA-count
+   loop part of this Quick Win was completed in sitB 0.034.)
 3. `[QS]sitA` L1293 memoryscript sibling-check — sitB could announce
    via `QS_SITB_HELLO` so sitA caches presence rather than probing
    inventory in the CHANGED_INVENTORY handler.
