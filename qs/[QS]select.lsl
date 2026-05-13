@@ -20,16 +20,23 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.021";
+string version = "0.022";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
 key notecard_key;
 key notecard_query;
 string notecard_name = "AVpos";
-string main_script = "[QS]sitA";
 string adjust_script = "[QS]adjuster";
 string helper_object = "[AV]helper";
+
+// QSALIVE — sitter-count cache (replaces the legacy
+// llGetInventoryType("[QS]sitA " + i) loop). See qs/PROTOCOL.md § QSALIVE.
+// Fallback default 7 is a sensible upper bound until slot-0 sitA replies.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer qs_alive = FALSE;
+integer qs_sitter_count_cached = 1;
 string CUSTOM_TEXT;
 list SITTERS;
 list SYNCS = [CUSTOM_TEXT]; //OSS::list SYNCS; // Force error in LSO
@@ -87,16 +94,33 @@ menu(key av)
 }
 integer get_number_of_scripts()
 {
-    integer i = 1;
-    // Probe both [QS]sitA and [AV]sitA so stock-AVsitter furniture keeps
-    // working without renaming. main_script is "[QS]sitA"; fallback is
-    // hardcoded so the loop stops cleanly when neither prefix is present.
-    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT
-        || llGetInventoryType("[AV]sitA " + (string)i) == INVENTORY_SCRIPT)
+    if (qs_alive) return qs_sitter_count_cached;
+    return 7;  // pre-QSALIVE-reply fallback — sensible upper bound.
+}
+
+// Resize SITTERS / SYNCS / BUTTONS to the cached count. Preserves
+// existing entries when growing (NULL_KEY / FALSE / "Sitter N" for
+// new slots) and trims only the tail when shrinking — keeps the
+// notecard-derived BUTTONS labels intact across QSALIVE-reply-driven
+// resizes during boot.
+init_lists()
+{
+    integer count = qs_sitter_count_cached;
+    if (count < 1) count = 1;
+    while (llGetListLength(SITTERS) > count)
     {
+        SITTERS = llDeleteSubList(SITTERS, -1, -1);
+        SYNCS   = llDeleteSubList(SYNCS,   -1, -1);
+        BUTTONS = llDeleteSubList(BUTTONS, -1, -1);
+    }
+    integer i = llGetListLength(SITTERS);
+    while (i < count)
+    {
+        SITTERS += NULL_KEY;
+        SYNCS   += FALSE;
+        BUTTONS += "Sitter " + (string)i;
         i++;
     }
-    return i;
 }
 default
 {
@@ -105,14 +129,12 @@ default
         menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1; // 7FFFFF80 = max float < 2^31
         menu_handle = llListen(menu_channel, "", "", "");
         llListenControl(menu_handle, FALSE);
-        integer i;
-        SYNCS = [];
-        for (i = 0; i < get_number_of_scripts(); i++)
-        {
-            SITTERS += NULL_KEY;
-            SYNCS += FALSE;
-            BUTTONS += "Sitter " + (string)i;
-        }
+        // QSALIVE probe — slot-0 sitA replies with the real count.
+        // init_lists pre-sizes to the fallback (7); the reply handler
+        // re-runs it once we know the actual count.
+        qs_alive = FALSE;
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        init_lists();
         notecard_key = llGetInventoryKey(notecard_name);
         Out(0, "Loading...");
         notecard_query = llGetNotecardLine(notecard_name, variable1);
@@ -144,7 +166,11 @@ default
     {
         if (change & CHANGED_INVENTORY)
         {
-            if (llGetInventoryKey(notecard_name) != notecard_key || get_number_of_scripts() != llGetListLength(SITTERS))
+            // Notecard-key change → full reset to re-read.
+            // Sitter-count change is propagated by sitA-slot-0's
+            // unsolicited QSALIVE-reply broadcast on its own reset, which
+            // we handle via init_lists() in the link_message handler.
+            if (llGetInventoryKey(notecard_name) != notecard_key)
             {
                 llResetScript();
             }
@@ -159,6 +185,23 @@ default
     }
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == QSALIVE_REPLY)
+        {
+            // Slot-0 sitA reports the real sitter count. Resize the
+            // tracking lists if needed (preserves existing entries).
+            list d = llParseString2List(msg, ["|"], []);
+            if (llList2String(d, 0) == "QuickySitter")
+            {
+                integer new_count = (integer)llList2String(d, 2);
+                qs_alive = TRUE;
+                if (new_count != qs_sitter_count_cached)
+                {
+                    qs_sitter_count_cached = new_count;
+                    init_lists();
+                }
+            }
+            return;
+        }
         if (sender == llGetLinkNumber())
         {
             if (num == 90055)
