@@ -42,10 +42,13 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.019";
+string version = "0.020";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
+// QSDUMP — announce DUMP capability to [QS]boot. See qs/PROTOCOL.md.
+integer QSDUMP_PROBE = 90094;
+integer QSDUMP_HELLO = 90095;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
 key key_request;
@@ -483,6 +486,9 @@ default
         Out(0, "Mem=" + (string)(65536 - llGetUsedMemory()));
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce DUMP capability so boot's cascade doesn't need to
+        // hardcode "[QS]prop" — see qs/PROTOCOL.md § QSDUMP.
+        llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
@@ -521,10 +527,17 @@ default
         init_channel();
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
     }
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == QSDUMP_PROBE)
+        {
+            // Boot is asking who's DUMP-capable. Re-announce.
+            llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
+            return;
+        }
         if (num == QSALIVE_REPLY)
         {
             list d = llParseString2List(msg, ["|"], []);

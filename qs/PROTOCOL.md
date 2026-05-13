@@ -53,7 +53,9 @@ notice.
 
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
-| `90096` | between stock `90076` and `90100` | plugin → `[QS]sitA`: QSALIVE presence probe |
+| `90094` | between stock `90076` and `90100` | `[QS]boot` → all plugins: QSDUMP probe ("announce yourself if DUMP-capable") |
+| `90095` | same | DUMP plugin → `[QS]boot`: QSDUMP hello (id = announcer's script name) |
+| `90096` | same | plugin → `[QS]sitA`: QSALIVE presence probe |
 | `90097` | same | `[QS]sitA` (slot 0) → plugin: QSALIVE reply / boot-announce |
 | `90098` | same | `[QS]adjuster` → `[QS]boot`: "start dump for channel" |
 | `90099` | same | `[QS]boot` → self: dump tick |
@@ -340,6 +342,66 @@ check.
 Since RAM-tier writes only happen when LSD is at the floor (rare in
 practice), this race-fix code path is rarely traversed but kept as a
 defensive measure for the edge case.
+
+## QSDUMP — plugin announce for the DUMP cascade
+
+`[QS]boot`'s DUMP cascade used to hardcode the participating plugin
+script names (`[AV]prop`, `[AV]faces`, `[AV]camera`). Once `[AV]prop`
+was forked into `[QS]prop`, that constant had to be edited too — and
+any third-party DUMP-capable plugin would still be invisible to the
+cascade without a boot patch. QSDUMP turns plugin discovery dynamic:
+plugins announce themselves, boot collects.
+
+| Num   | Direction                              | `msg` | `id`                | Meaning |
+|-------|----------------------------------------|-------|---------------------|---------|
+| 90094 | `[QS]boot` → all plugins              | `""`  | `""`                | QSDUMP probe — "if you're DUMP-capable, announce yourself now." Sent once from boot's `state_entry`. |
+| 90095 | DUMP plugin → `[QS]boot`              | `""`  | `<script_name>`     | QSDUMP hello — "I respond to 90020 DUMP messages addressed to my script name." Sent unsolicited from the plugin's `state_entry` and `on_rez`, and in response to 90094. |
+
+### Boot side
+
+Boot maintains `list dump_plugins;` — a deduped list of announced
+plugin names. The 90021 cascade iterates `dump_plugins +
+[expression_script, camera_script]` per channel; the stock plugin
+names stay hardcoded until those forks adopt QSDUMP too.
+
+Boot still `llGetInventoryType`-checks each name before sending 90020,
+so a stale announce (plugin script was deleted from inventory) is
+silently skipped rather than hanging the cascade waiting for a 90021
+echo that never comes.
+
+### Plugin side
+
+```lsl
+integer QSDUMP_PROBE = 90094;
+integer QSDUMP_HELLO = 90095;
+
+announce_dump()
+{
+    llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
+}
+
+state_entry() { announce_dump(); /* ... */ }
+on_rez(integer s) { announce_dump(); /* ... */ }
+link_message(integer sender, integer num, string msg, key id)
+{
+    if (num == QSDUMP_PROBE) { announce_dump(); return; }
+    /* ... */
+}
+```
+
+A plugin that never announces still works in stock-AVsitter furniture
+(no boot → no listener); QSDUMP is purely additive on top of stock's
+90020/90021/90022 contract.
+
+### Migration status
+
+- `[QS]prop` (≥ 0.020) — announces ✅
+- `[AV]faces` — stock, still hardcoded in boot
+- `[AV]camera` — stock, still hardcoded in boot
+
+When `[AV]faces` and `[AV]camera` are forked into `[QS]faces` /
+`[QS]camera`, they get QSDUMP announce and the matching constants
+drop from boot.
 
 ## `[DUMP]` — entirely in `[QS]boot`
 

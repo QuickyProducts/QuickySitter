@@ -19,11 +19,21 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.031";
+string version = "0.032";
 string notecard_name = "AVpos";
-string prop_script = "[QS]prop";
+// expression/camera plugin names are AVsitter protocol constants — stock
+// plugins probe and reply by literal script name. Once these forks adopt
+// the QSDUMP announce protocol below, the constants can go too.
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
+
+// QSDUMP — DUMP plugin discovery via announce/probe handshake, mirroring
+// the QSALIVE pattern. Plugins announce themselves on state_entry/on_rez;
+// boot probes once during its state_entry to wake plugins that came up
+// before boot. See qs/PROTOCOL.md § QSDUMP for the full contract.
+integer QSDUMP_PROBE = 90094;
+integer QSDUMP_HELLO = 90095;
+list dump_plugins;
 
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
 // Readout_Say, web() flushes to the AVsitter settings service every
@@ -401,6 +411,9 @@ default
             return;
         }
         start_boot();
+        // Wake any DUMP plugins that came up before boot. Late starters
+        // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
+        llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
     }
 
     listen(integer chan, string name, key id, string msg)
@@ -447,6 +460,16 @@ default
     link_message(integer sender, integer num, string msg, key id)
     {
         if (sender != llGetLinkNumber()) return;
+        if (num == QSDUMP_HELLO)
+        {
+            // DUMP plugin announce. id = announcer's script name. Dedup
+            // so repeat announces (on_rez, probe-reply, state_entry race)
+            // don't grow the list.
+            string plugin = (string)id;
+            if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
+                dump_plugins += plugin;
+            return;
+        }
         if (num == 90098)
         {
             qs_dump_start((integer)msg);
@@ -462,12 +485,13 @@ default
             // Plugin probe + next-channel cascade. Boot owns this now —
             // when one channel finishes (qs_dump_tick sends 90021, or a
             // plugin script's 90020 worker echoes back 90021), probe the
-            // remaining plugin scripts ([AV]prop / [AV]faces / [AV]camera)
-            // for this channel; once they're done, advance to the next
-            // channel via 90098 (back to qs_dump_start) or finalize the
-            // upload and shout the URL.
+            // remaining plugin scripts (dump_plugins, populated dynamically
+            // via QSDUMP_HELLO; plus the hardcoded stock plugins for which
+            // we don't yet control the source) for this channel; once
+            // they're done, advance to the next channel via 90098 (back to
+            // qs_dump_start) or finalize the upload and shout the URL.
             integer script_channel = (integer)msg;
-            list scripts = [prop_script, expression_script, camera_script];
+            list scripts = dump_plugins + [expression_script, camera_script];
             integer i = llListFindList(scripts, [(string)id]);
             while (i < llGetListLength(scripts))
             {
