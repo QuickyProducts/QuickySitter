@@ -32,13 +32,15 @@
  */
 
 string product = "AVsitter™ RLV";
-string version = "0.003";
-// [QS] fork (experimental, v0.003): probe targets "[QS]sitA 1" instead
-// of stock "[AV]sitA 1" so the multi-sitter detection actually fires
-// in QS-converted furniture. Test reverts the v0.002 cleanup. If the
-// [STOP]/Menu...-disappears regression re-appears, we know it's the
-// 90030 SWAP path; if not, this is the correct probe.
-string main_script = "[QS]sitA";
+string version = "0.004";
+// [QS] fork: probe stays on "[AV]sitA 1" — in a QS-converted prim that
+// name is never present, so the multi-sitter branch (90030 SWAP path)
+// never fires. The v0.003 experiment confirmed: probing "[QS]sitA 1"
+// makes the SWAP fire and breaks rlv_top_menu's [STOP]/Menu... buttons
+// for the Sub. The single-sitter fallback runs cleanly in 2-sitter
+// QS furniture because [QS]sitA handles slot assignment correctly via
+// its own sit-target API; root-RLV doesn't need to do the SWAP itself.
+string main_script = "[AV]sitA";
 integer ignorenextswap;
 string notecard_name = "AVpos";
 string unDressScript = "[AV]root-RLV-extra";
