@@ -19,9 +19,8 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.025";
+string version = "0.026";
 string notecard_name = "AVpos";
-string main_script = "[QS]sitA";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
@@ -62,11 +61,10 @@ list GENDERS;
 // after finalize_boot, FALSE during seeding.
 integer bAutoSyncActive;
 
-// Per-current-channel parse state. Reset on each channel switch.
-integer SCRIPT_CHANNEL;
+// Per-channel parse state. Reset on each SITTER directive.
+integer current_channel = -1;
 list SITTER_INFO;
 list seed_names;
-integer reading_notecard_section;
 
 // Mirror stock AVsitter sitA's parser locals exactly so the parsing flow
 // is byte-for-byte identical. They aren't used by boot, but having them
@@ -86,9 +84,11 @@ vector DEFAULT_ROTATION;
 vector CURRENT_POSITION;
 vector CURRENT_ROTATION;
 
-// Boot orchestration.
+// Boot orchestration. total_channels emerges at notecard EOF as
+// current_channel + 1 (count of SITTER directives seen). boot_done flips
+// TRUE in finalize_boot — arm_autosync gates on it.
 integer total_channels;
-integer current_processing_channel;
+integer boot_done;
 
 // Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
 // qs:p:* keys it writes during seed are exactly what dump emits back).
@@ -171,48 +171,31 @@ reset_channel_locals()
 }
 
 // ========================================================================
-// Boot state machine
+// Boot state machine — single-pass notecard read
 // ========================================================================
 
-integer count_channels()
+// Flush the channel we just finished parsing (called at SITTER N>0 with
+// current_channel = N-1, and at EOF with current_channel = last seen).
+// qs:cfg/qs:meta are deferred until EOF because GENDERS accumulates
+// across all SITTER directives.
+flush_channel_sitter(integer ch)
 {
-    integer i = 1;
-    while (llGetInventoryType(main_script + " " + (string)i) == INVENTORY_SCRIPT)
-        ++i;
-    return i;
-}
-
-start_seed_for_channel(integer ch)
-{
-    SCRIPT_CHANNEL = ch;
-    reading_notecard_section = FALSE;
-    reset_channel_locals();
-    // Wipe any partial state from a prior aborted seed on this channel.
-    llLinksetDataDeleteFound("^qs:p:" + (string)ch + ":[0-9]+$", "");
-
-    if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
-    {
-        // Refresh line count per channel so the bar resets cleanly each pass.
-        reused_key = llGetNumberOfNotecardLines(notecard_name);
-        reused_variable = 0;
-        notecard_lines = 0;
-        notecard_query = llGetNotecardLine(notecard_name, 0);
-    }
-    else
-    {
-        // No notecard. Seed channel as empty and advance.
-        llLinksetDataWrite("qs:cfg:" + (string)ch, qs_cfg_pack());
-        llLinksetDataWrite("qs:sitter:" + (string)ch, "");
-        llLinksetDataWrite("qs:meta:" + (string)ch, "qs1");
-        ++current_processing_channel;
-        llSetTimerEvent(0.01);
-    }
+    llLinksetDataWrite("qs:sitter:" + (string)ch, llDumpList2String(SITTER_INFO, SEP));
 }
 
 // Done seeding. sitA/sitB poll qs:meta:<ch> in their state_entry and pick
 // up the data themselves once we've written meta. No reset needed.
 finalize_boot()
 {
+    total_channels = current_channel + 1;
+    string cfg = qs_cfg_pack();
+    integer ch;
+    for (ch = 0; ch < total_channels; ++ch)
+    {
+        llLinksetDataWrite("qs:cfg:" + (string)ch, cfg);
+        llLinksetDataWrite("qs:meta:" + (string)ch, "qs1");
+    }
+    boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
     llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()));
     arm_autosync();
@@ -220,11 +203,10 @@ finalize_boot()
 
 // Read QPP_CFG:AUTOSYNC and arm the timer accordingly. Idempotent: safe
 // to call from finalize_boot, linkset_data, or after manual changes.
-// Skips while seed cycle is still running so we don't trample the
-// 0.01s seed-step timer.
+// Skips while boot is still running so we don't trample the boot flow.
 arm_autosync()
 {
-    if (current_processing_channel < total_channels) return;
+    if (!boot_done) return;
     string s = llLinksetDataRead("QPP_CFG:AUTOSYNC");
     if (s == "" || s == "Off")
     {
@@ -234,27 +216,6 @@ arm_autosync()
     }
     bAutoSyncActive = TRUE;
     llSetTimerEvent((float)s);
-}
-
-process_next_channel()
-{
-    if (current_processing_channel >= total_channels)
-    {
-        finalize_boot();
-        return;
-    }
-    integer ch = current_processing_channel;
-    if (llLinksetDataRead("qs:meta:" + (string)ch) != "")
-    {
-        // Already seeded — skip and advance.
-        ++current_processing_channel;
-        llSetTimerEvent(0.01);
-    }
-    else
-    {
-        // Needs seed — read notecard.
-        start_seed_for_channel(ch);
-    }
 }
 
 // ========================================================================
@@ -375,11 +336,23 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
-        total_channels = count_channels();
         notecard_key = llGetInventoryKey(notecard_name);
-        current_processing_channel = 0;
-        llOwnerSay(llGetScriptName() + "[" + version + "] Loading " + (string)total_channels + " sitter(s)...");
-        process_next_channel();
+        if (llGetInventoryType(notecard_name) != INVENTORY_NOTECARD)
+        {
+            // No notecard → no slot config. Refuse to boot. Re-arm on
+            // CHANGED_INVENTORY: notecard_key is NULL_KEY here, so adding
+            // the notecard will flip the asset-key compare and reset.
+            llSetText("ERROR: " + notecard_name + " notecard missing", <1, 0, 0>, 1);
+            llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
+            return;
+        }
+        current_channel = -1;
+        boot_done = FALSE;
+        reused_key = llGetNumberOfNotecardLines(notecard_name);
+        reused_variable = 0;
+        notecard_lines = 0;
+        llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
+        notecard_query = llGetNotecardLine(notecard_name, 0);
     }
 
     timer()
@@ -392,8 +365,8 @@ default
             llMessageLinked(LINK_SET, 90271, "", "");
             return;
         }
+        // Defensive: stop unexpected ticks.
         llSetTimerEvent(0);
-        process_next_channel();
     }
 
     linkset_data(integer act, string name, string val)
@@ -443,7 +416,7 @@ default
                     return;
                 }
             }
-            if (llGetInventoryType(main_script + " " + (string)(script_channel + 1)) == INVENTORY_SCRIPT)
+            if (script_channel + 1 < total_channels)
             {
                 llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
             }
@@ -587,16 +560,16 @@ default
             return;
         if (data == EOF)
         {
-            // Persist this channel's settings + sitter row, mark meta last.
-            llLinksetDataWrite("qs:cfg:" + (string)SCRIPT_CHANNEL, qs_cfg_pack());
-            llLinksetDataWrite("qs:sitter:" + (string)SCRIPT_CHANNEL, llDumpList2String(SITTER_INFO, SEP));
-            llLinksetDataWrite("qs:meta:" + (string)SCRIPT_CHANNEL, "qs1");
-            ++current_processing_channel;
-            llSetTimerEvent(0.01);
+            // Flush the last channel's sitter row, then finalize (writes
+            // qs:cfg + qs:meta for all channels with the now-complete
+            // GENDERS list).
+            if (current_channel >= 0)
+                flush_channel_sitter(current_channel);
+            finalize_boot();
             return;
         }
-        if (notecard_lines)
-            qs_loading_text(reused_variable, notecard_lines, "Loading sitter " + (string)SCRIPT_CHANNEL + " from " + notecard_name);
+        if (notecard_lines && current_channel >= 0)
+            qs_loading_text(reused_variable, notecard_lines, "Loading sitter " + (string)current_channel + " from " + notecard_name);
 
         notecard_query = llGetNotecardLine(notecard_name, ++reused_variable);
 
@@ -621,20 +594,24 @@ default
 
         if (command == "SITTER")
         {
-            reading_notecard_section = FALSE;
             integer s_ch = (integer)part0;
+            // Flush the previous channel's sitter row before resetting
+            // per-channel locals. qs:cfg/qs:meta wait until EOF — GENDERS
+            // is still accumulating across the rest of the notecard.
+            if (current_channel >= 0)
+                flush_channel_sitter(current_channel);
             if (s_ch == 0)
                 GENDERS = [];
             integer g = -1;
             if (llList2String(parts, 2) == "M") g = 1;
             else if (llList2String(parts, 2) == "F") g = 0;
             GENDERS += g;
-            if (s_ch == SCRIPT_CHANNEL)
-            {
-                reading_notecard_section = TRUE;
-                if (llGetListLength(parts) > 1)
-                    SITTER_INFO = llList2List(parts, 1, 99999);
-            }
+            current_channel = s_ch;
+            reset_channel_locals();
+            // Wipe any stale pose entries from a prior boot at this channel.
+            llLinksetDataDeleteFound("^qs:p:" + (string)s_ch + ":[0-9]+$", "");
+            if (llGetListLength(parts) > 1)
+                SITTER_INFO = llList2List(parts, 1, 99999);
             return;
         }
         if (command == "MTYPE")  { MTYPE = (integer)part0; return; }
@@ -677,8 +654,9 @@ default
         // Only difference: where stock dispatches 90300/90301 to sitB, we
         // also write to LSD. Locals (FIRST_POSENAME etc.) are kept even
         // though boot doesn't use them, so the parser flow matches stock
-        // byte-for-byte.
-        if (reading_notecard_section)
+        // byte-for-byte. Pose lines are only written once we're past the
+        // first SITTER directive (current_channel >= 0).
+        if (current_channel >= 0)
         {
             if (llGetSubString(data, 0, 0) == "{")
             {
@@ -697,8 +675,8 @@ default
                     si = llListFindList(seed_names, ["P:" + command]);
                 if (si != -1)
                 {
-                    list cur = llParseStringKeepNulls(llLinksetDataRead(qs_p_key(SCRIPT_CHANNEL, si)), ["|"], []);
-                    qs_p_write(SCRIPT_CHANNEL, si,
+                    list cur = llParseStringKeepNulls(llLinksetDataRead(qs_p_key(current_channel, si)), ["|"], []);
+                    qs_p_write(current_channel, si,
                         llList2String(cur, 0),
                         llList2String(cur, 1),
                         llList2String(cur, 2),
@@ -752,7 +730,7 @@ default
                     string t = llGetSubString(command, 0, 0);
                     integer si = llGetListLength(seed_names);
                     seed_names += part0;
-                    qs_p_write(SCRIPT_CHANNEL, si, part0, t, part1, "", "");
+                    qs_p_write(current_channel, si, part0, t, part1, "", "");
                 }
             }
         }
@@ -762,19 +740,15 @@ default
     {
         if (change & CHANGED_INVENTORY)
         {
-            // Reset only on actual content change — notecard swap or sitA-count.
-            integer notecard_changed = (llGetInventoryKey(notecard_name) != notecard_key);
-            integer count_changed    = (count_channels() != total_channels);
-            if (notecard_changed || count_changed)
+            // Notecard is the source of truth — Notecard-Save/-Swap erzeugt
+            // einen neuen Asset-Key, das triggert Reset + Re-Seed. Inventar-
+            // Änderungen ohne Notecard-Touch (z.B. extra [QS]sitA dropped)
+            // werden ignoriert — wer einen Slot hinzufügen will, muss eine
+            // entsprechende SITTER-Direktive in AVpos ergänzen, was den
+            // Asset-Key sowieso flippt.
+            if (llGetInventoryKey(notecard_name) != notecard_key)
             {
-                // Notecard-Save/-Swap erzeugt neuen Asset-Key. Wenn wir nur
-                // resetten, blockiert der qs:meta:<ch>-Skip in
-                // process_next_channel den Re-Seed. Also alle Seed-Outputs
-                // wipen, damit die neue Notecard wirklich gelesen wird.
-                // Count-only-Change (neuer [QS]sitA N) lässt qs:* stehen,
-                // damit Adjuster-Edits bestehender Channels nicht verfallen.
-                if (notecard_changed)
-                    llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
+                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
                 llResetScript();
             }
         }
