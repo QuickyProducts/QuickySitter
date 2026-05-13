@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.032";
+string version = "0.033";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -26,11 +26,9 @@ integer ETYPE;
 integer MTYPE;
 integer SWAP;
 integer AMENU;
-integer SELECT;
 integer SCRIPT_CHANNEL;
 integer number_of_sitters;
 string CUSTOM_TEXT;
-string ADJUST_MENU;
 string SITTER_INFO;
 list MENU_LIST;
 // DATA_LIST and POS_ROT_LIST removed — read on demand from qs:p:<ch>:<i>
@@ -272,13 +270,13 @@ qs_load_from_lsd()
     ETYPE             = (integer)llList2String(p, 1);
     SET               = (integer)llList2String(p, 2);
     SWAP              = (integer)llList2String(p, 3);
-    SELECT            = (integer)llList2String(p, 4);
+    // slot 4 (SELECT) consumed by [QS]select, not used here
     AMENU             = (integer)llList2String(p, 5);
     OLD_HELPER_METHOD = (integer)llList2String(p, 6);
     BRAND             = llList2String(p, 11);
     onSit             = llList2String(p, 12);
     CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
-    ADJUST_MENU       = llList2String(p, 14);   // SEP-joined string, kept as-is
+    // slot 14 (ADJUST_MENU) consumed by [QS]adjuster, not used here
     RLVDesignations   = llList2String(p, 15);
 
     SITTER_INFO = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
