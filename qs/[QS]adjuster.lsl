@@ -17,9 +17,9 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.041";
+string version = "0.042";
 string helper_name = "[AV]helper";
-string prop_script = "[AV]prop";
+string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
 string main_script = "[QS]sitA";
