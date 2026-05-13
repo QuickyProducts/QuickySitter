@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.024";
+string version = "0.9";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;

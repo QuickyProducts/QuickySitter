@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.034";
+string version = "0.9";
 string notecard_name = "AVpos";
 // expression/camera plugin names are AVsitter protocol constants — stock
 // plugins probe and reply by literal script name. Once these forks adopt

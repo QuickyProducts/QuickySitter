@@ -42,7 +42,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.020";
+string version = "0.9";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
