@@ -17,7 +17,7 @@ patterns the migrated paths use.
 |------|------|-------------------|---------|------------------|
 | `[QS]boot.lsl` | 506 | `dump_plugins + [expression_script, camera_script]` | DUMP cascade plugin discovery | prop already announces via QSDUMP; expression/camera need the same once forked |
 | `[QS]sitA.lsl` | 984 | `expression_script="[AV]faces"` | FACE-directive integration | wait for `[QS]faces` fork; either keep hardcoded or migrate via a QSPLUGIN-announce style protocol |
-| `[QS]sitA.lsl` | 1293 | `memoryscript` | sibling check for reset trigger | acceptable runtime defensive; could migrate via sitB QS_HELLO announce later |
+| `[QS]sitA.lsl` | 1293 | `memoryscript` | sibling check for reset trigger | **keep** — defensive runtime check on CHANGED_INVENTORY only; removal-detection doesn't fit announce-based patterns naturally (a removed script can't broadcast goodbye) |
 | `[QS]sitB.lsl` | `select_present()` body | `[AV]select` fallback inventory probe | stock-AVsitter backward-compat | keep — defensive, fires only when QS_SELECT_HELLO flag missed |
 | `[QS]adjuster.lsl` | 406, 694, 822 | `camera_script="[AV]camera"` | CAMERA submenu visibility | needs `[QS]camera` fork before QSDUMP-style migration |
 | `[QS]adjuster.lsl` | 787 | `prop_script="[QS]prop"` | PROP submenu visibility | could read boot's `dump_plugins` via a new probe, or QSDUMP-cap on prop |
@@ -84,7 +84,4 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
 1. `[QS]menu` prop_script — consume boot's `dump_plugins` list via a
    new "active DUMP plugins?" probe, or extend QSDUMP with a
    per-plugin "I'm here" cap that menu can cache (mirrors the
-   QS_ADJUSTER_HELLO pattern).
-2. `[QS]sitA` L1293 memoryscript sibling-check — sitB could announce
-   via `QS_SITB_HELLO` so sitA caches presence rather than probing
-   inventory in the CHANGED_INVENTORY handler.
+   QS_ADJUSTER_HELLO / QS_SELECT_HELLO pattern).
