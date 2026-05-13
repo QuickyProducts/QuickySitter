@@ -19,11 +19,10 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.024";
+string version = "0.025";
 string notecard_name = "AVpos";
 string main_script = "[QS]sitA";
-string memoryscript = "[QS]sitB";
-string prop_script = "[AV]prop";
+string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
 
@@ -376,10 +375,6 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
-        // Wait for [QS]sitB (channel 0) to exist as a sanity check.
-        while (llGetInventoryType(memoryscript) != INVENTORY_SCRIPT)
-            llSleep(0.1);
-
         total_channels = count_channels();
         notecard_key = llGetInventoryKey(notecard_name);
         current_processing_channel = 0;
