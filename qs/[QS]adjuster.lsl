@@ -17,7 +17,7 @@
 integer OLD_HELPER_METHOD;
 key key_request;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.044";
+string version = "0.045";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -332,11 +332,14 @@ integer hudproxy_present()
 // [HELPER]). [ADJUST OFF] toggles ADJUSTMODE off and returns to the
 // pose menu. [BACK] just closes the dialog without disabling — useful
 // when the user is mid-adjustment via the HUD's own X+/Y+/Z+ buttons.
+// [DUMP] kicks the same boot-side dump pipeline that the [HELPER]
+// path uses (90098), so the AVpos webservice URL is emitted while
+// ADJUSTMODE stays on.
 quickyhud_menu()
 {
     llDialog(controller,
-        "\nQuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[BACK] keeps it on and closes this dialog.",
-        ["[BACK]", "[ADJUST OFF]"],
+        "\nQuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[DUMP] uploads the current AVpos to the settings webservice.\n[BACK] keeps it on and closes this dialog.",
+        ["[BACK]", "[ADJUST OFF]", "[DUMP]"],
         comm_channel);
 }
 
@@ -777,6 +780,15 @@ default
                 llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
                 helper_method = 0;
                 llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+            }
+            else if (msg == "[DUMP]")
+            {
+                // Same handoff as the [HELPER]/90100 [DUMP] path: boot
+                // owns the producer + receiver + webservice upload.
+                // Re-show quickyhud_menu so the user stays in the
+                // ADJUSTMODE submenu after triggering the dump.
+                llMessageLinked(LINK_THIS, 90098, "0", "");
+                quickyhud_menu();
             }
             else if (msg == "[POSE]" || msg == "[SYNC]")
             {
