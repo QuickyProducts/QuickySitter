@@ -32,7 +32,7 @@
  */
 
 string product = "AVmenu™";
-string version = "0.002";
+string version = "0.9";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // inventory probe. See qs/PROTOCOL.md § QSALIVE.
 integer QSALIVE_PROBE = 90096;

@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.285";
+string version = "0.9";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
