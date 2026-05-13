@@ -13,10 +13,13 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.031";
+string version = "0.032";
 string BRAND;
 integer OLD_HELPER_METHOD;
-string main_script = "[QS]sitA";
+// main_script global removed in 0.032: it was hardcoded "[QS]sitA"
+// plus an unused channel-suffix mutation, dead since stock parity.
+// The count loop in qs_load_from_lsd now derives the sitA basename
+// from this script's own name (sitB → sitA replacement).
 string select_script = "[QS]select";
 integer SET;
 integer ETYPE;
@@ -297,12 +300,16 @@ qs_load_from_lsd()
         ++i;
     }
 
-    // number_of_sitters = total [QS]sitA or [AV]sitA scripts in the prim.
-    // Probe both prefixes so stock-AVsitter furniture keeps working
-    // without renaming.
+    // number_of_sitters = count of sitA scripts in the prim. Derive the
+    // sitA basename from our own (sitB → sitA), so creator-renamed
+    // installs ("[AV]sitB" + "[AV]sitA N", or any other prefix) work
+    // without hardcoding [QS]/[AV].
+    string my_base = llGetScriptName();
+    integer space = llSubStringIndex(my_base, " ");
+    if (space != -1) my_base = llGetSubString(my_base, 0, space - 1);
+    string sita_prefix = llDumpList2String(llParseStringKeepNulls(my_base, ["sitB"], []), "sitA");
     i = 1;
-    while (llGetInventoryType("[QS]sitA " + (string)i) == INVENTORY_SCRIPT
-        || llGetInventoryType("[AV]sitA " + (string)i) == INVENTORY_SCRIPT)
+    while (llGetInventoryType(sita_prefix + " " + (string)i) == INVENTORY_SCRIPT)
         ++i;
     number_of_sitters = i;
 }
@@ -313,8 +320,6 @@ default
     {
         SEP = llUnescapeURL("%EF%BF%BD");
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
-        if (SCRIPT_CHANNEL)
-            main_script += " " + (string)SCRIPT_CHANNEL;
         // Wait for [QS]boot to finish seeding this channel.
         while (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) == "")
             llSleep(0.1);
