@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9";
+string version = "0.901";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
@@ -111,7 +111,13 @@ integer get_number_of_scripts()
 // resizes during boot.
 init_lists()
 {
-    integer count = qs_sitter_count_cached;
+    // Use get_number_of_scripts() so the 7-fallback applies before
+    // the QSALIVE_REPLY arrives — otherwise state_entry pre-sizes
+    // to qs_sitter_count_cached's default (1), the dataserver
+    // handler's `section < llGetListLength(SITTERS)` guard drops
+    // SITTER 1+ entries, and the late grow appends "Sitter N"
+    // defaults instead of the notecard-supplied button labels.
+    integer count = get_number_of_scripts();
     if (count < 1) count = 1;
     while (llGetListLength(SITTERS) > count)
     {
@@ -136,8 +142,9 @@ default
         menu_handle = llListen(menu_channel, "", "", "");
         llListenControl(menu_handle, FALSE);
         // QSALIVE probe — slot-0 sitA replies with the real count.
-        // init_lists pre-sizes to the fallback (7); the reply handler
-        // re-runs it once we know the actual count.
+        // init_lists pre-sizes via get_number_of_scripts() (returns
+        // 7 until qs_alive flips); the reply handler re-runs it once
+        // we know the actual count and shrinks the tail.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         // Announce ourselves so sitB can gate select-driven menu logic

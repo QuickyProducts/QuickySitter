@@ -16,8 +16,11 @@
 
 integer OLD_HELPER_METHOD;
 key key_request;
+// Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
+// 90030 receive). See changed-event in default state for rationale.
+float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.9";
+string version = "0.901";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -541,6 +544,10 @@ default
             }
             if (num == 90030)
             {
+                // Arm the CHANGED_LINK swap-grace window — transient link
+                // changes during the sittarget swap must not be treated as
+                // "last sitter left" (which would auto-end ADJUSTMODE).
+                swap_grace_until = llGetTime() + 2.0;
                 SITTERS = llListReplaceList(SITTERS, [NULL_KEY], (integer)msg, (integer)msg);
                 SITTERS = llListReplaceList(SITTERS, [NULL_KEY], (integer)((string)id), (integer)((string)id));
                 if (OLD_HELPER_METHOD && helper_mode)
@@ -681,6 +688,16 @@ default
     {
         if (change & CHANGED_LINK)
         {
+            // Swap-grace: during a 90030 swap, the avatar can briefly
+            // appear to leave the linkset (transient unsit between
+            // sittarget updates on some furnitures). Without this guard,
+            // adjuster's "last sitter left" heuristic (last-link agent
+            // size == ZERO_VECTOR) fires end_helper_mode → 90266 Off →
+            // hudproxy.setAdjustmode("Off") → 953-broadcast flips both
+            // HUDs out of ADJUSTMODE mid-swap. Skip CHANGED_LINK in the
+            // grace window — a real stand-up still fires CHANGED_LINK
+            // after the grace expires.
+            if (llGetTime() < swap_grace_until) return;
             if (OLD_HELPER_METHOD)
             {
                 if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) != ZERO_VECTOR)
