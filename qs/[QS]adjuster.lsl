@@ -20,7 +20,7 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.902";
+string version = "0.903";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -40,6 +40,19 @@ integer qs_sitter_count_cached = 1;
 // gate the [HELPER] menu item (replaces the legacy
 // llGetInventoryType("[QS]adjuster") inventory probe).
 integer QS_ADJUSTER_HELLO = 90091;
+
+// QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
+// PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
+// adjuster sends "PROBE", hudproxy answers "HELLO" (also broadcasts
+// "HELLO" unsolicited on its state_entry). If no reply within 1 s
+// after state_entry's probe, hudproxy is gone and adjuster cleans up
+// the stale QPP_CFG:ADJUSTMODE LSD key — otherwise sitA would keep
+// showing the [QUICKYHUD] button after HUD removal, and sitB would
+// keep showing the ADJUSTMODE-enriched pose menu indefinitely.
+// CHANGED_INVENTORY does llResetScript() so removal automatically
+// triggers a fresh probe via state_entry — no separate probe path.
+integer QS_HUDPROXY_HELLO = 90093;
+integer hudproxy_present;
 // Tracks the one-time solo-channel offset applied when we first learn
 // count == 1 (legacy state_entry behavior, deferred to QSALIVE-reply
 // time because the count isn't known synchronously anymore).
@@ -324,11 +337,9 @@ end_helper_mode()
 // QPP_CFG:ADJUSTMODE unprotected. The key's existence is the capability
 // signal — sitA gates the [QUICKYHUD] button on the same probe. We don't
 // rely on script-name matches because stock AVsitter painted itself into
-// a corner with that pattern.
-integer hudproxy_present()
-{
-    return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1));
-}
+// a corner with that pattern. Stale-key cleanup uses QS_HUDPROXY_HELLO
+// probe/reply (see state_entry + timer) so a removed hudproxy doesn't
+// leave a phantom [QUICKYHUD] button.
 
 // QuickyHUD ADJUSTMODE has no dedicated submenu — clicking [QUICKYHUD]
 // in the Adjust dialog flips QPP_CFG:ADJUSTMODE to "On" and re-shows
@@ -487,6 +498,13 @@ default
         // we re-announce in the QSALIVE_REPLY handler so a late sitA
         // boot also catches us.
         llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
+        // Probe hudproxy. HELLO-reply handler in link_message sets the
+        // flag + cancels the timer; if 1 s passes silent, timer()
+        // deletes the stale QPP_CFG:ADJUSTMODE key. See header comment
+        // at QS_HUDPROXY_HELLO.
+        hudproxy_present = FALSE;
+        llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "PROBE", "");
+        llSetTimerEvent(1.0);
         init_lists();
     }
 
@@ -495,6 +513,15 @@ default
         integer one = (integer)msg;
         integer two = (integer)((string)id);
         integer i;
+        if (num == QS_HUDPROXY_HELLO && msg == "HELLO")
+        {
+            // hudproxy is alive — cache + kill the timeout. (Our own
+            // "PROBE" comes back through the same number; ignore it
+            // via the msg check.)
+            hudproxy_present = TRUE;
+            llSetTimerEvent(0.0);
+            return;
+        }
         if (num == QSALIVE_REPLY)
         {
             // Slot-0 sitA reports the real sitter count. Resize the
@@ -714,6 +741,20 @@ default
             unsit_all();
             end_helper_mode();
             llResetScript();
+        }
+    }
+
+    timer()
+    {
+        // QS_HUDPROXY_HELLO probe timed out — hudproxy isn't in the
+        // linkset anymore. Wipe the stale QPP_CFG:ADJUSTMODE key so
+        // sitA stops showing the [QUICKYHUD] button and sitB's qh_on
+        // gate stops thinking ADJUSTMODE is on. Sole purpose of this
+        // handler — no other timer state lives in adjuster.
+        llSetTimerEvent(0.0);
+        if (!hudproxy_present)
+        {
+            llLinksetDataDelete("QPP_CFG:ADJUSTMODE");
         }
     }
 
