@@ -14,7 +14,7 @@ link-message protocol that moves data between these stores.
 | **Playback state** (`CURRENT_POSITION` / `CURRENT_ROTATION`, anim filename, `MY_SITTER`) | [`[QS]sitA`](./[QS]sitA.lsl) per-sitter globals | ❌ volatile |
 | **Channel settings** (MTYPE, ETYPE, SWAP, BRAND, CUSTOM_TEXT, ADJUST_MENU, ...) | LSD `qs:cfg:<ch>` (boot writes) + in-memory cache in sitA/sitB | ✅ LSD persistent, memory is cache |
 | **Sitter info** (names, gender) | LSD `qs:sitter:<ch>` | ✅ |
-| **Boot marker** (channel already seeded?) | LSD `qs:meta:<ch>` | ✅ |
+| **Boot marker** (channel already seeded?) | LSD `qs:meta:<ch>` (per-channel) + `qs:boot:asset` (notecard asset-key, used by state_entry to skip re-parse) | ✅ |
 | **Dump output state** (cache, webkey, webcount) | [`[QS]boot`](./[QS]boot.lsl) globals (since PR #8) | ❌ volatile per dump |
 
 ## Linkset Data layout
@@ -27,7 +27,8 @@ All keys are namespaced `qs:*`. `<ch>` is the sitter slot (0-based, matches
 | `qs:cfg:<ch>` | `\n`-separated positional values: MTYPE, ETYPE, SET, SWAP, SELECT, AMENU, OLD_HELPER_METHOD, WARN, HASKEYFRAME, REFERENCE, DFLT, BRAND, onSit, CUSTOM_TEXT (escaped), ADJUST_MENU (SEP-joined), RLVDesignations, GENDERS (CSV) | boot's `qs_cfg_pack()` | sitA, sitB, boot's `qs_dump_start` |
 | `qs:sitter:<ch>` | `SEP`-joined sitter info row | boot | boot's `qs_dump_start`, sitB |
 | `qs:p:<ch>:<i>` | `name\|type\|anim\|pos\|rot` (type is single char: `P`/`S`/`M`/`T`/`B`) | boot's `qs_p_write()`, adjuster's `qs_save_pose_offset` / `qs_add_pose` | sitB's `qs_pose_data()`, adjuster's `qs_find_index` / `qs_p_count`, boot's `qs_dump_tick` |
-| `qs:meta:<ch>` | `"qs1"` (presence = "channel seeded") | boot | boot's `process_next_channel` |
+| `qs:meta:<ch>` | `"qs1"` (presence = "channel seeded") | boot | sitA, sitB (state_entry poll) |
+| `qs:boot:asset` | notecard asset-key as string — written last in `finalize_boot` after all `qs:meta:<ch>` | boot | boot's `state_entry` skip-check |
 | `QSO:<short>:<slot>:<pose>` | `<pos>\|<rot>` (Euler degrees, both `vector`-string) — unprotected | offset.lsl ≥ 0.09 `save_offset` (when `lsdHasRoom()`) | offset.lsl `push_customs_for`, `drop_pose_for_slot` |
 
 `SEP` is U+FFFD, initialized at runtime via `llUnescapeURL("%EF%BF%BD")`
@@ -48,9 +49,10 @@ creator copy-pastes the dump output back into the notecard manually, or
 loses unsaved changes on the next script reset.
 
 QuickySitter writes pose defaults to LSD on `[HELPER] [SAVE]`. They survive
-rerezes and re-imports as long as `qs:meta:<ch>` is set (boot then skips
-re-seeding from the notecard). The legacy `[DUMP]` is still there for human
-backup, but you no longer lose work by forgetting to use it.
+rerezes and re-imports as long as `qs:boot:asset` matches the notecard's
+current asset-key (boot then skips re-seeding from the notecard). The
+legacy `[DUMP]` is still there for human backup, but you no longer lose
+work by forgetting to use it.
 
 Side benefit: at scale (1000+ poses), keeping `DATA_LIST` and `POS_ROT_LIST`
 in sitB memory would push it past Mono's 64 KB cap. With on-demand LSD reads
@@ -165,7 +167,7 @@ shared `qs:p:<ch>:<i>` namespace.
 |---------|--------|
 | Notecard changed (boot's `CHANGED_INVENTORY`) | boot resets, re-parses notecard, **rewrites** `qs:cfg`/`qs:sitter`/`qs:p:*`/`qs:meta:*`, then resets every sitA and sitB so they bootstrap from fresh LSD |
 | Sitter-script count changed | same as above |
-| Object rerez | LSD survives. boot starts; if `qs:meta:<ch>` is present, skips re-seeding for that channel (live edits via `[HELPER] [SAVE]` are preserved) |
+| Object rerez | LSD survives. boot starts; if `qs:boot:asset` matches the notecard's current asset-key, skips re-seeding entirely (live edits via `[HELPER] [SAVE]` are preserved). Manual script reset / region restart hits the same path. |
 | Owner changed | offset.lsl wipes both tiers — RAM `CUSTOMS` resets and `QSO:*` LSD keys are deleted (visitors' UUIDs from the previous owner's setting shouldn't follow the prim to a new owner). `qs:*` LSD survives unless the new owner re-imports the notecard. |
 | Manual reset of one sitA or sitB | that script reads from LSD on `state_entry` and rejoins the running system; offset.lsl doesn't get re-pushed customs until next sit triggers 90261 |
 

@@ -25,7 +25,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9";
+string version = "0.901";
 integer chan = 88;
 integer listen_handle;
 integer LSD_TOTAL_BYTES = 131072;  // 128 KB linkset cap
@@ -249,6 +249,10 @@ cmd_delch(integer ch)
     n += llList2Integer(llLinksetDataDeleteFound("^qs:cfg:" + (string)ch + "$", ""), 1);
     n += llList2Integer(llLinksetDataDeleteFound("^qs:sitter:" + (string)ch + "$", ""), 1);
     n += llList2Integer(llLinksetDataDeleteFound("^qs:meta:" + (string)ch + "$", ""), 1);
+    // Also drop boot's skip-marker so the next reset re-seeds. Without
+    // this, boot would see qs:boot:asset == current notecard key and
+    // skip the re-parse — leaving the deleted channel(s) empty.
+    n += llList2Integer(llLinksetDataDeleteFound("^qs:boot:asset$", ""), 1);
     llOwnerSay("[QS]debug: deleted " + (string)n + " key(s) for channel " + (string)ch + ". Reset the prim to re-seed from notecard.");
 }
 

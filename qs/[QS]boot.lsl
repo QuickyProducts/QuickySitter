@@ -1,15 +1,15 @@
 /*
  * [QS]boot - QuickySitter loader
  *
- * Pure one-shot LSD writer. On reset, for each [QS]sitA channel:
- *   • if qs:meta:<ch> is set → already seeded, skip
+ * Pure one-shot LSD writer. On state_entry:
+ *   • if qs:boot:asset matches the AVpos notecard's current asset-key
+ *     → already seeded, skip re-parse (sitA/sitB read LSD directly)
  *   • else → parse AVpos notecard, write qs:cfg:<ch>, qs:sitter:<ch>,
- *            qs:p:<ch>:<i>, finally qs:meta:<ch>
+ *            qs:p:<ch>:<i>, qs:meta:<ch>, finally qs:boot:asset
  *
- * After all channels are seeded, resets every [QS]sitA and [QS]sitB
- * script in the prim so they bootstrap themselves from LSD. From that
- * point on, boot is idle until inventory changes (notecard or sitA-count)
- * trigger another reset.
+ * After seeding, boot is idle until the notecard's asset-key changes
+ * (changed(CHANGED_INVENTORY) wipes qs:* and resets) or storage is
+ * wiped (qs:boot:asset is gone → next state_entry re-seeds).
  *
  * No message dispatching. sitA and sitB read LSD directly. Boot is the
  * sole source of LSD writes during seed; the adjuster writes LSD for
@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9";
+string version = "0.901";
 string notecard_name = "AVpos";
 // expression/camera plugin names are AVsitter protocol constants — stock
 // plugins probe and reply by literal script name. Once these forks adopt
@@ -247,6 +247,11 @@ finalize_boot()
         qs_lsd_write("qs:meta:" + (string)ch, "qs1");
         if (boot_failed) return;
     }
+    // Skip-marker for the next state_entry. Written last so a mid-boot
+    // abort (memfull, declined wipe) leaves it absent → next reset
+    // re-seeds from scratch.
+    qs_lsd_write("qs:boot:asset", (string)notecard_key);
+    if (boot_failed) return;
     boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
     llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
@@ -412,7 +417,23 @@ default
             llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
             return;
         }
-        start_boot();
+        if (llLinksetDataRead("qs:boot:asset") == (string)notecard_key)
+        {
+            // Already seeded for this notecard — skip the re-parse.
+            // sitA/sitB read LSD directly; we just rebuild total_channels
+            // (needed by the DUMP cascade), re-arm the timer, and re-probe
+            // DUMP plugins so the cached steady state resumes.
+            integer ch = 0;
+            while (llLinksetDataRead("qs:meta:" + (string)ch) != "")
+                ++ch;
+            total_channels = ch;
+            boot_done = TRUE;
+            arm_autosync();
+        }
+        else
+        {
+            start_boot();
+        }
         // Wake any DUMP plugins that came up before boot. Late starters
         // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
         llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
@@ -842,7 +863,7 @@ default
             // SITTER directive in AVpos, which flips the asset key anyway.
             if (llGetInventoryKey(notecard_name) != notecard_key)
             {
-                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p):", "");
+                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|boot):", "");
                 llResetScript();
             }
         }
