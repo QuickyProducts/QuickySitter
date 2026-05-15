@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9";
+string version = "0.901";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -183,12 +183,25 @@ integer animation_menu(integer animation_menu_function)
         {
             submenu_info = llList2String(qs_pose_data(current_menu), 2);
         }
-        if (helper_mode)
+        // QuickyHUD ADJUSTMODE mirrors helper_mode's main-menu
+        // enrichment: while the HUD is in adjust state, the user gets
+        // [NEW]/[DUMP] in the pose menu and [ADJUST] becomes
+        // [ADJUST OFF] as the toggle-off button. LSD key is the single
+        // source of truth — sitA gates its [QUICKYHUD] entry button
+        // off the same probe.
+        // [SAVE] is helper_mode-only: bar moves live in RAM until
+        // [SAVE] persists them. In ADJUSTMODE every X+/Y+/Z+ click
+        // already round-trips through 90055 → qs_save_pose_offset, so
+        // [SAVE] would be a no-op write.
+        integer qh_on = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
+        if (helper_mode || qh_on)
         {
             menu_items2 += "[NEW]";
             if (CURRENT_POSE_NAME != "")
             {
-                menu_items2 = menu_items2 + "[DUMP]" + "[SAVE]";
+                menu_items2 += "[DUMP]";
+                if (helper_mode)
+                    menu_items2 += "[SAVE]";
             }
         }
         else if (llSubStringIndex(submenu_info, "V") != -1)
@@ -199,7 +212,10 @@ integer animation_menu(integer animation_menu_function)
         {
             if (!(OLD_HELPER_METHOD && helper_mode))
             {
-                menu_items2 += "[ADJUST]";
+                if (qh_on)
+                    menu_items2 += "[ADJUST OFF]";
+                else
+                    menu_items2 += "[ADJUST]";
             }
         }
         if (llSubStringIndex(onSit, "ASK") && ((current_menu == -1 && SWAP == 1) || SWAP == 2 || llSubStringIndex(submenu_info, "S") != -1) && (number_of_sitters > 1 && !select_present()))
@@ -602,6 +618,14 @@ default
             if (msg == "[ADJUST]")
             {
                 helper_mode = FALSE;
+                menu_page = 0;
+            }
+            if (msg == "[ADJUST OFF]")
+            {
+                // QuickyHUD ADJUSTMODE-off toggle from main pose menu.
+                // Adjuster owns the actual 90266 dispatch + helper_method
+                // state — we just reset paging so the next pose-menu
+                // re-render starts at page 0 (parity with [ADJUST]).
                 menu_page = 0;
             }
             if (msg == "Harder >>")
