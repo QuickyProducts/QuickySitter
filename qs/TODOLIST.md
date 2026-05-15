@@ -160,3 +160,26 @@ other QS fork scripts are put to sleep with
 
 **Out of scope here:** memory savings. `llSetScriptState(FALSE)`
 keeps the heap allocated; this is purely a script-time optimization.
+
+## `[RESET]`-button in `[QS]menu` does not reload AVpos
+
+`[QS]menu` advertises `[RESET] = Reload notecard.` in its help text
+(`[QS]menu.lsl` L187), but the handler at L531-538 only calls
+`llResetOtherScript(prop_script)` + `llResetScript()` on itself —
+`[QS]boot` is never touched, so AVpos is *not* re-read. Today this
+mostly happens to work because boot itself re-reads on every state_entry
+(see boot 0.026 regression), so any unrelated reset of boot also reloads
+AVpos. Once boot's state_entry skip-check lands (boot ≥ 0.901, cached
+asset-key via `qs:boot:asset`), `[RESET]` will visibly stop reloading
+the notecard.
+
+Options:
+- **menu wipes the marker** — `llLinksetDataDelete("qs:boot:asset")` +
+  `llResetOtherScript("[QS]boot")` before the self-reset. Simple, no
+  new protocol.
+- **menu sends LinkMsg to boot** — new "force-reload" num that boot
+  reacts to by clearing its own marker + `llResetScript()`. Cleaner
+  surface but adds a protocol number.
+- **Drop the button** — if creators don't need a manual reload (notecard
+  save already triggers it via CHANGED_INVENTORY), retire the menu item
+  and update the help text. Smallest code, biggest UX change.
