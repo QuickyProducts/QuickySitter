@@ -86,11 +86,3 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
    per-plugin "I'm here" cap that menu can cache (mirrors the
    QS_ADJUSTER_HELLO / QS_SELECT_HELLO pattern).
 
-2. Adjust dialog `[QUICKYHUD]` button — owner-only gate. Today the
-   button shows for any controller with menu access whenever
-   `QPP_CFG:ADJUSTMODE` exists (`[QS]sitA.lsl` ~L1029); but flipping
-   ADJUSTMODE on a HUD only the owner is wearing is meaningless for
-   anyone else. Hide the button unless `id == llGetOwner()`. Parallel
-   pattern in stock: `[HELPER]` blocks non-owner clicks with an error
-   dialog at `[QS]sitA.lsl` L756 — for `[QUICKYHUD]` cleaner to just
-   omit the button entirely.
