@@ -20,7 +20,7 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.903";
+string version = "0.907";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -79,6 +79,11 @@ key controller;
 integer menu_page;
 string adding;
 integer adding_item_type;
+// current_menu reported by sitB in the [NEW] click — tells qs_insert_idx
+// which submenu the user has open so new POSE/SYNC/SUBMENU entries land
+// there instead of getting appended to the LSD tail (where they'd hide
+// inside whatever submenu happened to be last in the notecard).
+integer active_current_menu;
 string last_text;
 integer menu_pages;
 integer number_per_page = 9;
@@ -137,12 +142,15 @@ qs_save_pose_offset(integer ch, string name, string pos, string rot)
         + pos + "|" + rot);
 }
 
-// Append a new pose entry at the end of the channel's list.
+// Insert pose entry at `pos`, shifting all keys >= pos up by 1.
 // `type` is the single-char form: P/S/M/T/B.
-qs_add_pose(integer ch, string name, string type, string anim, string pos, string rot)
+qs_insert_pose(integer ch, integer pos, string name, string type, string anim, string p, string r)
 {
-    integer idx = qs_p_count(ch);
-    llLinksetDataWrite(qs_p_key(ch, idx), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
+    integer total = qs_p_count(ch);
+    integer i;
+    for (i = total; i > pos; --i)
+        llLinksetDataWrite(qs_p_key(ch, i), llLinksetDataRead(qs_p_key(ch, i - 1)));
+    llLinksetDataWrite(qs_p_key(ch, pos), name + "|" + type + "|" + anim + "|" + p + "|" + r);
 }
 
 // [DUMP] (producer + receiver, including plugin cascade and HTTP upload)
@@ -604,6 +612,12 @@ default
                 {
                     controller = llList2Key(data, 2);
                     active_sitter = llList2Integer(data, 0);
+                    // sitB ≥ 0.902 includes current_menu as field 3. Older
+                    // sitBs omit it → fall back to -1 (top-level append).
+                    if (llGetListLength(data) >= 4)
+                        active_current_menu = (integer)llList2String(data, 3);
+                    else
+                        active_current_menu = -1;
                     adding = "";
                     new_menu();
                 }
@@ -948,11 +962,23 @@ default
                 }
                 else if (adding == "[SUBMENU]")
                 {
-                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "T:" + msg + "*" + "||");
-                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "M:" + msg + "*" + "||");
-                    // Persist both halves of the submenu pair to LSD.
-                    qs_add_pose(active_sitter, "T:" + msg + "*", "T", "", "", "");
-                    qs_add_pose(active_sitter, "M:" + msg + "*", "M", "", "", "");
+                    // Insertion idx = end of user's current submenu (next M:*
+                    // marker or end of list). T:* button + adjacent M:* group.
+                    // Read-before-check: LSL has no sequence point inside an
+                    // expression, so `(ival = read()) != "" && first2(ival) ...`
+                    // uses ival's PREVIOUS value in the second operand → loop
+                    // overshoots M:* by 1.
+                    integer ins = active_current_menu + 1;
+                    string ival = llLinksetDataRead(qs_p_key(active_sitter, ins));
+                    while (ival != "" && llGetSubString(ival, 0, 1) != "M:")
+                    {
+                        ++ins;
+                        ival = llLinksetDataRead(qs_p_key(active_sitter, ins));
+                    }
+                    qs_insert_pose(active_sitter, ins, "T:" + msg + "*", "T", "", "", "");
+                    qs_insert_pose(active_sitter, ins + 1, "M:" + msg + "*", "M", "", "", "");
+                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "T:" + msg + "*" + "|||" + (string)ins);
+                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "M:" + msg + "*" + "|||" + (string)(ins + 1));
                     llSay(0, "MENU Added: '" + msg + "'" + sitter_text(active_sitter));
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
                 }
@@ -973,16 +999,27 @@ default
                     integer i;
                     for (i = start; i < end; i++)
                     {
+                        // Insertion idx per slot. For SYNC, active_current_menu
+                        // is the clicker's submenu; other slots assumed symmetric.
+                        // Read-before-check: see SUBMENU branch comment for the
+                        // LSL sequence-point gotcha.
+                        integer ins = active_current_menu + 1;
+                        string ival = llLinksetDataRead(qs_p_key(i, ins));
+                        while (ival != "" && llGetSubString(ival, 0, 1) != "M:")
+                        {
+                            ++ins;
+                            ival = llLinksetDataRead(qs_p_key(i, ins));
+                        }
                         llSay(0, type + " Added: '" + msg + "' using anim '" + llList2String(chosen_animations, x) + "' to SITTER " + (string)i);
-                        llMessageLinked(LINK_THIS, 90300, (string)i, prefix + msg + "|" + llList2String(chosen_animations, x) + "|" + llList2String(POS_LIST, i) + "|" + llList2String(ROT_LIST, i));
                         // Persist new pose entry. Type maps:
                         //   [POSE]2  → P    [SYNC]2 → S
-                        qs_add_pose(i,
+                        qs_insert_pose(i, ins,
                             prefix + msg,
                             llGetSubString(type, 0, 0),
                             llList2String(chosen_animations, x),
                             llList2String(POS_LIST, i),
                             llList2String(ROT_LIST, i));
+                        llMessageLinked(LINK_THIS, 90300, (string)i, prefix + msg + "|" + llList2String(chosen_animations, x) + "|" + llList2String(POS_LIST, i) + "|" + llList2String(ROT_LIST, i) + "|" + (string)ins);
                         x++;
                     }
                 }
