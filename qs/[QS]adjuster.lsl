@@ -20,7 +20,7 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.901";
+string version = "0.902";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -330,21 +330,12 @@ integer hudproxy_present()
     return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1));
 }
 
-// QuickyHUD-mode submenu: shown after the user picks [QUICKYHUD] from
-// the Adjust menu (separate button now, not a choice dialog merged with
-// [HELPER]). [ADJUST OFF] toggles ADJUSTMODE off and returns to the
-// pose menu. [BACK] just closes the dialog without disabling — useful
-// when the user is mid-adjustment via the HUD's own X+/Y+/Z+ buttons.
-// [DUMP] kicks the same boot-side dump pipeline that the [HELPER]
-// path uses (90098), so the AVpos webservice URL is emitted while
-// ADJUSTMODE stays on.
-quickyhud_menu()
-{
-    llDialog(controller,
-        "\nQuickyHUD ADJUSTMODE is on.\nUse the HUD's X+/Y+/Z+ buttons to adjust.\n\n[ADJUST OFF] disables ADJUSTMODE and returns to the pose menu.\n[DUMP] uploads the current AVpos to the settings webservice.\n[BACK] keeps it on and closes this dialog.",
-        ["[BACK]", "[ADJUST OFF]", "[DUMP]"],
-        comm_channel);
-}
+// QuickyHUD ADJUSTMODE has no dedicated submenu — clicking [QUICKYHUD]
+// in the Adjust dialog flips QPP_CFG:ADJUSTMODE to "On" and re-shows
+// the main pose menu, which sitB then enriches with [NEW]/[DUMP]/
+// [SAVE] and swaps [ADJUST] for [ADJUST OFF] (same enrichment pattern
+// as helper_mode). [ADJUST OFF] in the pose menu round-trips back
+// through 90100 to flip ADJUSTMODE off and re-show the pose menu.
 
 Out(string out)
 {
@@ -635,19 +626,27 @@ default
                 if (msg == "[QUICKYHUD]")
                 {
                     controller = id;
-                    // Pre-arm the comm_channel listen so quickyhud_menu's
-                    // [BACK] / [ADJUST OFF] response is delivered to us.
-                    llListenRemove(listen_handle);
-                    listen_handle = llListen(comm_channel, "", "", "");
                     llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
                     helper_method = 1;
-                    quickyhud_menu();
+                    // Re-show the main pose menu so sitB's qh_on branch
+                    // emits the ADJUSTMODE-enriched buttons ([NEW]/
+                    // [DUMP]/[SAVE]/[ADJUST OFF]) — same UX as [HELPER].
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
+                }
+                if (msg == "[ADJUST OFF]")
+                {
+                    // sitB's pose-menu [ADJUST OFF] (qh_on branch). Flip
+                    // ADJUSTMODE off, clear helper_method so end_helper_mode
+                    // doesn't double-fire 90266, re-show pose menu.
+                    llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
+                    helper_method = 0;
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
                 }
                 if (msg == "[ADJUST]")
                 {
                     // Explicit main-menu toggle: drop helper overlay but
-                    // leave ADJUSTMODE alone. Use [QUICKYHUD] → [ADJUST OFF]
-                    // to flip ADJUSTMODE off.
+                    // leave ADJUSTMODE alone. Use the pose menu's
+                    // [ADJUST OFF] to flip ADJUSTMODE off.
                     cleanup_helper_mode();
                 }
                 return;
@@ -787,25 +786,6 @@ default
             else if (msg == "[BACK]")
             {
                 llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
-            }
-            else if (msg == "[ADJUST OFF]")
-            {
-                // quickyhud_menu picked: disable ADJUSTMODE, return user
-                // to pose menu. helper_method == 1 was set when
-                // [QUICKYHUD] opened the submenu — clear it so
-                // end_helper_mode doesn't double-fire 90266 later.
-                llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
-                helper_method = 0;
-                llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
-            }
-            else if (msg == "[DUMP]")
-            {
-                // Same handoff as the [HELPER]/90100 [DUMP] path: boot
-                // owns the producer + receiver + webservice upload.
-                // Re-show quickyhud_menu so the user stays in the
-                // ADJUSTMODE submenu after triggering the dump.
-                llMessageLinked(LINK_THIS, 90098, "0", "");
-                quickyhud_menu();
             }
             else if (msg == "[POSE]" || msg == "[SYNC]")
             {
