@@ -6,9 +6,8 @@ QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for S
 
 - **Eliminate heap pressure.** Script memory has been restructured onto LinkSet Data (LSD), moving large state out of the per-script heap so complex furniture stays stable.
 - **Full API compatibility with AV stock.** Existing AVsitter 2 notecards, MENU/POSE/PROP syntax, and LinkMsg contracts continue to work.
-- **Simpler HUD-driven position control.** The API has been extended so that sit-target adjustment can be driven cleanly from a HUD, not only from the adjust menu.
+- **Plug-and-play HUD addons.** Adding HUD addons is straightforward through the extended LinkMsg API — QuickyHUD attaches as a seamless adjustment addon alongside the built-in adjust menu and can be removed again at any time without side effects.
 - **Animation SYNC via API.** The LinkMsg API exposes a SYNC trigger so HUDs and external tools can restart all currently playing animations in lockstep on demand — useful for couple poses that drift apart over time.
-- **QuickyHUD integration.** QuickyHUD is supported as a first-class adjustment option alongside the classic AVsitter adjust menu.
 - **Workload distribution across scripts.** Responsibilities have been split across more focused scripts so no single script carries the full heap pressure.
 - **Module discovery without script-name probes.** Optional fork modules announce themselves over a presence protocol (LinkMsg 90096 / 90097) instead of being detected by inventory script-name lookup. Scripts can be renamed freely, and third-party plugins keep working across releases.
 
