@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9";
+string version = "0.901";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -1025,8 +1025,14 @@ default
                     // [QUICKYHUD] entry point — LSD-key probe; existence
                     // of QPP_CFG:ADJUSTMODE is the capability signal
                     // (script-name matching avoided — see PROTOCOL.md).
-                    // Routes through 90100/90101 like [HELPER].
-                    if (llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
+                    // Routes through 90100/90101 like [HELPER]. Hidden
+                    // for non-owners: the HUD is worn by exactly one
+                    // avatar (the prim owner in normal use), so
+                    // flipping ADJUSTMODE is meaningless for anyone
+                    // else. Cleaner than [HELPER]'s post-click error
+                    // dialog (L756) — non-owners never see the button.
+                    if (CONTROLLER == llGetOwner()
+                        && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
                     {
                         data += "[QUICKYHUD]";
                     }

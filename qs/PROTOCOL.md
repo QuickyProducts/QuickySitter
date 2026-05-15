@@ -55,6 +55,7 @@ notice.
 |-----|-----------------|-----|
 | `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
 | `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
+| `90093` | same | bidirectional hudproxy presence (`QS_HUDPROXY_HELLO`). `[QS]adjuster` → hudproxy: msg `"PROBE"`, id `""`. hudproxy → `[QS]adjuster`: msg `"HELLO"`, id `<script_name>` (sent unsolicited on hudproxy's state_entry and as reply to `"PROBE"`). adjuster arms a 1 s timer after sending PROBE; if no HELLO arrives → hudproxy has been removed from the linkset → delete the stale `QPP_CFG:ADJUSTMODE` LSD key so sitA stops showing `[QUICKYHUD]` and sitB stops rendering the qh_on-enriched pose menu. See [§ HUDPROXY presence](#hudproxy-presence--90093). |
 | `90094` | between stock `90076` and `90100` | `[QS]boot` → all plugins: QSDUMP probe ("announce yourself if DUMP-capable") |
 | `90095` | same | DUMP plugin → `[QS]boot`: QSDUMP hello (id = announcer's script name) |
 | `90096` | same | plugin → `[QS]sitA`: QSALIVE presence probe |
@@ -177,6 +178,98 @@ default
 the plugin needs to react to sitter-count changes — slot 0 will re-emit
 `90097` on its own reset (state_entry runs again), but the plugin can
 also pull on demand.
+
+## HUDPROXY presence — 90093
+
+QuickyHUD's `[QS]hudproxy` writes the `QPP_CFG:ADJUSTMODE` LSD key
+unprotected on its `state_entry`. `[QS]sitA` and `[QS]sitB` both gate
+QuickyHUD-aware UI on key existence/value:
+- sitA renders the `[QUICKYHUD]` button in the Adjust dialog if the key
+  exists.
+- sitB enriches the main pose menu (`[NEW]`/`[DUMP]`/`[ADJUST OFF]`)
+  if `value == "On"`.
+
+**Problem:** LSD outlives script removal. If the creator removes
+hudproxy + hudadmin from the linkset after first install, the LSD key
+persists with whatever value it last had. sitA keeps showing
+`[QUICKYHUD]` (clicks no-op because nobody handles 90266) and sitB
+stays stuck in the qh_on-enriched menu forever if the key happened to
+be `"On"` at removal time — including a non-functional `[ADJUST OFF]`
+button.
+
+**Fix:** 90093 active-presence probe.
+
+| Num | Direction | msg | id | Meaning |
+|-----|-----------|-----|----|---------|
+| 90093 | `[QS]adjuster` → hudproxy | `"PROBE"` | `""` | "Are you still there?" |
+| 90093 | hudproxy → `[QS]adjuster` | `"HELLO"` | `<script_name>` | Presence reply. Also broadcast unsolicited from hudproxy's `state_entry`. |
+
+### adjuster side
+
+```lsl
+integer QS_HUDPROXY_HELLO = 90093;
+integer hudproxy_present;
+
+state_entry()
+{
+    hudproxy_present = FALSE;
+    llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "PROBE", "");
+    llSetTimerEvent(1.0);
+    // ...
+}
+
+link_message(integer s, integer num, string msg, key id)
+{
+    if (num == QS_HUDPROXY_HELLO && msg == "HELLO")
+    {
+        hudproxy_present = TRUE;
+        llSetTimerEvent(0.0);
+        return;
+    }
+    // ...
+}
+
+timer()
+{
+    llSetTimerEvent(0.0);
+    if (!hudproxy_present)
+        llLinksetDataDelete("QPP_CFG:ADJUSTMODE");
+}
+```
+
+`changed(CHANGED_INVENTORY)` already calls `llResetScript()` in
+adjuster, so a script removal triggers a fresh `state_entry` → re-probe
+automatically. No separate inventory-change probe path needed.
+
+### hudproxy side
+
+```lsl
+integer QS_HUDPROXY_HELLO = 90093;
+
+state_entry()
+{
+    // ... existing init ...
+    llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "HELLO", llGetScriptName());
+}
+
+link_message(integer s, integer num, string str, key id)
+{
+    if (num == QS_HUDPROXY_HELLO && str == "PROBE")
+    {
+        llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "HELLO", llGetScriptName());
+        return;
+    }
+    // ...
+}
+```
+
+### Self-message suppression
+
+LSL suppresses self-delivery of `llMessageLinked` to the same script,
+so adjuster's own `"PROBE"` doesn't loop back into its 90093 handler.
+The `msg == "HELLO"` discriminator is defensive — if a future
+QuickyHUD script also writes to 90093, only HELLO messages set the
+flag.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
