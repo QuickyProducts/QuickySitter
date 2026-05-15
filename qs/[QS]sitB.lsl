@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.901";
+string version = "0.902";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -467,7 +467,10 @@ default
         }
         else if (index == -1)
         {
-            llMessageLinked(LINK_SET, 90101, llDumpList2String([SCRIPT_CHANNEL, msg, CONTROLLER], "|"), MY_SITTER);
+            // current_menu (field 3) lets adjuster's [NEW] handler insert new
+            // entries at the end of the user's current submenu instead of at
+            // the LSD tail. Older adjusters (< 0.904) ignore the extra field.
+            llMessageLinked(LINK_SET, 90101, llDumpList2String([SCRIPT_CHANNEL, msg, CONTROLLER, current_menu], "|"), MY_SITTER);
         }
     }
 
@@ -685,15 +688,25 @@ default
             }
             if (num == 90300)
             {
-                // Adjuster signals "new pose added at LSD end". sitB just
-                // appends its name to MENU_LIST so menu rendering sees it;
-                // anim/pos/rot are already in LSD via adjuster's qs_add_pose.
-                MENU_LIST += [llList2String(data, 0)];
-                if (llGetListLength(data) == 4)
+                // Adjuster signals "new entry inserted in LSD at idx X".
+                // Payload: name | anim | pos | rot | idx — anim is empty
+                // for SUBMENU (T:/M: markers), populated for POSE/SYNC.
+                // anim/pos/rot are already in LSD via qs_insert_pose; we
+                // just mirror the insertion into MENU_LIST and shift any
+                // stored indices that pointed past the insertion point.
+                integer insert_at = (integer)llList2String(data, 4);
+                MENU_LIST = llListInsertList(MENU_LIST, [llList2String(data, 0)], insert_at);
+                if (current_menu >= insert_at) ++current_menu;
+                if (last_menu >= insert_at) ++last_menu;
+                if (FIRST_INDEX >= insert_at) ++FIRST_INDEX;
+                if (ANIM_INDEX >= insert_at) ++ANIM_INDEX;
+                // POSE/SYNC (anim field populated) auto-becomes the active
+                // pose so the avatar animates to it and helper-bar moves
+                // adjust the new pose's defaults.
+                if (llList2String(data, 1) != "")
                 {
-                    integer new_idx = llGetListLength(MENU_LIST) - 1;
-                    if (FIRST_INDEX == -1) FIRST_INDEX = new_idx;
-                    ANIM_INDEX = new_idx;
+                    if (FIRST_INDEX == -1) FIRST_INDEX = insert_at;
+                    ANIM_INDEX = insert_at;
                     send_anim_info(TRUE);
                     memory();
                 }
