@@ -86,3 +86,35 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
    per-plugin "I'm here" cap that menu can cache (mirrors the
    QS_ADJUSTER_HELLO / QS_SELECT_HELLO pattern).
 
+## AVpos notecard edge case — no MENU, no sitter-slot prefix
+
+Some single-sitter AVpos notecards omit both the MENU section and any
+sitter-slot prefix on POSE directives. Example shape:
+
+```
+POSE FSit1|FSit1
+POSE FSit2|FSit2
+...
+{FSit1}<0.438,0,0.77><0,0,0>
+{FSit2}<0.438,0,0.77><0,0,0>
+...
+PROP1 FCoffee|mug|G1|<...>|<...>|left hand
+PROP  Laptop|laptop|G1|<...>|<...>
+```
+
+No MENU lines, no `[N]` slot prefix on POSE — the notecard implicitly
+addresses sitter 0 only. (Mixed `PROP1` / `PROP` in the same card is
+also part of the real-world example.)
+
+**Open question:** does the QS pipeline handle this correctly today
+(auto-fall-back to a flat single-sitter pose list / synthesize a default
+menu), or does it silently misbehave?
+
+Action: load such a notecard against the current sitA / boot / menu /
+prop chain and verify end-to-end. If the result is broken or confusing,
+pick one:
+- **Tolerate** — auto-build a flat "POSES" menu from the bare POSE list,
+  treat all entries as slot 0.
+- **Warn** — load it, but emit a one-shot `llOwnerSay` to the creator
+  ("notecard has no MENU section; defaulting to flat list").
+- **Reject** — refuse to load and explain what is missing.
