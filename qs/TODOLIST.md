@@ -118,3 +118,45 @@ pick one:
 - **Warn** — load it, but emit a one-shot `llOwnerSay` to the creator
   ("notecard has no MENU section; defaulting to flat list").
 - **Reject** — refuse to load and explain what is missing.
+
+## Watchdog-only standby — global script-time savings
+
+Every running QS fork script consumes simulator script time even
+when the furniture is idle (no avatars seated, no recent menu
+activity). On furniture-heavy regions this adds up across many
+objects.
+
+**Idea:** keep exactly one watchdog script alive per furniture
+piece. The watchdog listens for the events that should wake the
+rest of the system — touch, sit, HUD LinkMsg, region restart — and
+brings sibling scripts back via `llSetScriptState(..., TRUE)`. All
+other QS fork scripts are put to sleep with
+`llSetScriptState(..., FALSE)` after a configurable idle timeout.
+
+**Open design questions:**
+- Which script is the watchdog? `[QS]boot` already owns the
+  bootstrap cascade and is a natural candidate, or a dedicated
+  `[QS]watchdog` fork.
+- How does the watchdog know which siblings to wake? Inventory
+  probes by name reintroduce the script-name coupling we just
+  removed. Use the QSALIVE-cached basename list collected during
+  normal operation, persisted in LSD so it survives region restart.
+- Wake-from-sit: who catches the sit event when sitA is asleep?
+  Either the watchdog stays in root prim and forwards via LinkMsg,
+  or sitA stays awake alongside the watchdog and only the helper
+  scripts (adjuster, menu, select, prop, ...) sleep.
+- State preservation: LSD already persists across script enable /
+  disable cycles, so resume should be lossless. Listeners and
+  timers are NOT preserved → the watchdog must own every listener
+  and every timer during standby.
+- Wake latency: how responsive is the first touch / menu open
+  after sleep? Needs measurement on a real region.
+- Standby trigger: timer-based (e.g., N seconds idle) vs. explicit
+  ("go to sleep" menu item or HUD button).
+- AVsitter compatibility: stock AV plugins (faces, camera) won't
+  cooperate with our standby protocol. Decide whether to leave
+  unknown plugins running or to sleep them anyway with a wake
+  broadcast on the relevant LinkMsg.
+
+**Out of scope here:** memory savings. `llSetScriptState(FALSE)`
+keeps the heap allocated; this is purely a script-time optimization.
