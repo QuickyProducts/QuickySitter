@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.901";
+string version = "0.903";
 string notecard_name = "AVpos";
 // expression/camera plugin names are AVsitter protocol constants — stock
 // plugins probe and reply by literal script name. Once these forks adopt
@@ -34,6 +34,12 @@ string camera_script = "[AV]camera";
 integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
 list dump_plugins;
+
+// QS_BOOT_RELOAD — broadcast at the end of the seed cascade so already-
+// running sitB scripts re-read MENU_LIST from the freshly-written LSD
+// instead of staying on the stale list from their last state_entry.
+// Without this, a notecard re-save requires manual reset on every sitB.
+integer QS_BOOT_RELOAD = 90023;
 
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
 // Readout_Say, web() flushes to the AVsitter settings service every
@@ -74,7 +80,11 @@ integer bAutoSyncActive;
 // Per-channel parse state. Reset on each SITTER directive.
 integer current_channel = -1;
 list SITTER_INFO;
-list seed_names;
+// Per-sitter pose-entry counter. Used as the LSD index for the next
+// qs:p:<ch>:<i> write and (via qs_seed_find) for reverse-lookup of
+// {Posename}<pos><rot> defaults. Replaces a `list seed_names` whose
+// per-item Mono overhead capped boot at ~470 entries per sitter.
+integer seed_count;
 
 // Mirror stock AVsitter sitA's parser locals exactly so the parsing flow
 // is byte-for-byte identical. They aren't used by boot, but having them
@@ -175,6 +185,32 @@ qs_p_write(integer ch, integer i, string name, string type, string anim, string 
     qs_lsd_write(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
+// Reverse-lookup a seed name to its qs:p:<ch>:<i> index. Replaces the
+// `llListFindList(seed_names, ...)` calls that the parser used for
+// {Posename}<pos><rot> default-offset resolution. Tries the bare name
+// first, then with a "P:" prefix — same fallback order as the original
+// two-call sequence. Returns -1 on miss.
+integer qs_seed_find(integer ch, string nm)
+{
+    integer i;
+    string  v;
+    string  n;
+    for (i = 0; i < seed_count; ++i)
+    {
+        v = llLinksetDataRead(qs_p_key(ch, i));
+        n = llGetSubString(v, 0, llSubStringIndex(v, "|") - 1);
+        if (n == nm) return i;
+    }
+    nm = "P:" + nm;
+    for (i = 0; i < seed_count; ++i)
+    {
+        v = llLinksetDataRead(qs_p_key(ch, i));
+        n = llGetSubString(v, 0, llSubStringIndex(v, "|") - 1);
+        if (n == nm) return i;
+    }
+    return -1;
+}
+
 string qs_str_replace(string s, string find, string replace)
 {
     return llDumpList2String(llParseStringKeepNulls(s, [find], []), replace);
@@ -207,7 +243,7 @@ qs_loading_text(integer cur, integer total, string msg)
 reset_channel_locals()
 {
     SITTER_INFO = [];
-    seed_names = [];
+    seed_count = 0;
     FIRST_POSENAME = "";
     FIRST_ANIMATION_SEQUENCE = "";
     CURRENT_POSE_NAME = "";
@@ -255,6 +291,9 @@ finalize_boot()
     boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
     llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
+    // Tell sibling sitB scripts to refresh from LSD. They missed our
+    // mid-boot writes if they were already past state_entry.
+    llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
     arm_autosync();
 }
 
@@ -786,9 +825,7 @@ default
                     FIRST_ROTATION = DEFAULT_ROTATION = CURRENT_ROTATION = (vector)rot;
                 }
                 // LSD pos/rot splice — find existing entry by name and update.
-                integer si = llListFindList(seed_names, [command]);
-                if (si == -1)
-                    si = llListFindList(seed_names, ["P:" + command]);
+                integer si = qs_seed_find(current_channel, command);
                 if (si != -1)
                 {
                     list cur = llParseStringKeepNulls(llLinksetDataRead(qs_p_key(current_channel, si)), ["|"], []);
@@ -844,8 +881,8 @@ default
                     }
                     // LSD persist (replaces stock's 90300 dispatch).
                     string t = llGetSubString(command, 0, 0);
-                    integer si = llGetListLength(seed_names);
-                    seed_names += part0;
+                    integer si = seed_count;
+                    ++seed_count;
                     qs_p_write(current_channel, si, part0, t, part1, "", "");
                 }
             }
