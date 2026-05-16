@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.902";
+string version = "0.903";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -185,23 +185,24 @@ integer animation_menu(integer animation_menu_function)
         }
         // QuickyHUD ADJUSTMODE mirrors helper_mode's main-menu
         // enrichment: while the HUD is in adjust state, the user gets
-        // [NEW]/[DUMP] in the pose menu and [ADJUST] becomes
+        // [NEW]/[DUMP]/[SAVE] in the pose menu and [ADJUST] becomes
         // [ADJUST OFF] as the toggle-off button. LSD key is the single
         // source of truth — sitA gates its [QUICKYHUD] entry button
         // off the same probe.
-        // [SAVE] is helper_mode-only: bar moves live in RAM until
-        // [SAVE] persists them. In ADJUSTMODE every X+/Y+/Z+ click
-        // already round-trips through 90055 → qs_save_pose_offset, so
-        // [SAVE] would be a no-op write.
+        // [SAVE] is needed in both modes despite ADJUSTMODE auto-saving
+        // sitter pose offsets via the 90055 → qs_save_pose_offset path:
+        // [PROP] in-world drag has no HUD-driven auto-save and the
+        // 90101[SAVE] → PROPSEARCH broadcast in [QS]prop is the only
+        // way prop positions get persisted ([QS]prop.lsl:736 explicitly
+        // tells the user "Position your prop and click [SAVE]."). The
+        // pose-offset re-write under qh_on is idempotent — same value.
         integer qh_on = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
         if (helper_mode || qh_on)
         {
             menu_items2 += "[NEW]";
             if (CURRENT_POSE_NAME != "")
             {
-                menu_items2 += "[DUMP]";
-                if (helper_mode)
-                    menu_items2 += "[SAVE]";
+                menu_items2 = menu_items2 + "[DUMP]" + "[SAVE]";
             }
         }
         else if (llSubStringIndex(submenu_info, "V") != -1)
