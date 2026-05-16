@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.903";
+string version = "0.904";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -42,6 +42,12 @@ integer number_of_sitters = 1;
 // kept as a stock-AVsitter backward-compat fallback.
 integer QS_SELECT_HELLO   = 90092;
 integer qs_select_present = FALSE;
+
+// QS_BOOT_RELOAD — broadcast by [QS]boot at the end of its seed cascade.
+// Triggers a fresh qs_load_from_lsd() so a notecard re-save doesn't
+// require a manual reset to pick up the new MENU_LIST. Resets menu
+// navigation back to root since the old indices may no longer be valid.
+integer QS_BOOT_RELOAD    = 90023;
 string CUSTOM_TEXT;
 string SITTER_INFO;
 list MENU_LIST;
@@ -522,6 +528,16 @@ default
             // [QS]select announces presence (covers both initial state_entry
             // broadcast and the re-announce triggered by our QSALIVE-reply).
             qs_select_present = TRUE;
+            return;
+        }
+        if (num == QS_BOOT_RELOAD)
+        {
+            // Boot finished re-seeding LSD. Re-read MENU_LIST and reset
+            // menu navigation — old indices point into the stale list.
+            qs_load_from_lsd();
+            current_menu = -1;
+            last_menu = 0;
+            menu_page = 0;
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)

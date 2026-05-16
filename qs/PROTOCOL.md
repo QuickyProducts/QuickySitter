@@ -53,6 +53,7 @@ notice.
 
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
+| `90023` | between stock `90022` and `90050` | `[QS]boot` → all: emitted at the end of the seed cascade. `[QS]sitB` re-reads MENU_LIST from LSD on receipt, eliminating the manual-reset step after a notecard re-save. |
 | `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
 | `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
 | `90093` | same | bidirectional hudproxy presence (`QS_HUDPROXY_HELLO`). `[QS]adjuster` → hudproxy: msg `"PROBE"`, id `""`. hudproxy → `[QS]adjuster`: msg `"HELLO"`, id `<script_name>` (sent unsolicited on hudproxy's state_entry and as reply to `"PROBE"`). adjuster arms a 1 s timer after sending PROBE; if no HELLO arrives → hudproxy has been removed from the linkset → delete the stale `QPP_CFG:ADJUSTMODE` LSD key so sitA stops showing `[QUICKYHUD]` and sitB stops rendering the qh_on-enriched pose menu. See [§ HUDPROXY presence](#hudproxy-presence--90093). |
