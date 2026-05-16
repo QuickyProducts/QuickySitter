@@ -20,7 +20,7 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.909";
+string version = "0.910";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -682,8 +682,10 @@ default
                     helper_method = 1;
                     // Re-show the main pose menu so sitB's qh_on branch
                     // emits the ADJUSTMODE-enriched buttons ([NEW]/
-                    // [DUMP]/[ADJUST OFF]) — same UX as [HELPER]. [SAVE]
-                    // is helper-only (ADJUSTMODE persists X+/Y+/Z+ live).
+                    // [DUMP]/[SAVE]/[ADJUST OFF]) — same UX as [HELPER].
+                    // [SAVE] is needed for [PROP] in-world position
+                    // persistence (90101[SAVE] → PROPSEARCH); pose
+                    // offsets re-write idempotently under ADJUSTMODE.
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
                 }
                 if (msg == "[ADJUST OFF]")
