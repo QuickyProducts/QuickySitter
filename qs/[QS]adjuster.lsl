@@ -20,7 +20,7 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.907";
+string version = "0.909";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
 string expression_script = "[AV]faces";
@@ -667,11 +667,23 @@ default
                 if (msg == "[QUICKYHUD]")
                 {
                     controller = id;
+                    // Arm the comm_channel listen so the [NEW] sub-flow's
+                    // sub-dialogs (new_menu → [POSE]/[SYNC]/[PROP]/[FACE]/
+                    // [CAMERA]/[SUBMENU], plus the prop/face choice_menu
+                    // and TextBox naming) land back in our listen handler.
+                    // toggle_helper_mode() does this for the [HELPER] flow;
+                    // [QUICKYHUD] needs the same arming since both paths
+                    // share the new_menu() sub-dialogs (sitB renders [NEW]
+                    // in the qh_on-enriched pose menu, identical to the
+                    // helper_mode branch).
+                    llListenRemove(listen_handle);
+                    listen_handle = llListen(comm_channel, "", "", "");
                     llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
                     helper_method = 1;
                     // Re-show the main pose menu so sitB's qh_on branch
                     // emits the ADJUSTMODE-enriched buttons ([NEW]/
-                    // [DUMP]/[SAVE]/[ADJUST OFF]) — same UX as [HELPER].
+                    // [DUMP]/[ADJUST OFF]) — same UX as [HELPER]. [SAVE]
+                    // is helper-only (ADJUSTMODE persists X+/Y+/Z+ live).
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
                 }
                 if (msg == "[ADJUST OFF]")
@@ -977,8 +989,14 @@ default
                     }
                     qs_insert_pose(active_sitter, ins, "T:" + msg + "*", "T", "", "", "");
                     qs_insert_pose(active_sitter, ins + 1, "M:" + msg + "*", "M", "", "", "");
-                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "T:" + msg + "*" + "|||" + (string)ins);
-                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "M:" + msg + "*" + "|||" + (string)(ins + 1));
+                    // Payload format: name|anim|pos|rot|idx — 4 pipes
+                    // (5 fields). SUBMENU has empty anim/pos/rot; a stray
+                    // 3-pipe `"|||"` shipped in 0.907 left idx at field 3
+                    // (rot) and sitB's data[4] read returned "" → 0, so
+                    // every SUBMENU insert mirrored into MENU_LIST[0] and
+                    // desynced from LSD. Fixed in 0.909.
+                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "T:" + msg + "*" + "||||" + (string)ins);
+                    llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "M:" + msg + "*" + "||||" + (string)(ins + 1));
                     llSay(0, "MENU Added: '" + msg + "'" + sitter_text(active_sitter));
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
                 }
