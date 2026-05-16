@@ -15,13 +15,17 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.901";
+string version = "0.902";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
 // value.
 string main_script;
-string memoryscript = "[QS]sitB";
+// Derived in state_entry from main_script (s/sitA/sitB/). Lets renamed
+// sitter packs ([FOO]sitA + [FOO]sitB) work without touching this file.
+// Removal-detection at changed(CHANGED_INVENTORY) still inventory-probes
+// — a deleted script can't broadcast goodbye, so QSALIVE doesn't fit.
+string memoryscript;
 string expression_script = "[AV]faces";
 string helper_object = "[AV]helper";
 
@@ -492,6 +496,9 @@ default
         integer space = llSubStringIndex(main_script, " ");
         if (space != -1)
             main_script = llGetSubString(main_script, 0, space - 1);
+        // Derive paired sitB basename via s/sitA/sitB/ on main_script.
+        // KeepNulls so a leading/trailing "sitA" doesn't drop empty fields.
+        memoryscript = llDumpList2String(llParseStringKeepNulls(main_script, ["sitA"], []), "sitB");
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
         // Install-time sitB-wait dropped in 0.283 (same fix boot got in
         // 0.025). The LSD-meta wait below covers the "boot is ready"

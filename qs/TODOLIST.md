@@ -11,13 +11,12 @@ names so creators can rename/repackage without breaking detection.
 See `qs/PROTOCOL.md` § QSALIVE and § QSDUMP for the announce/probe
 patterns the migrated paths use.
 
-## Current state (after sitA 0.285, sitB 0.035, adjuster 0.044, select 0.024, etc.)
+## Current state (after sitA 0.902, sitB 0.035, adjuster 0.044, select 0.024, etc.)
 
 | File | Line | Variable / String | Purpose | Migration option |
 |------|------|-------------------|---------|------------------|
 | `[QS]boot.lsl` | 506 | `dump_plugins + [expression_script, camera_script]` | DUMP cascade plugin discovery | prop already announces via QSDUMP; expression/camera need the same once forked |
 | `[QS]sitA.lsl` | 984 | `expression_script="[AV]faces"` | FACE-directive integration | wait for `[QS]faces` fork; either keep hardcoded or migrate via a QSPLUGIN-announce style protocol |
-| `[QS]sitA.lsl` | 1293 | `memoryscript` | sibling check for reset trigger | **keep** — defensive runtime check on CHANGED_INVENTORY only; removal-detection doesn't fit announce-based patterns naturally (a removed script can't broadcast goodbye) |
 | `[QS]sitB.lsl` | `select_present()` body | `[AV]select` fallback inventory probe | stock-AVsitter backward-compat | keep — defensive, fires only when QS_SELECT_HELLO flag missed |
 | `[QS]adjuster.lsl` | 406, 694, 822 | `camera_script="[AV]camera"` | CAMERA submenu visibility | needs `[QS]camera` fork before QSDUMP-style migration |
 | `[QS]adjuster.lsl` | 787 | `prop_script="[QS]prop"` | PROP submenu visibility | could read boot's `dump_plugins` via a new probe, or QSDUMP-cap on prop |
@@ -26,6 +25,7 @@ patterns the migrated paths use.
 | `[QS]root.lsl` | 33 | `script_basename`, `av_script_basename`, `menu_script` | root-prim integrity check (defensive) | runtime-only, fine to keep |
 
 **Recently retired:**
+- `[QS]sitA` L24 `memoryscript = "[QS]sitB"` hardcode — sitA 0.902 derives the paired sitB basename from `main_script` via s/sitA/sitB/ (symmetric to sitB's sitB→sitA derivation in sitB 0.032). Renamed packs ([FOO]sitA + [FOO]sitB) now work without touching this file. Removal-detection probe at L1322 (now reads derived `memoryscript`) kept — a deleted script can't broadcast goodbye.
 - `[QS]sitA` L478 sitB-wait — dropped in 0.283 (boot-style fix)
 - `[QS]select` L91 count loop — QSALIVE-driven in 0.022 (matches adjuster 0.043)
 - `[QS]sitA` L998 adjuster-presence — replaced by QS_ADJUSTER_HELLO (90091) broadcast from adjuster 0.044, cached in sitA 0.284
