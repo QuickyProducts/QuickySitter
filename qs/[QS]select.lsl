@@ -20,7 +20,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.901";
+string version = "0.902";
 integer select_type;
 list BUTTONS;
 integer reading_notecard_section = -1;
@@ -266,6 +266,18 @@ default
             if (data == EOF)
             {
                 integer i;
+                // Publish BUTTONS to LSD so [QS]hudproxy can use the
+                // notecard-derived names ("Male", "Female", …) for
+                // empty-slot labels in the SWAP dialog instead of
+                // generic "Sitter N". Hudproxy reads qs:select:btn:<i>
+                // by slot index; stale entries past the current count
+                // are harmless (hudproxy iterates 0..iSlots-1).
+                integer n = llGetListLength(BUTTONS);
+                for (i = 0; i < n; i++)
+                {
+                    llLinksetDataWrite("qs:select:btn:" + (string)i,
+                        llList2String(BUTTONS, i));
+                }
                 Out(0, "Ready");
             }
             else
