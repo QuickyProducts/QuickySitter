@@ -183,3 +183,39 @@ Options:
 - **Drop the button** — if creators don't need a manual reload (notecard
   save already triggers it via CHANGED_INVENTORY), retire the menu item
   and update the help text. Smallest code, biggest UX change.
+
+## Open improvements
+
+- **`[QUICKYHUD]` button visibility / hint.** Currently the `[QUICKYHUD]`
+  entry in the adjust menu (gated in `[QS]sitA.lsl`, branch in
+  `[QS]adjuster.lsl` ~L635) is shown to anyone with menu access. Mirror
+  the `[HELPER]` button's owner-gating: either hide `[QUICKYHUD]` for
+  non-owners entirely, or keep it visible and emit a hint message
+  ("only the owner can configure the HUD" or similar) when a non-owner
+  taps it. Match whichever pattern `[HELPER]` uses today (check the
+  `[HELPER]` dispatch in `[QS]adjuster.lsl` ~L629 and the gating in
+  `[QS]sitA.lsl`).
+
+- **RLV: gate SWAP for RLV-locked sitters + general overhaul.** When a
+  sitter is restrained via RLV (e.g. `@unsit=n`, `@sit:<uuid>=force`),
+  SWAP must be blocked — moving them to another slot violates the
+  restriction. Block in two places: the HUD-side `*SWAP*` dispatch
+  (`[QS]hudproxy.lsl` / `[QS]hudadmin.lsl` swap dialog) and the
+  furniture-side `90030` receiver in `[QS]sitA.lsl`, so direct
+  link-message swaps from non-HUD callers (`[QS]select`, `[QS]debug`
+  stress-chaos) are also rejected. Detect RLV via the standard RLV
+  status query (`@version=<channel>` listen handshake) and cache the
+  result per sitter. Beyond SWAP: the rest of the RLV plumbing in
+  the fork is stale — review all sit/unsit/pose-change paths for
+  RLV-awareness, audit which restrictions are honored vs. silently
+  bypassed, and document the supported RLV verbs in `PROTOCOL.md`.
+
+- **Boot: warn on LSD wipe via `linkset_data` event.** `[QS]boot.lsl`
+  reads the notecard and populates LSD with config keys. If someone
+  runs `/88` (or any path that calls `llLinksetDataReset`), later
+  scripts read empty keys with no surfaced error. Add a
+  `linkset_data(integer action, string name, string value, integer
+  size)` event handler in boot: when `action == LINKSETDATA_RESET`,
+  owner-say a clear warning ("LSD was wiped — furniture state may be
+  inconsistent, re-rez or reset scripts"). No time-window logic
+  needed — the event itself is the trigger.
