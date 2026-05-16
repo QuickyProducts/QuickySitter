@@ -85,3 +85,52 @@ Parked. Reconsider only if AVsitter compat is dropped as a goal.
    new "active DUMP plugins?" probe, or extend QSDUMP with a
    per-plugin "I'm here" cap that menu can cache (mirrors the
    QS_ADJUSTER_HELLO / QS_SELECT_HELLO pattern).
+
+## Open improvements
+
+- **`[QUICKYHUD]` button visibility / hint.** Currently the `[QUICKYHUD]`
+  entry in the adjust menu (gated in `[QS]sitA.lsl`, branch in
+  `[QS]adjuster.lsl` ~L635) is shown to anyone with menu access. Mirror
+  the `[HELPER]` button's owner-gating: either hide `[QUICKYHUD]` for
+  non-owners entirely, or keep it visible and emit a hint message
+  ("only the owner can configure the HUD" or similar) when a non-owner
+  taps it. Match whichever pattern `[HELPER]` uses today (check the
+  `[HELPER]` dispatch in `[QS]adjuster.lsl` ~L629 and the gating in
+  `[QS]sitA.lsl`).
+
+- **RLV: gate SWAP for RLV-locked sitters + general overhaul.** When a
+  sitter is restrained via RLV (e.g. `@unsit=n`, `@sit:<uuid>=force`),
+  SWAP must be blocked — moving them to another slot violates the
+  restriction. Block in two places: the HUD-side `*SWAP*` dispatch
+  (`[QS]hudproxy.lsl` / `[QS]hudadmin.lsl` swap dialog) and the
+  furniture-side `90030` receiver in `[QS]sitA.lsl`, so direct
+  link-message swaps from non-HUD callers (`[QS]select`, `[QS]debug`
+  stress-chaos) are also rejected. Detect RLV via the standard RLV
+  status query (`@version=<channel>` listen handshake) and cache the
+  result per sitter. Beyond SWAP: the rest of the RLV plumbing in
+  the fork is stale — review all sit/unsit/pose-change paths for
+  RLV-awareness, audit which restrictions are honored vs. silently
+  bypassed, and document the supported RLV verbs in `PROTOCOL.md`.
+
+- **Boot: warn on LSD wipe via `linkset_data` event.** `[QS]boot.lsl`
+  reads the notecard and populates LSD with config keys. If someone
+  runs `/88` (or any path that calls `llLinksetDataReset`), later
+  scripts read empty keys with no surfaced error. Add a
+  `linkset_data(integer action, string name, string value, integer
+  size)` event handler in boot: when `action == LINKSETDATA_RESET`,
+  owner-say a clear warning ("LSD was wiped — furniture state may be
+  inconsistent, re-rez or reset scripts"). No time-window logic
+  needed — the event itself is the trigger.
+
+## Pending verifications
+
+- **Stress test after hudproxy 0.902 (swap-backoff removal).** The
+  `90030` 1-second swap-backoff that dropped `90055`/`90260`/`90262`
+  was removed because it killed the post-swap state-refresh (avatar
+  started at OLD slot's `pr` after swap+HUD-adjust). Backoff was
+  originally a heap-diet measure (commit `7a62d6d`) for the 6-sitter
+  chaos profile in `[QS]debug.lsl`. Verify via that stress test (15%
+  swap rolls under 6-sitter load) that hudproxy doesn't
+  Stack-Heap-Collide. If it regresses, switch to a surgical exemption:
+  track swap-target UUIDs in a list populated by the `90070` handler
+  and bypass backoff only for those, keep backoff for unrelated noise.
