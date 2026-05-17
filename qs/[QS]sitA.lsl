@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.902";
+string version = "0.903";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -499,6 +499,28 @@ default
         // Derive paired sitB basename via s/sitA/sitB/ on main_script.
         // KeepNulls so a leading/trailing "sitA" doesn't drop empty fields.
         memoryscript = llDumpList2String(llParseStringKeepNulls(main_script, ["sitA"], []), "sitB");
+        // Mixed-prefix compat — a creator pack might mix prefixes for
+        // AVsitter plugin discovery (e.g. [AV]sitA + [QS]sitB so stock
+        // [AV]faces / [AV]camera find sitter slots via [AV]sitA N probes).
+        // The s/sitA/sitB/ derivation above only works when both halves
+        // share a prefix; scan inventory for any "sitB" script when the
+        // derived name misses.
+        if (llGetInventoryType(memoryscript) != INVENTORY_SCRIPT)
+        {
+            integer iScan = llGetInventoryNumber(INVENTORY_SCRIPT);
+            while (iScan-- > 0)
+            {
+                string sname = llGetInventoryName(INVENTORY_SCRIPT, iScan);
+                if (llSubStringIndex(sname, "sitB") != -1)
+                {
+                    integer sp = llSubStringIndex(sname, " ");
+                    if (sp != -1) sname = llGetSubString(sname, 0, sp - 1);
+                    memoryscript = sname;
+                    jump scanDone;
+                }
+            }
+            @scanDone;
+        }
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
         // Install-time sitB-wait dropped in 0.283 (same fix boot got in
         // 0.025). The LSD-meta wait below covers the "boot is ready"
