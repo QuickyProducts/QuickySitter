@@ -196,19 +196,17 @@ Options:
   `[HELPER]` dispatch in `[QS]adjuster.lsl` ~L629 and the gating in
   `[QS]sitA.lsl`).
 
-- **RLV: gate SWAP for RLV-locked sitters + general overhaul.** When a
-  sitter is restrained via RLV (e.g. `@unsit=n`, `@sit:<uuid>=force`),
-  SWAP must be blocked — moving them to another slot violates the
-  restriction. Block in two places: the HUD-side `*SWAP*` dispatch
-  (`[QS]hudproxy.lsl` / `[QS]hudadmin.lsl` swap dialog) and the
-  furniture-side `90030` receiver in `[QS]sitA.lsl`, so direct
-  link-message swaps from non-HUD callers (`[QS]select`, `[QS]debug`
-  stress-chaos) are also rejected. Detect RLV via the standard RLV
-  status query (`@version=<channel>` listen handshake) and cache the
-  result per sitter. Beyond SWAP: the rest of the RLV plumbing in
-  the fork is stale — review all sit/unsit/pose-change paths for
-  RLV-awareness, audit which restrictions are honored vs. silently
-  bypassed, and document the supported RLV verbs in `PROTOCOL.md`.
+- **RLV: general plumbing review.** HUD-side SWAP gate shipped in
+  `[QS]hudproxy.lsl` 0.904 — `openSwapDialog` refuses HUD-initiated
+  seat swaps when the cached 90201/90202 flag from `[AV]root-security`
+  is set, bouncing a chat hint to the requesting user. The sitB
+  stock-menu `[SWAP]` path was intentionally left intact so RLV scenes
+  that want to allow it can still use that route. Still open: the rest
+  of the RLV plumbing in the fork is stale — review all sit/unsit/
+  pose-change paths for RLV-awareness, audit which restrictions are
+  honored vs. silently bypassed, decide whether per-sitter RLV state
+  (vs. the current furniture-global flag) is needed for finer gates,
+  and document the supported RLV verbs in `PROTOCOL.md`.
 
 - **Boot: warn on LSD wipe via `linkset_data` event.** `[QS]boot.lsl`
   reads the notecard and populates LSD with config keys. If someone
