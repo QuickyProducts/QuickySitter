@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.905";
+string version = "0.906";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -597,7 +597,16 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        if (sender != llGetLinkNumber()) return;
+        // No same-prim filter here: the 0.905 self-check (QSALIVE_REPLY
+        // from slot-0 sitA, QS_SITB_HELLO from any sitB) needs to accept
+        // messages from sit-prims, which on real furniture are typically
+        // child prims separate from boot's root prim. The previous
+        // `if (sender != llGetLinkNumber()) return;` blanket-rejected
+        // those, leaving sita_seen/sitb_seen permanently FALSE → false
+        // "missing" ERRORs at the 1s self-check on multi-prim builds
+        // like Lalou - Lima Ottoman. Each handler validates payload
+        // itself; spoofing from other child-prim scripts in the same
+        // linkset is out of scope (owner-controlled assets).
         if (num == QSDUMP_HELLO)
         {
             // DUMP plugin announce. id = announcer's script name. Dedup
