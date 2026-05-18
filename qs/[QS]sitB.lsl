@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.906";
+string version = "0.907";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -353,6 +353,17 @@ qs_load_from_lsd()
     // number_of_sitters is now QSALIVE-cached (see link_message handler
     // for QSALIVE_REPLY). No inventory probe needed — slot-0 sitA owns
     // the canonical count via its own get_number_of_scripts().
+
+    // Unsolicited HELLO broadcast — symmetric to sitA's qs_alive_reply()
+    // at the end of its own qs_load_from_lsd(). Lets boot's self-check
+    // see us via the same garantierten "all scripts armed by now" timing
+    // (we're called either from state_entry with qs:meta already there,
+    // or from the QS_BOOT_RELOAD handler well after boot's state_entry).
+    // The 90077 probe-response handler stays for post-boot detection
+    // (e.g. boot reset without sitB reset). Slot-0 only to avoid N-fold
+    // chat-spam-equivalent on the LinkMessage bus.
+    if (!SCRIPT_CHANNEL)
+        llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
 }
 
 default
