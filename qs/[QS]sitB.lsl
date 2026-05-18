@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.904";
+string version = "0.905";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -47,7 +47,15 @@ integer qs_select_present = FALSE;
 // Triggers a fresh qs_load_from_lsd() so a notecard re-save doesn't
 // require a manual reset to pick up the new MENU_LIST. Resets menu
 // navigation back to root since the old indices may no longer be valid.
+// Since 0.905 also doubles as the initial wake-up: state_entry no
+// longer sleep-polls qs:meta:<ch> — if it's absent we just return,
+// QS_BOOT_RELOAD will fire qs_load_from_lsd() when boot finishes.
 integer QS_BOOT_RELOAD    = 90023;
+// Set TRUE once qs_load_from_lsd() has run. Slot-0 sitB uses this in
+// changed(CHANGED_LINK) to eject pre-boot sit attempts with a chat hint
+// (sitA is gated on the same flag but isn't the one ejecting — keeping
+// the loop here off sitA's heap-tight script).
+integer iBooted;
 string CUSTOM_TEXT;
 string SITTER_INFO;
 list MENU_LIST;
@@ -353,11 +361,18 @@ default
         // of number_of_sitters.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
-        // Wait for [QS]boot to finish seeding this channel.
-        while (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) == "")
-            llSleep(0.1);
-        qs_load_from_lsd();
-        memory();
+        // Event-driven boot. If boot already seeded this channel, load now;
+        // otherwise just stay idle — QS_BOOT_RELOAD (90023) will dispatch
+        // qs_load_from_lsd() when boot finishes. No sleep-poll, so the
+        // furniture stays event-responsive even before boot finishes.
+        // Pre-boot sit attempts are handled in changed(CHANGED_LINK) below.
+        iBooted = FALSE;
+        if (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) != "")
+        {
+            qs_load_from_lsd();
+            memory();
+            iBooted = TRUE;
+        }
     }
 
     listen(integer listen_channel, string name, key id, string msg)
@@ -485,6 +500,27 @@ default
     {
         if (change & CHANGED_LINK)
         {
+            // Pre-boot guard — boot's still seeding (or missing entirely)
+            // and sitA's globals are zeroed. Eject any avatar attempting
+            // to sit with a chat hint so they retry once we're ready.
+            // Only slot-0 sitB runs the eject loop; otherwise every sitB
+            // would call llUnSit / llRegionSayTo N times for one sit attempt.
+            if (!iBooted && !SCRIPT_CHANNEL)
+            {
+                integer p = llGetNumberOfPrims();
+                while (p > 0)
+                {
+                    key k = llGetLinkKey(p);
+                    if (llGetAgentSize(k) != ZERO_VECTOR)
+                    {
+                        llRegionSayTo(k, 0, llGetObjectName()
+                            + ": still loading, please try again in a moment.");
+                        llUnSit(k);
+                    }
+                    --p;
+                }
+                return;
+            }
             if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) == ZERO_VECTOR)
             {
                 speed_index = 0;
@@ -534,10 +570,13 @@ default
         {
             // Boot finished re-seeding LSD. Re-read MENU_LIST and reset
             // menu navigation — old indices point into the stale list.
+            // Also marks iBooted TRUE so the slot-0 pre-boot eject guard
+            // disengages (covers both initial wake-up and re-seeds).
             qs_load_from_lsd();
             current_menu = -1;
             last_menu = 0;
             menu_page = 0;
+            iBooted = TRUE;
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
