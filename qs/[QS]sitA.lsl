@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.903";
+string version = "0.904";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -106,8 +106,117 @@ integer speed_index;
 string SEP;
 
 // QuickySitter: notecard parsing + LSD writing moved to [QS]boot.lsl.
-// sitA reads its channel's LSD directly in state_entry — no message
-// round-trip during boot.
+// sitA reads its channel's LSD directly via qs_load_from_lsd() — no
+// message round-trip during boot. Event-driven since 0.904: state_entry
+// runs qs_load_from_lsd() only if qs:meta:<ch> is already there;
+// otherwise the QS_BOOT_RELOAD (90023) handler triggers it once boot
+// finishes. The boot_done flag (was a dead-code marker before 0.904)
+// gates user-facing events so we don't dispatch on stale defaults
+// while waiting. sitB's slot-0 changed(CHANGED_LINK) handles pre-boot
+// sit-attempts by ejecting the avatar with a chat hint.
+
+qs_load_from_lsd()
+{
+    list p = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:" + (string)SCRIPT_CHANNEL), ["\n"], []);
+    MTYPE             = (integer)llList2String(p, 0);
+    ETYPE             = (integer)llList2String(p, 1);
+    SET               = (integer)llList2String(p, 2);
+    SWAP              = (integer)llList2String(p, 3);
+    SELECT            = (integer)llList2String(p, 4);
+    AMENU             = (integer)llList2String(p, 5);
+    OLD_HELPER_METHOD = (integer)llList2String(p, 6);
+    WARN              = (integer)llList2String(p, 7);
+    HASKEYFRAME       = (integer)llList2String(p, 8);
+    REFERENCE         = (integer)llList2String(p, 9);
+    DFLT              = (integer)llList2String(p, 10);
+    BRAND             = llList2String(p, 11);
+    onSit             = llList2String(p, 12);
+    CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
+    // Use llParseString2List (drops empties). When the AVpos has no
+    // ADJUST line, boot writes "" for this field; KeepNulls would turn
+    // that into [""] and the inlined options_menu below would emit an
+    // empty button label, tripping llDialog with "all buttons must have
+    // label strings".
+    ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
+    RLVDesignations   = llList2String(p, 15);
+    GENDERS = [];
+    list gp = llCSV2List(llList2String(p, 16));
+    integer gj;
+    integer gn = llGetListLength(gp);
+    for (gj = 0; gj < gn; ++gj)
+        GENDERS += (integer)llList2String(gp, gj);
+
+    // Iterate poses; derive FIRST_POSENAME / MALE / FEMALE / FIRST_POSITION etc.
+    FIRST_POSENAME = "";
+    FIRST_ANIMATION_SEQUENCE = "";
+    MALE_POSENAME = "";
+    FIRST_MALE_ANIMATION_SEQUENCE = "";
+    FEMALE_POSENAME = "";
+    FIRST_FEMALE_ANIMATION_SEQUENCE = "";
+    FIRST_POSITION = ZERO_VECTOR;
+    FIRST_ROTATION = ZERO_VECTOR;
+    integer i;
+    string val;
+    while ((val = llLinksetDataRead("qs:p:" + (string)SCRIPT_CHANNEL + ":" + (string)i)) != "")
+    {
+        list pp = llParseStringKeepNulls(val, ["|"], []);
+        string name = llList2String(pp, 0);
+        string type = llList2String(pp, 1);
+        string anim = llList2String(pp, 2);
+        string pos  = llList2String(pp, 3);
+        string rot  = llList2String(pp, 4);
+        if (FIRST_POSENAME == "" && (type == "P" || type == "S"))
+        {
+            FIRST_POSENAME = name;
+            CURRENT_POSE_NAME = name;
+            FIRST_ANIMATION_SEQUENCE = anim;
+            CURRENT_ANIMATION_SEQUENCE = anim;
+        }
+        if (type == "P" || type == "S")
+        {
+            string tail = llList2String(llParseStringKeepNulls(anim, [SEP], []), -1);
+            if (tail == "M")
+            {
+                MALE_POSENAME = name;
+                FIRST_MALE_ANIMATION_SEQUENCE = anim;
+            }
+            else if (tail == "F")
+            {
+                FEMALE_POSENAME = name;
+                FIRST_FEMALE_ANIMATION_SEQUENCE = anim;
+            }
+        }
+        if (name == FIRST_POSENAME && pos != "")
+        {
+            FIRST_POSITION = (vector)pos;
+            FIRST_ROTATION = (vector)rot;
+        }
+        ++i;
+    }
+    DEFAULT_POSITION = CURRENT_POSITION = FIRST_POSITION;
+    DEFAULT_ROTATION = CURRENT_ROTATION = FIRST_ROTATION;
+
+    llPassTouches(MTYPE > 2);
+    // Wipe sit targets (channel 0) then place them.
+    if (!SCRIPT_CHANNEL)
+    {
+        integer k;
+        for (k = 0; k <= llGetNumberOfPrims(); k++)
+        {
+            string desc = (string)llGetLinkPrimitiveParams(k, [PRIM_DESC]);
+            if (desc != "-1" && "#-1" != llGetSubString(desc, -3, -1))
+                llLinkSitTarget(k, ZERO_VECTOR, ZERO_ROTATION);
+        }
+    }
+    sittargets();
+    boot_done = TRUE;
+    // QSALIVE boot-announce: plugins that came up before us missed any
+    // earlier replies, so emit one unsolicited 90097 once we're done
+    // booting. Plugins that came up after us still get an answer via
+    // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
+    if (!SCRIPT_CHANNEL) qs_alive_reply();
+    llOwnerSay(llGetScriptName() + "[" + version + "] Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+}
 
 integer get_number_of_scripts()
 {
@@ -534,110 +643,14 @@ default
         if (SCRIPT_CHANNEL)
             memoryscript += " " + (string)SCRIPT_CHANNEL;
 
-        // Wait for [QS]boot to finish seeding this channel.
-        while (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) == "")
-            llSleep(0.1);
-
-        // Read settings + poses straight from LSD (no message round-trip).
-        list p = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:" + (string)SCRIPT_CHANNEL), ["\n"], []);
-        MTYPE             = (integer)llList2String(p, 0);
-        ETYPE             = (integer)llList2String(p, 1);
-        SET               = (integer)llList2String(p, 2);
-        SWAP              = (integer)llList2String(p, 3);
-        SELECT            = (integer)llList2String(p, 4);
-        AMENU             = (integer)llList2String(p, 5);
-        OLD_HELPER_METHOD = (integer)llList2String(p, 6);
-        WARN              = (integer)llList2String(p, 7);
-        HASKEYFRAME       = (integer)llList2String(p, 8);
-        REFERENCE         = (integer)llList2String(p, 9);
-        DFLT              = (integer)llList2String(p, 10);
-        BRAND             = llList2String(p, 11);
-        onSit             = llList2String(p, 12);
-        CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
-        // Use llParseString2List (drops empties). When the AVpos has no
-        // ADJUST line, boot writes "" for this field; KeepNulls would turn
-        // that into [""] and the inlined options_menu below would emit an
-        // empty button label, tripping llDialog with "all buttons must have
-        // label strings".
-        ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
-        RLVDesignations   = llList2String(p, 15);
-        GENDERS = [];
-        list gp = llCSV2List(llList2String(p, 16));
-        integer gj;
-        integer gn = llGetListLength(gp);
-        for (gj = 0; gj < gn; ++gj)
-            GENDERS += (integer)llList2String(gp, gj);
-
-        // Iterate poses; derive FIRST_POSENAME / MALE / FEMALE / FIRST_POSITION etc.
-        FIRST_POSENAME = "";
-        FIRST_ANIMATION_SEQUENCE = "";
-        MALE_POSENAME = "";
-        FIRST_MALE_ANIMATION_SEQUENCE = "";
-        FEMALE_POSENAME = "";
-        FIRST_FEMALE_ANIMATION_SEQUENCE = "";
-        FIRST_POSITION = ZERO_VECTOR;
-        FIRST_ROTATION = ZERO_VECTOR;
-        i = 0;
-        string val;
-        while ((val = llLinksetDataRead("qs:p:" + (string)SCRIPT_CHANNEL + ":" + (string)i)) != "")
-        {
-            list pp = llParseStringKeepNulls(val, ["|"], []);
-            string name = llList2String(pp, 0);
-            string type = llList2String(pp, 1);
-            string anim = llList2String(pp, 2);
-            string pos  = llList2String(pp, 3);
-            string rot  = llList2String(pp, 4);
-            if (FIRST_POSENAME == "" && (type == "P" || type == "S"))
-            {
-                FIRST_POSENAME = name;
-                CURRENT_POSE_NAME = name;
-                FIRST_ANIMATION_SEQUENCE = anim;
-                CURRENT_ANIMATION_SEQUENCE = anim;
-            }
-            if (type == "P" || type == "S")
-            {
-                string tail = llList2String(llParseStringKeepNulls(anim, [SEP], []), -1);
-                if (tail == "M")
-                {
-                    MALE_POSENAME = name;
-                    FIRST_MALE_ANIMATION_SEQUENCE = anim;
-                }
-                else if (tail == "F")
-                {
-                    FEMALE_POSENAME = name;
-                    FIRST_FEMALE_ANIMATION_SEQUENCE = anim;
-                }
-            }
-            if (name == FIRST_POSENAME && pos != "")
-            {
-                FIRST_POSITION = (vector)pos;
-                FIRST_ROTATION = (vector)rot;
-            }
-            ++i;
-        }
-        DEFAULT_POSITION = CURRENT_POSITION = FIRST_POSITION;
-        DEFAULT_ROTATION = CURRENT_ROTATION = FIRST_ROTATION;
-
-        llPassTouches(MTYPE > 2);
-        // Wipe sit targets (channel 0) then place them.
-        if (!SCRIPT_CHANNEL)
-        {
-            integer k;
-            for (k = 0; k <= llGetNumberOfPrims(); k++)
-            {
-                string desc = (string)llGetLinkPrimitiveParams(k, [PRIM_DESC]);
-                if (desc != "-1" && "#-1" != llGetSubString(desc, -3, -1))
-                    llLinkSitTarget(k, ZERO_VECTOR, ZERO_ROTATION);
-            }
-        }
-        sittargets();
-        boot_done = TRUE;
-        // QSALIVE boot-announce: plugins that came up before us missed any
-        // earlier replies, so emit one unsolicited 90097 once we're done
-        // booting. Plugins that came up after us still get an answer via
-        // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
-        if (!SCRIPT_CHANNEL) qs_alive_reply();
-        llOwnerSay(llGetScriptName() + "[" + version + "] Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+        // Event-driven boot. If boot's already done seeding this channel,
+        // load now. Otherwise just return — link_message will dispatch
+        // qs_load_from_lsd() when boot broadcasts QS_BOOT_RELOAD (90023).
+        // No sleep-loop, so the furniture stays event-responsive even
+        // before boot finishes (sitB slot-0 ejects pre-boot sit attempts).
+        boot_done = FALSE;
+        if (llLinksetDataRead("qs:meta:" + (string)SCRIPT_CHANNEL) != "")
+            qs_load_from_lsd();
     }
 
     timer()
@@ -795,13 +808,25 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        // Boot-done broadcast from [QS]boot.finalize_boot. Triggers the
+        // initial load when boot finishes after our state_entry, or
+        // re-load after a notecard save. Always processed even when
+        // !boot_done so the wake-up path works.
+        if (num == 90023)   // QS_BOOT_RELOAD
+        {
+            qs_load_from_lsd();
+            return;
+        }
+        // Gate the rest until LSD is populated — pre-boot dispatches
+        // would run on default-zeroed globals (MTYPE=0, empty pose list,
+        // etc.) and emit nonsense menus / mis-positioned sits.
+        if (!boot_done) return;
         integer one = (integer)msg;
         integer two = (integer)((string)id);
         integer target;
         list data;
-        // 90303 handler removed — sitA reads settings from LSD directly in
-        // state_entry now. [QS]boot resets sitA after seeding so this runs
-        // with populated LSD.
+        // 90303 handler removed — sitA reads settings from LSD directly via
+        // qs_load_from_lsd() now (called from state_entry or 90023 handler).
         if (num == 90260 && id == MY_SITTER)
         {
             // RAM-tier mirror push from [QS]offset for the avatar on this
@@ -1147,6 +1172,11 @@ default
         integer i;
         if (change & CHANGED_LINK)
         {
+            // Pre-boot: ignore link changes here entirely. SITTERS, GENDERS,
+            // SET etc. are still default-zeroed; running the assignment
+            // logic below would mis-route avatars. sitB slot-0 handles
+            // pre-boot sit attempts by ejecting + chat-hinting the user.
+            if (!boot_done) return;
             SWAPPED = FALSE;
             integer stood;
             if (SET == -1 && llGetListLength(SITTERS) > 1)
