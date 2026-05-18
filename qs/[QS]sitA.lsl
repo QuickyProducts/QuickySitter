@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.904";
+string version = "0.905";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -1085,7 +1085,12 @@ default
                     // flipping ADJUSTMODE is meaningless for anyone
                     // else. Cleaner than [HELPER]'s post-click error
                     // dialog (L756) — non-owners never see the button.
+                    // Also gated on adjuster_present like [HELPER] is:
+                    // without [QS]adjuster the menu options 90100/90101
+                    // routed by QUICKYHUD have no listener, so the click
+                    // would silently vanish.
                     if (CONTROLLER == llGetOwner()
+                        && adjuster_present
                         && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
                     {
                         data += "[QUICKYHUD]";
