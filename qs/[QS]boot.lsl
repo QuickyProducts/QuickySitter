@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.907";
+string version = "0.908";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -365,6 +365,13 @@ self_check_report()
     if (!ok)
     {
         llSetText("ERROR: base scripts missing — see chat", <1, 0, 0>, 1);
+    }
+    else
+    {
+        // Clear any prior hovertext (notecard-missing ERROR from a
+        // previous boot attempt, or stale "Loading..." progress) — all
+        // base scripts are in, no caller-visible reason to keep red text.
+        llSetText("", <1, 1, 1>, 0);
     }
 }
 
