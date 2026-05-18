@@ -55,7 +55,7 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string version = "0.9";
+string version = "0.902";
 string notecard_name = "AVpos";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
@@ -63,6 +63,19 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
+
+// QS_FACES_HELLO — broadcast from this script on state_entry and in
+// response to slot-0 sitA's QSALIVE-reply. Lets sitA cache our presence
+// and gate the [FACES] menu item without inventory-probing "[AV]faces".
+// Same shape as adjuster's QS_ADJUSTER_HELLO (90091); see PROTOCOL.md.
+integer QS_FACES_HELLO = 90090;
+
+// QSDUMP — announce DUMP capability so [QS]boot's plugin-cascade
+// (cmd_dump in adjuster → 90020/90021 round-trips via boot) doesn't
+// need to hardcode "[AV]faces" in dump_plugins. Mirrors [QS]prop's
+// pattern. See qs/PROTOCOL.md § QSDUMP.
+integer QSDUMP_PROBE = 90094;
+integer QSDUMP_HELLO = 90095;
 key key_request;
 key notecard_key;
 key notecard_query;
@@ -249,6 +262,13 @@ default
         // before the reply lands.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce our presence so [QS]sitA can gate the [FACES] menu
+        // item without an inventory probe. Re-broadcast in the QSALIVE
+        // reply handler covers the case where sitA came up after us.
+        llMessageLinked(LINK_SET, QS_FACES_HELLO, "", llGetScriptName());
+        // Announce DUMP capability so boot's cascade doesn't need to
+        // hardcode "[AV]faces" — see qs/PROTOCOL.md § QSDUMP.
+        llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
         init_sitters();
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
@@ -271,6 +291,9 @@ default
         // cancel all sequences as there can't be anyone sitting
         while (running_uuid != [])
             remove_sequences(llList2Key(running_uuid, 0));
+        // Re-announce DUMP capability — boot may have reset on rez too
+        // and lost its dump_plugins cache.
+        llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -279,6 +302,12 @@ default
         integer i;
         integer sitter;
         integer x;
+        if (num == QSDUMP_PROBE)
+        {
+            // Boot is asking who's DUMP-capable. Re-announce.
+            llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
+            return;
+        }
         // [QS] fork: QSALIVE reply from [QS]sitA slot 0. Cache the sitter
         // count and mark sitA present; re-init SITTERS if the count differs
         // from the boot default. See qs/PROTOCOL.md § QSALIVE.
@@ -293,6 +322,9 @@ default
                 {
                     init_sitters();
                 }
+                // Re-announce so sitA-slot-0 (which just reset and
+                // broadcast 90097) catches our presence flag.
+                llMessageLinked(LINK_SET, QS_FACES_HELLO, "", llGetScriptName());
             }
             return;
         }

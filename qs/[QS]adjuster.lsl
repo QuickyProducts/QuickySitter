@@ -20,10 +20,9 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.910";
+string version = "0.911";
 string helper_name = "[AV]helper";
 string prop_script = "[QS]prop";
-string expression_script = "[AV]faces";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
 
@@ -40,6 +39,14 @@ integer qs_sitter_count_cached = 1;
 // gate the [HELPER] menu item (replaces the legacy
 // llGetInventoryType("[QS]adjuster") inventory probe).
 integer QS_ADJUSTER_HELLO = 90091;
+
+// QS_FACES_HELLO — [QS]faces broadcasts this on its state_entry and
+// in response to a QSALIVE-reply. We cache the flag and gate the
+// [FACE] menu item below on it (replaces the legacy
+// llGetInventoryType("[AV]faces") inventory probe). 90090 lives in
+// the 9007x-9009x fork range; see PROTOCOL.md.
+integer QS_FACES_HELLO = 90090;
+integer faces_present  = FALSE;
 
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
@@ -530,6 +537,11 @@ default
             llSetTimerEvent(0.0);
             return;
         }
+        if (num == QS_FACES_HELLO) // 90090=faces announces presence
+        {
+            faces_present = TRUE;
+            return;
+        }
         if (num == QSALIVE_REPLY)
         {
             // Slot-0 sitA reports the real sitter count. Resize the
@@ -889,14 +901,14 @@ default
             }
             else if (msg == "[FACE]")
             {
-                if (llGetInventoryType(expression_script) == INVENTORY_SCRIPT)
+                if (faces_present)
                 {
                     adding = msg;
                     choice_menu(get_choices(), "Choose your facial anim:");
                 }
                 else
                 {
-                    llSay(0, "For this you need the " + expression_script + " plugin script.");
+                    llSay(0, "For this you need the faces plugin script.");
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
                 }
             }
