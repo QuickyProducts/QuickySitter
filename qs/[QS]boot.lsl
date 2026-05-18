@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.904";
+string version = "0.908";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -40,6 +40,24 @@ list dump_plugins;
 // instead of staying on the stale list from their last state_entry.
 // Without this, a notecard re-save requires manual reset on every sitB.
 integer QS_BOOT_RELOAD = 90023;
+
+// Boot self-check — verifies the minimum base scripts (sitA + sitB) are
+// present in the linkset, plus a conditional warn if the notecard has
+// PROP* directives but [QS]prop is missing. Runs once at finalize_boot,
+// after a 1s timer window for the probe replies. See qs/PROTOCOL.md
+// § QSALIVE (sitA-side) and § QS_SITB_PROBE (sitB-side).
+//
+// sitA presence reuses the existing QSALIVE handshake — slot-0 sitA
+// already broadcasts 90097 on its state_entry. sitB needs its own
+// probe/reply pair because it has no other reason to announce.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+integer QS_SITB_PROBE = 90077;
+integer QS_SITB_HELLO = 90078;
+integer sita_seen;
+integer sitb_seen;
+integer has_prop_in_notecard;
+integer selfcheck_pending;
 
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
 // Readout_Say, web() flushes to the AVsitter settings service every
@@ -294,7 +312,67 @@ finalize_boot()
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
-    arm_autosync();
+    // Arm self-check timer — 5s safety net for probe replies. Replies
+    // typically arrive in <1s on small notecards, but multi-prim builds
+    // with many poses (251+) and several sitter slots can cumulatively
+    // run past 1s on busy regions. The 5s timer is a fail-safe; when
+    // both sita_seen and sitb_seen become TRUE the link_message handler
+    // calls try_complete_selfcheck() to short-circuit the wait and run
+    // the report immediately. arm_autosync() is deferred to either
+    // path so it always runs after the self-check resolves.
+    selfcheck_pending = TRUE;
+    llSetTimerEvent(5.0);
+}
+
+// Early-exit hook for the self-check: if both base scripts have
+// reported in, kill the safety-net timer and run the report now. Both
+// link_message branches (QSALIVE_REPLY, QS_SITB_HELLO) call this after
+// setting their flag. The selfcheck_pending guard makes it idempotent —
+// only the first complete-state firing actually reports.
+try_complete_selfcheck()
+{
+    if (selfcheck_pending && sita_seen && sitb_seen)
+    {
+        selfcheck_pending = FALSE;
+        llSetTimerEvent(0);
+        self_check_report();
+        arm_autosync();
+    }
+}
+
+// One-shot post-boot self-check. Hard-fails on missing sitA/sitB (no
+// animation or no menu). Warns on PROP* directives without [QS]prop.
+// No-ops for missing adjuster — sitA already gates the [HELPER] menu
+// item via QS_ADJUSTER_HELLO, so end-users in read-only setups see
+// nothing broken.
+self_check_report()
+{
+    integer ok = TRUE;
+    if (!sita_seen)
+    {
+        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: [QS]sitA missing — no sit animation will play.");
+        ok = FALSE;
+    }
+    if (!sitb_seen)
+    {
+        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: [QS]sitB missing — no menu will appear.");
+        ok = FALSE;
+    }
+    if (has_prop_in_notecard && llListFindList(dump_plugins, ["[QS]prop"]) == -1)
+    {
+        llOwnerSay(llGetScriptName() + "[" + version + "] WARN: " + notecard_name + " has PROP* directives but [QS]prop is missing — props will not be rezzed.");
+    }
+    if (!ok)
+    {
+        llSetText("ERROR: base scripts missing — see chat", <1, 0, 0>, 1);
+    }
+    else
+    {
+        // Clear any prior hovertext (notecard-missing ERROR from a
+        // previous boot attempt, or stale "Loading..." progress) — all
+        // base scripts are in, no caller-visible reason to keep red text.
+        llSetText("", <1, 1, 1>, 0);
+    }
 }
 
 // Kick off (or restart) the notecard read. Called from state_entry and
@@ -314,9 +392,15 @@ start_boot()
 // Read QPP_CFG:AUTOSYNC and arm the timer accordingly. Idempotent: safe
 // to call from finalize_boot, linkset_data, or after manual changes.
 // Skips while boot is still running so we don't trample the boot flow.
+// Also skips during the self-check window — the timer is reserved for
+// the 1s self-check tick, which re-arms AUTOSYNC itself when it fires.
+// Without this guard, a linkset_data event on QPP_CFG:AUTOSYNC during
+// the 1s window would overwrite the self-check timer and silently drop
+// the install-verification report.
 arm_autosync()
 {
     if (!boot_done) return;
+    if (selfcheck_pending) return;
     string s = llLinksetDataRead("QPP_CFG:AUTOSYNC");
     if (s == "" || s == "Off")
     {
@@ -467,7 +551,15 @@ default
                 ++ch;
             total_channels = ch;
             boot_done = TRUE;
-            arm_autosync();
+            // Self-check on the skip-seed path too — sitA/sitB presence
+            // still needs verification after a script reset. PROP-warn
+            // is skipped here (no notecard parse → has_prop_in_notecard
+            // stays FALSE). Timer handler runs arm_autosync() after the
+            // check, replacing the direct call. 5s safety net (see
+            // finalize_boot for rationale); try_complete_selfcheck()
+            // short-circuits early when both base scripts report in.
+            selfcheck_pending = TRUE;
+            llSetTimerEvent(5.0);
         }
         else
         {
@@ -476,6 +568,10 @@ default
         // Wake any DUMP plugins that came up before boot. Late starters
         // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
         llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
+        // Self-check probes. Replies land in sita_seen / sitb_seen via
+        // link_message; finalize_boot arms a 1s timer to evaluate.
+        llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        llMessageLinked(LINK_SET, QS_SITB_PROBE, "", "");
     }
 
     listen(integer chan, string name, key id, string msg)
@@ -499,6 +595,16 @@ default
 
     timer()
     {
+        if (selfcheck_pending)
+        {
+            // One-shot self-check tick (armed in finalize_boot). Stop
+            // the timer first so AUTOSYNC can re-arm it cleanly.
+            selfcheck_pending = FALSE;
+            llSetTimerEvent(0);
+            self_check_report();
+            arm_autosync();
+            return;
+        }
         if (bAutoSyncActive)
         {
             // Re-Sync trigger per qs/PROTOCOL.md § 90271. Timer keeps
@@ -521,7 +627,16 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        if (sender != llGetLinkNumber()) return;
+        // No same-prim filter here: the 0.905 self-check (QSALIVE_REPLY
+        // from slot-0 sitA, QS_SITB_HELLO from any sitB) needs to accept
+        // messages from sit-prims, which on real furniture are typically
+        // child prims separate from boot's root prim. The previous
+        // `if (sender != llGetLinkNumber()) return;` blanket-rejected
+        // those, leaving sita_seen/sitb_seen permanently FALSE → false
+        // "missing" ERRORs at the 1s self-check on multi-prim builds
+        // like Lalou - Lima Ottoman. Each handler validates payload
+        // itself; spoofing from other child-prim scripts in the same
+        // linkset is out of scope (owner-controlled assets).
         if (num == QSDUMP_HELLO)
         {
             // DUMP plugin announce. id = announcer's script name. Dedup
@@ -530,6 +645,21 @@ default
             string plugin = (string)id;
             if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
                 dump_plugins += plugin;
+            return;
+        }
+        if (num == QSALIVE_REPLY)
+        {
+            // Slot-0 sitA reply — flag suffices for the self-check.
+            sita_seen = TRUE;
+            try_complete_selfcheck();
+            return;
+        }
+        if (num == QS_SITB_HELLO)
+        {
+            // Any sitB instance answers — one reply is enough to confirm
+            // the menu pipeline is present.
+            sitb_seen = TRUE;
+            try_complete_selfcheck();
             return;
         }
         if (num == 90098)
@@ -806,6 +936,13 @@ default
                     ADJUST_MENU += ap;
             }
             return;
+        }
+        // PROP* detection for the boot self-check. Set-once flag — multiple
+        // PROP lines just re-set TRUE. Falls through to the parser block,
+        // which doesn't match PROP* commands anyway.
+        if (command == "PROP1" || command == "PROP2" || command == "PROP3")
+        {
+            has_prop_in_notecard = TRUE;
         }
 
         // ===== Stock AVsitter sitA dataserver — verbatim parser block =====

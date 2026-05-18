@@ -54,6 +54,8 @@ notice.
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
 | `90023` | between stock `90022` and `90050` | `[QS]boot` → all: emitted at the end of the seed cascade. `[QS]sitB` re-reads MENU_LIST from LSD on receipt, eliminating the manual-reset step after a notecard re-save. |
+| `90077` | between stock `90076` and `90090` | `[QS]boot` → `[QS]sitB`: boot self-check probe ("is the menu pipeline present?"). Sent once from boot's `state_entry`. See [§ Boot self-check](#boot-self-check--90077--90078). |
+| `90078` | same | `[QS]sitB` → `[QS]boot`: boot self-check reply. Sent in response to `90077`. |
 | `90090` | between stock `90076` and `90100` | `[QS]faces` → all: announces faces presence so `[QS]sitA` can gate the `[FACES]` menu item without inventory-probing `[AV]faces` (id = announcer's script name) |
 | `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
 | `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
@@ -272,6 +274,108 @@ so adjuster's own `"PROBE"` doesn't loop back into its 90093 handler.
 The `msg == "HELLO"` discriminator is defensive — if a future
 QuickyHUD script also writes to 90093, only HELLO messages set the
 flag.
+
+## Boot self-check — 90077 / 90078
+
+`[QS]boot` verifies the minimum base scripts are present in the linkset
+right after seeding. Two failure modes get surfaced as `llOwnerSay`
+errors so the creator catches a missing-script install before the first
+sit attempt instead of seeing a silent no-menu / no-animation furniture:
+
+1. **Hard-fail:** `[QS]sitA` or `[QS]sitB` missing — no animation or no
+   menu. Sets `llSetText` red so the prim is visibly broken in-world.
+2. **Conditional warn:** `AVpos` has `PROP*` directives but `[QS]prop`
+   is not installed — props won't be rezzed.
+
+Adjuster presence is deliberately **not** checked. `[QS]sitA` already
+gates the `[HELPER]` menu item on `QS_ADJUSTER_HELLO` (90091), so an
+end-user (read-only) install just doesn't expose the Adjust path —
+nothing is broken from the user's view.
+
+| Num    | Direction              | `msg`  | `id`       | Meaning |
+|--------|------------------------|--------|------------|---------|
+| 90077  | `[QS]boot` → `[QS]sitB` | `""`  | `""`       | Probe — "is the menu pipeline present?" Sent once from boot's `state_entry`. |
+| 90078  | `[QS]sitB` → `[QS]boot` | `""`  | `""`       | Hello — reply to 90077. One reply per probe is enough; boot's handler only sets a flag. |
+
+### Boot side
+
+```lsl
+integer QS_SITB_PROBE = 90077;
+integer QS_SITB_HELLO = 90078;
+integer sita_seen;
+integer sitb_seen;
+integer has_prop_in_notecard;
+integer selfcheck_pending;
+
+state_entry()
+{
+    // ... existing seed setup ...
+    llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");  // sitA via 90097
+    llMessageLinked(LINK_SET, QS_SITB_PROBE, "", "");  // sitB via 90078
+}
+
+link_message(integer s, integer num, string msg, key id)
+{
+    if (num == QSALIVE_REPLY) { sita_seen = TRUE; return; }
+    if (num == QS_SITB_HELLO) { sitb_seen = TRUE; return; }
+    // ...
+}
+
+finalize_boot()
+{
+    // ... existing seed-finalize ...
+    selfcheck_pending = TRUE;
+    llSetTimerEvent(1.0);  // 1s window for replies; AUTOSYNC armed after
+}
+
+timer()
+{
+    if (selfcheck_pending)
+    {
+        selfcheck_pending = FALSE;
+        llSetTimerEvent(0);
+        self_check_report();
+        arm_autosync();
+        return;
+    }
+    // ... existing AUTOSYNC tick ...
+}
+```
+
+`PROP*` detection rides on the existing notecard parser: one extra
+`if (command == "PROP1" || command == "PROP2" || command == "PROP3")`
+branch in `dataserver` sets `has_prop_in_notecard = TRUE`. The
+`[QS]prop` presence check reuses `dump_plugins` (populated by QSDUMP
+announces — see [§ QSDUMP](#qsdump--plugin-announce-for-the-dump-cascade))
+so no extra probe is needed.
+
+### sitB side
+
+```lsl
+integer QS_SITB_PROBE = 90077;
+integer QS_SITB_HELLO = 90078;
+
+link_message(integer s, integer num, string msg, key id)
+{
+    if (num == QS_SITB_PROBE)
+    {
+        llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
+        return;
+    }
+    // ...
+}
+```
+
+No state_entry broadcast — the boot self-check is one-shot at boot
+time, sitB is the responder. If `[QS]boot` is missing or reset later,
+nothing happens (no probe → no reply, no error). This is intentional:
+the self-check is for **install verification**, not runtime presence.
+
+### sitA reuses QSALIVE, not a separate probe
+
+`[QS]sitA` (slot 0) already broadcasts `90097` on its `state_entry`
+(see [§ QSALIVE](#qsalive--presence-probe-for-plugin-discovery)). Boot
+just listens. No new probe number for sitA.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
 
