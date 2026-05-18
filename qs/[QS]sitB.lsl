@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.905";
+string version = "0.906";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -51,6 +51,12 @@ integer qs_select_present = FALSE;
 // longer sleep-polls qs:meta:<ch> — if it's absent we just return,
 // QS_BOOT_RELOAD will fire qs_load_from_lsd() when boot finishes.
 integer QS_BOOT_RELOAD    = 90023;
+
+// QS_SITB_PROBE / QS_SITB_HELLO — boot self-check handshake. [QS]boot
+// probes in its state_entry to verify the menu pipeline is present; we
+// reply on receipt. See qs/PROTOCOL.md § QS_SITB_PROBE.
+integer QS_SITB_PROBE     = 90077;
+integer QS_SITB_HELLO     = 90078;
 // Set TRUE once qs_load_from_lsd() has run. Slot-0 sitB uses this in
 // changed(CHANGED_LINK) to eject pre-boot sit attempts with a chat hint
 // (sitA is gated on the same flag but isn't the one ejecting — keeping
@@ -564,6 +570,13 @@ default
             // [QS]select announces presence (covers both initial state_entry
             // broadcast and the re-announce triggered by our QSALIVE-reply).
             qs_select_present = TRUE;
+            return;
+        }
+        if (num == QS_SITB_PROBE)
+        {
+            // Boot self-check probe — reply once. One HELLO per probe is
+            // enough; boot's handler only sets a flag.
+            llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
             return;
         }
         if (num == QS_BOOT_RELOAD)
