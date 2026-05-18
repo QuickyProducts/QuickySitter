@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.906";
+string version = "0.907";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -312,11 +312,32 @@ finalize_boot()
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
-    // Arm self-check timer — 1s window for probe replies. The timer
-    // handler runs self_check_report() and then arm_autosync(), so
-    // AUTOSYNC arming is deferred until the self-check has emitted.
+    // Arm self-check timer — 5s safety net for probe replies. Replies
+    // typically arrive in <1s on small notecards, but multi-prim builds
+    // with many poses (251+) and several sitter slots can cumulatively
+    // run past 1s on busy regions. The 5s timer is a fail-safe; when
+    // both sita_seen and sitb_seen become TRUE the link_message handler
+    // calls try_complete_selfcheck() to short-circuit the wait and run
+    // the report immediately. arm_autosync() is deferred to either
+    // path so it always runs after the self-check resolves.
     selfcheck_pending = TRUE;
-    llSetTimerEvent(1.0);
+    llSetTimerEvent(5.0);
+}
+
+// Early-exit hook for the self-check: if both base scripts have
+// reported in, kill the safety-net timer and run the report now. Both
+// link_message branches (QSALIVE_REPLY, QS_SITB_HELLO) call this after
+// setting their flag. The selfcheck_pending guard makes it idempotent —
+// only the first complete-state firing actually reports.
+try_complete_selfcheck()
+{
+    if (selfcheck_pending && sita_seen && sitb_seen)
+    {
+        selfcheck_pending = FALSE;
+        llSetTimerEvent(0);
+        self_check_report();
+        arm_autosync();
+    }
 }
 
 // One-shot post-boot self-check. Hard-fails on missing sitA/sitB (no
@@ -527,9 +548,11 @@ default
             // still needs verification after a script reset. PROP-warn
             // is skipped here (no notecard parse → has_prop_in_notecard
             // stays FALSE). Timer handler runs arm_autosync() after the
-            // check, replacing the direct call.
+            // check, replacing the direct call. 5s safety net (see
+            // finalize_boot for rationale); try_complete_selfcheck()
+            // short-circuits early when both base scripts report in.
             selfcheck_pending = TRUE;
-            llSetTimerEvent(1.0);
+            llSetTimerEvent(5.0);
         }
         else
         {
@@ -621,6 +644,7 @@ default
         {
             // Slot-0 sitA reply — flag suffices for the self-check.
             sita_seen = TRUE;
+            try_complete_selfcheck();
             return;
         }
         if (num == QS_SITB_HELLO)
@@ -628,6 +652,7 @@ default
             // Any sitB instance answers — one reply is enough to confirm
             // the menu pipeline is present.
             sitb_seen = TRUE;
+            try_complete_selfcheck();
             return;
         }
         if (num == 90098)
