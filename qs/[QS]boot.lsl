@@ -19,12 +19,12 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.903";
+string version = "0.904";
 string notecard_name = "AVpos";
-// expression/camera plugin names are AVsitter protocol constants — stock
-// plugins probe and reply by literal script name. Once these forks adopt
-// the QSDUMP announce protocol below, the constants can go too.
-string expression_script = "[AV]faces";
+// camera plugin name is an AVsitter protocol constant — stock plugin
+// probes and replies by literal script name. Once [QS]camera adopts
+// QSDUMP_HELLO (like [QS]faces 0.902 and [QS]prop do), this constant
+// can go too.
 string camera_script = "[AV]camera";
 
 // QSDUMP — DUMP plugin discovery via announce/probe handshake, mirroring
@@ -553,7 +553,10 @@ default
             // they're done, advance to the next channel via 90098 (back to
             // qs_dump_start) or finalize the upload and shout the URL.
             integer script_channel = (integer)msg;
-            list scripts = dump_plugins + [expression_script, camera_script];
+            // [QS]faces (≥ 0.902) announces via QSDUMP_HELLO, so it lands
+            // in dump_plugins automatically. camera_script stays hardcoded
+            // until [QS]camera fork exists.
+            list scripts = dump_plugins + [camera_script];
             integer i = llListFindList(scripts, [(string)id]);
             while (i < llGetListLength(scripts))
             {
