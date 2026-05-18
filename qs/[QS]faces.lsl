@@ -55,7 +55,7 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string version = "0.9";
+string version = "0.901";
 string notecard_name = "AVpos";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
@@ -63,6 +63,12 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
+
+// QS_FACES_HELLO — broadcast from this script on state_entry and in
+// response to slot-0 sitA's QSALIVE-reply. Lets sitA cache our presence
+// and gate the [FACES] menu item without inventory-probing "[AV]faces".
+// Same shape as adjuster's QS_ADJUSTER_HELLO (90091); see PROTOCOL.md.
+integer QS_FACES_HELLO = 90090;
 key key_request;
 key notecard_key;
 key notecard_query;
@@ -249,6 +255,10 @@ default
         // before the reply lands.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Announce our presence so [QS]sitA can gate the [FACES] menu
+        // item without an inventory probe. Re-broadcast in the QSALIVE
+        // reply handler covers the case where sitA came up after us.
+        llMessageLinked(LINK_SET, QS_FACES_HELLO, "", llGetScriptName());
         init_sitters();
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
@@ -293,6 +303,9 @@ default
                 {
                     init_sitters();
                 }
+                // Re-announce so sitA-slot-0 (which just reset and
+                // broadcast 90097) catches our presence flag.
+                llMessageLinked(LINK_SET, QS_FACES_HELLO, "", llGetScriptName());
             }
             return;
         }

@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.905";
+string version = "0.906";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -26,7 +26,6 @@ string main_script;
 // Removal-detection at changed(CHANGED_INVENTORY) still inventory-probes
 // — a deleted script can't broadcast goodbye, so QSALIVE doesn't fit.
 string memoryscript;
-string expression_script = "[AV]faces";
 string helper_object = "[AV]helper";
 
 // QS_ADJUSTER_HELLO — [QS]adjuster broadcasts this on its own
@@ -35,6 +34,15 @@ string helper_object = "[AV]helper";
 // the legacy llGetInventoryType("[QS]adjuster") probe).
 integer QS_ADJUSTER_HELLO = 90091;
 integer adjuster_present  = FALSE;
+
+// QS_FACES_HELLO — [QS]faces broadcasts this on its own state_entry
+// and in response to slot-0 sitA's QSALIVE-reply. Cached flag gates
+// the [FACES] menu item below, replacing the legacy
+// llGetInventoryType("[AV]faces") probe. Same shape as adjuster's
+// QS_ADJUSTER_HELLO but at 90090 (next free slot in the
+// 9007x-9009x fork range; see qs/PROTOCOL.md).
+integer QS_FACES_HELLO = 90090;
+integer faces_present  = FALSE;
 integer SCRIPT_CHANNEL;
 list SITTERS;
 integer SWAPPED;
@@ -921,6 +929,11 @@ default
             adjuster_present = TRUE;
             return;
         }
+        if (num == QS_FACES_HELLO) // 90090=faces announces presence
+        {
+            faces_present = TRUE;
+            return;
+        }
         if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
         {
             do_resync_tick();
@@ -1058,7 +1071,7 @@ default
                     {
                         data += "[TEXTURE]";
                     }
-                    if (llGetInventoryType(expression_script) == INVENTORY_SCRIPT)
+                    if (faces_present)
                     {
                         data += "[FACES]";
                     }
