@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9";
+string version = "0.901";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -241,9 +241,85 @@ push_customs_for(key sitter, integer slot)
 
 // Save / drop —————————————————————————————————————————————————————————
 
+// Stock-AVsitter "[SAVE ALL]" semantics. When sitA's [ALL POSES] confirm
+// arrives via 90262 with pose_name "M#T!", mirror stock's behavior: wipe
+// all per-pose entries for this (sitter, slot) first, then let the caller
+// write the new M#T! entry. Without this, pre-existing per-pose entries
+// (HUD-saved on pose change, or sitA [SAVE] earlier) keep winning over
+// M#T! in sitA's apply_current_anim lookup, defeating the "all poses"
+// intent — [SAVE ALL] would only apply to never-adjusted poses.
+//
+// Equivalent stock code in [AV]sitA.lsl:
+//   while (i > 0) { if (CUSTOMS[i] == short) delete; i -= 4; }
+//   CUSTOMS += ["M#T!", short, pd, rd];
+//
+// We split that into a wipe step + a normal save_offset call, so the
+// existing ZERO/ZERO RAM_OVERFLOW invalidation path is reused for each
+// purged RAM-tier entry. Skips the M#T! key itself — caller overwrites
+// (or deletes via ZERO/ZERO branch) immediately after.
+wipe_per_pose_for_sitter_slot(key sitter, integer slot)
+{
+    string short = llGetSubString(sitter, 0, 7);
+    string keyPrefix = LSD_PREFIX + short + ":" + (string)slot + ":";
+    string mtKey = keyPrefix + "M#T!";
+
+    // LSD: scan for our prefix, collect for batched delete (avoid mid-
+    // scan reordering). Skip M#T! itself.
+    list toDelete;
+    integer scanOff = 0;
+    integer batch = 20;
+    do {
+        list keys = llLinksetDataFindKeys("^" + keyPrefix, scanOff, batch);
+        integer n = llGetListLength(keys);
+        integer i;
+        for (i = 0; i < n; i++) {
+            string k = llList2String(keys, i);
+            if (k != mtKey) toDelete += [k];
+        }
+        if (n < batch) jump scanDone;
+        scanOff += batch;
+    } while (TRUE);
+    @scanDone;
+    integer j;
+    integer m = llGetListLength(toDelete);
+    for (j = 0; j < m; j++)
+        llLinksetDataDelete(llList2String(toDelete, j));
+
+    // RAM: walk CUSTOMS at stride, drop matching (short, slot) except
+    // M#T!. Send ZERO/ZERO 90260 for each dropped pose_name so sitA's
+    // RAM_OVERFLOW drops its cached entry too (same sentinel convention
+    // as the delete branch in save_offset below).
+    integer i = 0;
+    while (i < llGetListLength(CUSTOMS))
+    {
+        if (llList2String(CUSTOMS, i + 1) == short
+         && llList2Integer(CUSTOMS, i + 2) == slot
+         && llList2String(CUSTOMS, i) != "M#T!")
+        {
+            string pname = llList2String(CUSTOMS, i);
+            CUSTOMS = llDeleteSubList(CUSTOMS, i, i + CUSTOMS_STRIDE - 1);
+            llMessageLinked(LINK_THIS, 90260,
+                pname + "|" + (string)ZERO_VECTOR + "|" + (string)ZERO_VECTOR,
+                sitter);
+        }
+        else
+        {
+            i += CUSTOMS_STRIDE;
+        }
+    }
+    update_ram_tier_count();
+}
+
 save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
 {
     string short = llGetSubString(sitter, 0, 7);
+
+    // [SAVE ALL] arrival — wipe per-pose entries first, then fall through
+    // to the normal write (or ZERO/ZERO delete) below for M#T! itself.
+    // See wipe_per_pose_for_sitter_slot header for the stock-semantics
+    // rationale.
+    if (pose_name == "M#T!")
+        wipe_per_pose_for_sitter_slot(sitter, slot);
 
     // ZERO/ZERO is the delete sentinel — sitA's [SAVE] (when the user has
     // dialed all adjustments back to base) and hudproxy's poseBufPush both
