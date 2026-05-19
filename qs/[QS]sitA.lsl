@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.906";
+string version = "0.907";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -48,7 +48,6 @@ list SITTERS;
 integer SWAPPED;
 key MY_SITTER;
 key CONTROLLER;
-string CUSTOM_TEXT;
 list ADJUST_MENU;
 integer SET = -1;
 integer MTYPE = 0;
@@ -100,13 +99,10 @@ list SITTERS_SITTARGETS;
 list ORIGINAL_SITTERS_SITTARGETS;
 integer has_security;
 integer has_texture;
-string RLVDesignations;
 integer increment_pointer;
 integer pos_rot_adjust_toggle;
 integer menu_channel;
 integer menu_handle;
-string BRAND;
-string onSit;
 integer speed_index;
 // SEP = U+FFFD. Initialized at runtime via llUnescapeURL because the
 // SL script editor mangles a literal U+FFFD to 0x20 (space) on upload,
@@ -137,16 +133,18 @@ qs_load_from_lsd()
     HASKEYFRAME       = (integer)llList2String(p, 8);
     REFERENCE         = (integer)llList2String(p, 9);
     DFLT              = (integer)llList2String(p, 10);
-    BRAND             = llList2String(p, 11);
-    onSit             = llList2String(p, 12);
-    CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
-    // Use llParseString2List (drops empties). When the AVpos has no
-    // ADJUST line, boot writes "" for this field; KeepNulls would turn
-    // that into [""] and the inlined options_menu below would emit an
-    // empty button label, tripping llDialog with "all buttons must have
-    // label strings".
+    // Slots 11 (BRAND), 12 (onSit), 13 (CUSTOM_TEXT), 15 (RLVDesignations)
+    // are read by [QS]sitB direct from the same qs:cfg:N blob — not
+    // mirrored here. Saves ~200-400 B steady state and ~1-2 KB transient
+    // peak (the CUSTOM_TEXT parse used to be the largest allocation in
+    // this loader). sitA has no reader for these strings.
+    //
+    // Use llParseString2List (drops empties) for ADJUST_MENU. When the
+    // AVpos has no ADJUST line, boot writes "" for this field; KeepNulls
+    // would turn that into [""] and the inlined options_menu below would
+    // emit an empty button label, tripping llDialog with "all buttons
+    // must have label strings".
     ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
-    RLVDesignations   = llList2String(p, 15);
     GENDERS = [];
     list gp = llCSV2List(llList2String(p, 16));
     integer gj;
