@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.907";
+string version = "0.908";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -1423,6 +1423,11 @@ default
             llMessageLinked(LINK_THIS, 90261, (string)SCRIPT_CHANNEL, MY_SITTER);
             string channel_or_swap = (string)SCRIPT_CHANNEL;
             integer lnk = 90000; // 90000=play pose
+            // Capture SWAPPED before we reset it — the menu-open path
+            // below skips when the perm-grant came from a SWAP, so the
+            // user doesn't get a fresh pose menu thrust at them after
+            // explicitly choosing to switch seats.
+            integer bSwapEntry = SWAPPED;
             if (SWAPPED)
             {
                 lnk = 90010; // 90010=play pose, ignoring ETYPE
@@ -1444,7 +1449,7 @@ default
                 // primcount_error() inlined here:
                 llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
             }
-            else if (!MTYPE)
+            else if (!MTYPE && !bSwapEntry)
             {
                 if (has_security)
                 {
