@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.908";
+string version = "0.909";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -43,13 +43,20 @@ integer QS_BOOT_RELOAD = 90023;
 
 // Boot self-check — verifies the minimum base scripts (sitA + sitB) are
 // present in the linkset, plus a conditional warn if the notecard has
-// PROP* directives but [QS]prop is missing. Runs once at finalize_boot,
-// after a 1s timer window for the probe replies. See qs/PROTOCOL.md
+// PROP* directives but [QS]prop is missing. Fires from finalize_boot
+// (fresh-boot) or state_entry's skip-seed branch as soon as both
+// sita_seen and sitb_seen land (via try_complete_selfcheck), with a
+// 5s safety-net timer for the no-reply case. See qs/PROTOCOL.md
 // § QSALIVE (sitA-side) and § QS_SITB_PROBE (sitB-side).
 //
-// sitA presence reuses the existing QSALIVE handshake — slot-0 sitA
-// already broadcasts 90097 on its state_entry. sitB needs its own
-// probe/reply pair because it has no other reason to announce.
+// Detection has two complementary paths per base script: an explicit
+// probe (90096/90077) the script answers from its link_message handler,
+// and an unsolicited HELLO emitted at the end of qs_load_from_lsd() in
+// slot-0 sitA / slot-0 sitB. The probe covers the skip-seed path where
+// boot is reset alone while sitA/sitB keep running (their state_entry
+// doesn't re-fire, so no unsolicited HELLO); the unsolicited HELLOs
+// cover the fresh-boot path, where finalize_boot's QS_BOOT_RELOAD
+// broadcast triggers a fresh qs_load_from_lsd() in both base scripts.
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer QS_SITB_PROBE = 90077;
@@ -393,9 +400,10 @@ start_boot()
 // to call from finalize_boot, linkset_data, or after manual changes.
 // Skips while boot is still running so we don't trample the boot flow.
 // Also skips during the self-check window — the timer is reserved for
-// the 1s self-check tick, which re-arms AUTOSYNC itself when it fires.
+// the 5s self-check safety net, which re-arms AUTOSYNC itself when it
+// fires (or try_complete_selfcheck fires it early on both flags set).
 // Without this guard, a linkset_data event on QPP_CFG:AUTOSYNC during
-// the 1s window would overwrite the self-check timer and silently drop
+// the self-check window would overwrite the timer and silently drop
 // the install-verification report.
 arm_autosync()
 {
@@ -569,7 +577,12 @@ default
         // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
         llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
         // Self-check probes. Replies land in sita_seen / sitb_seen via
-        // link_message; finalize_boot arms a 1s timer to evaluate.
+        // link_message; try_complete_selfcheck() fires the report once
+        // both flags are TRUE (or the 5s safety-net timer fires if not).
+        // Strictly needed only on the skip-seed path — on fresh-boot,
+        // finalize_boot's QS_BOOT_RELOAD broadcast triggers the same
+        // HELLOs via qs_load_from_lsd() anyway. Kept unconditional here
+        // so state_entry stays branch-uniform; cost is two LinkMessages.
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         llMessageLinked(LINK_SET, QS_SITB_PROBE, "", "");
     }
@@ -627,16 +640,16 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        // No same-prim filter here: the 0.905 self-check (QSALIVE_REPLY
-        // from slot-0 sitA, QS_SITB_HELLO from any sitB) needs to accept
+        // No same-prim filter here: the self-check (QSALIVE_REPLY from
+        // slot-0 sitA, QS_SITB_HELLO from any sitB) needs to accept
         // messages from sit-prims, which on real furniture are typically
         // child prims separate from boot's root prim. The previous
-        // `if (sender != llGetLinkNumber()) return;` blanket-rejected
-        // those, leaving sita_seen/sitb_seen permanently FALSE → false
-        // "missing" ERRORs at the 1s self-check on multi-prim builds
-        // like Lalou - Lima Ottoman. Each handler validates payload
-        // itself; spoofing from other child-prim scripts in the same
-        // linkset is out of scope (owner-controlled assets).
+        // `if (sender != llGetLinkNumber()) return;` (dropped in 0.906)
+        // blanket-rejected those, leaving sita_seen/sitb_seen permanently
+        // FALSE → false "missing" ERRORs on multi-prim builds like
+        // Lalou - Lima Ottoman. Each handler validates payload itself;
+        // spoofing from other child-prim scripts in the same linkset is
+        // out of scope (owner-controlled assets).
         if (num == QSDUMP_HELLO)
         {
             // DUMP plugin announce. id = announcer's script name. Dedup
