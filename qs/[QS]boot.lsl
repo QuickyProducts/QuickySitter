@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.909";
+string version = "0.910";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -110,6 +110,20 @@ list SITTER_INFO;
 // {Posename}<pos><rot> defaults. Replaces a `list seed_names` whose
 // per-item Mono overhead capped boot at ~470 entries per sitter.
 integer seed_count;
+
+// Cursor for qs_seed_find. Sequential {Posename} defaults
+// (the common pattern: {Pose1}{Pose2}…{PoseN} right after a sitter's
+// POSE block) used to re-scan from index 0 every time = O(N²).
+// With the hint the second-and-later lookups start where the previous
+// match landed = O(N) total. Reset per channel in reset_channel_locals().
+integer seed_find_hint;
+
+// Last-published progress percentage from qs_loading_text. Skipping
+// llSetText calls when the integer pct hasn't moved cuts ~95% of the
+// per-line floating-text refreshes on large notecards (one update per
+// 1% step instead of one per notecard line). Reset to -1 in start_boot
+// so the first call always paints.
+integer last_pct = -1;
 
 // Mirror stock AVsitter sitA's parser locals exactly so the parsing flow
 // is byte-for-byte identical. They aren't used by boot, but having them
@@ -215,17 +229,33 @@ qs_p_write(integer ch, integer i, string name, string type, string anim, string 
 // {Posename}<pos><rot> default-offset resolution. Tries the bare name
 // first, then with a "P:" prefix — same fallback order as the original
 // two-call sequence. Returns -1 on miss.
+//
+// Scan order uses seed_find_hint as the starting index, then wraps to
+// 0..hint-1. For the common sequential-defaults case ({Pose1}{Pose2}…)
+// each lookup advances the hint past the last match, so total work
+// is O(N) instead of the O(N²) a from-zero scan would cost.
 integer qs_seed_find(integer ch, string nm)
 {
     integer i;
     string  v;
     string  n;
-    for (i = 0; i < seed_count; ++i)
+    // Phase 1: from hint forward.
+    for (i = seed_find_hint; i < seed_count; ++i)
     {
         v = llLinksetDataRead(qs_p_key(ch, i));
         n = llGetSubString(v, 0, llSubStringIndex(v, "|") - 1);
-        if (n == nm) return i;
+        if (n == nm) { seed_find_hint = i + 1; return i; }
     }
+    // Phase 2: wrap to 0..hint-1.
+    for (i = 0; i < seed_find_hint; ++i)
+    {
+        v = llLinksetDataRead(qs_p_key(ch, i));
+        n = llGetSubString(v, 0, llSubStringIndex(v, "|") - 1);
+        if (n == nm) { seed_find_hint = i + 1; return i; }
+    }
+    // Phase 3: try with "P:" prefix — full scan, hint not updated
+    // (this is the fallback path; matches are sparse, so caching the
+    // index would hurt the next sequential lookup more than it helps).
     nm = "P:" + nm;
     for (i = 0; i < seed_count; ++i)
     {
@@ -255,11 +285,16 @@ string qs_cfg_pack()
 }
 
 // Render bar. 20-cell bar sliced from a pre-built constant.
+// Throttled by last_pct: only repaints when the integer percentage
+// moves, so the dataserver hot-path doesn't burn frame-time on
+// llSetText / string-builds for every notecard line.
 qs_loading_text(integer cur, integer total, string msg)
 {
     if (total <= 0) total = 1;
     integer pct = cur * 100 / total;
     if (pct > 100) pct = 100;
+    if (pct == last_pct) return;
+    last_pct = pct;
     integer filled = pct / 5;
     string bar = llGetSubString("████████████████████░░░░░░░░░░░░░░░░░░░░", 20 - filled, 39 - filled);
     llSetText(msg + "\n[" + bar + "] " + (string)pct + "%", <1, 1, 0>, 1);
@@ -269,6 +304,7 @@ reset_channel_locals()
 {
     SITTER_INFO = [];
     seed_count = 0;
+    seed_find_hint = 0;
     FIRST_POSENAME = "";
     FIRST_ANIMATION_SEQUENCE = "";
     CURRENT_POSE_NAME = "";
@@ -392,6 +428,7 @@ start_boot()
     reused_key = llGetNumberOfNotecardLines(notecard_name);
     reused_variable = 0;
     notecard_lines = 0;
+    last_pct = -1;   // force first qs_loading_text() to paint
     llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
     notecard_query = llGetNotecardLine(notecard_name, 0);
 }
