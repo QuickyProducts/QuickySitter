@@ -84,7 +84,9 @@ won here. If you change your mind, the obvious key would be
   `load_t0`, `notecard_query`, `notecard_lines`
 - Dump streaming state: `qs_dump_ch` (-1 = idle), `qs_dump_pi`
 - Dump output pipeline (since PR #8): `cache`, `webkey`, `webcount`,
-  `url`, `prop_script`, `expression_script`, `camera_script`
+  `url`, `camera_script` (the only hardcoded stock-plugin name left;
+  `prop_script` and `expression_script` retired with the `[QS]prop` /
+  `[QS]faces` QSDUMP migration)
 
 ### [QS]sitA.lsl (one per sitter slot)
 

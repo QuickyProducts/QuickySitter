@@ -15,14 +15,10 @@ patterns the migrated paths use.
 
 | File | Line | Variable / String | Purpose | Migration option |
 |------|------|-------------------|---------|------------------|
-| `[QS]boot.lsl` | 506 | `dump_plugins + [expression_script, camera_script]` | DUMP cascade plugin discovery | prop already announces via QSDUMP; expression/camera need the same once forked |
-| `[QS]sitA.lsl` | 984 | `expression_script="[AV]faces"` | FACE-directive integration | wait for `[QS]faces` fork; either keep hardcoded or migrate via a QSPLUGIN-announce style protocol |
+| `[QS]boot.lsl` | 739 | `dump_plugins + [camera_script]` | DUMP cascade plugin discovery | keep — `[AV]camera` is stock-AVsitter protocol surface; no `[QS]camera` fork planned (see Recently retired) |
 | `[QS]sitB.lsl` | `select_present()` body | `[AV]select` fallback inventory probe | stock-AVsitter backward-compat | keep — defensive, fires only when QS_SELECT_HELLO flag missed |
-| `[QS]adjuster.lsl` | 406, 694, 822 | `camera_script="[AV]camera"` | CAMERA submenu visibility | needs `[QS]camera` fork before QSDUMP-style migration |
-| `[QS]adjuster.lsl` | 787 | `prop_script="[QS]prop"` | PROP submenu visibility | could read boot's `dump_plugins` via a new probe, or QSDUMP-cap on prop |
-| `[QS]adjuster.lsl` | 800 | `expression_script="[AV]faces"` | EXPRESSION submenu visibility | wait for `[QS]faces` fork |
-| `[QS]menu.lsl` | 275, 558 | `prop_script="[QS]prop"` | menu items for prop | same as adjuster L787 |
-| `[QS]root.lsl` | 33 | `script_basename`, `av_script_basename`, `menu_script` | root-prim integrity check (defensive) | runtime-only, fine to keep |
+| `[QS]adjuster.lsl` | 444, 822, 940 | `camera_script="[AV]camera"` | CAMERA submenu visibility + 90174-dispatch to stock plugin | keep — `[AV]camera` is stock-AVsitter protocol surface; no `[QS]camera` fork planned (see Recently retired) |
+| `[QS]root.lsl` | 33 | `script_basename`, `av_script_basename`, `menu_script` | root-prim integrity check (defensive; `menu_script` probes stock `[AV]menu` for menu-prop-only linksets, kept) | runtime-only, fine to keep |
 
 **Recently retired:**
 - `[QS]sitA` L24 `memoryscript = "[QS]sitB"` hardcode — sitA 0.902 derives the paired sitB basename from `main_script` via s/sitA/sitB/ (symmetric to sitB's sitB→sitA derivation in sitB 0.032). Renamed packs ([FOO]sitA + [FOO]sitB) now work without touching this file. Removal-detection probe at L1322 (now reads derived `memoryscript`) kept — a deleted script can't broadcast goodbye.
@@ -33,6 +29,13 @@ patterns the migrated paths use.
 - `[QS]sitB` L19/L317 dead `main_script` global + L293 dual-probe count loop — sitB 0.032 derives the sitA basename from its own name via `sitB`→`sitA` string-replace; dropped the unused global and the `[QS]/[AV]` dual probe.
 - `[QS]sitB` derived-prefix count loop — sitB 0.034 swaps the sitB→sitA derivation for QSALIVE-cached `number_of_sitters` (same pattern as adjuster/select). Last inventory-probe-for-sitter-discovery gone from sitB.
 - `[QS]sitB` `[QS]select` probe in `select_present()` — replaced by QS_SELECT_HELLO (90092) announce from select 0.024, cached in sitB 0.035. `[AV]select` literal stays as stock backward-compat fallback (fires only when no QS broadcaster is present).
+- `[AV]faces` probes across the fork — `[QS]faces` (≥ 0.902) ships and announces via QS_FACES_HELLO (90090) on state_entry + via QSDUMP_HELLO for boot's DUMP cascade. sitA + adjuster gate their `[FACES]`/`[EXPRESSION]` menu entries on a cached `faces_present` flag (sitA L44/L1072, adjuster L48/L904); boot's `dump_plugins` picks faces up automatically, so the hardcoded `expression_script` in the cascade list is gone (boot L739 now reads `dump_plugins + [camera_script]`).
+- `[QS]adjuster` `prop_script` references — adjuster 0.912 migrates the `[PROP]` gate to a cached `prop_present` flag driven by QS_PROP_HELLO (90089), broadcast by `[QS]prop` 0.901 on state_entry / on_rez / QSALIVE-reply (faces pattern). With the L898 diagnostic simplified to a generic "prop plugin script" string, the `prop_script` string global at L25 was also dropped — adjuster.lsl no longer contains a `"[QS]prop"` literal anywhere. Net cost ~60 bytes static after offsetting the removed declaration + concatenation.
+- `[QS]menu` — removed from the fork entirely 2026-05-20. The fork originally existed to fix duplicate-menu-management when stock `[AV]menu` coexisted in a linkset with a QS sit system (stock probed for `[AV]sitA`, missed `[QS]sitA`, stayed active alongside `[QS]adjuster`). Decision: menu-prop objects and QS-sitter furniture are mutually exclusive use cases — menu-only linksets use stock `[AV]menu` in a sitter-less object. Removed: `qs/[QS]menu.lsl`, the menu row in the migration table, Quick wins #1 (`[QS]menu` prop_script migration), the `[RESET]`-button-doesn't-reload-AVpos section, and all menu references in the AVsitter-plugin probes section. `[QS]root.lsl`'s defensive `menu_script="[AV]menu"` probe stays — it supports the menu-prop-only linkset config and never referenced `[QS]menu`.
+- `[QS]boot` LSD-wipe warning — boot 0.912 extends the existing `linkset_data` handler with a `LINKSETDATA_RESET` branch that surfaces a one-shot `llOwnerSay("[QS] LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.")`. Triggers on `/88` or any `llLinksetDataReset` call. Boot itself re-seeds on the next `state_entry` (`qs:boot:asset` is gone → skip-check fails) but sibling-script RAM caches (sitA/sitB/adjuster) stay stale until the user manually resets or re-rezzes — the warning is the cue. Cost: ~115 bytes static; spam-bounded (1 message per wipe per furniture, wipes are explicit user actions).
+- `[AV]camera` migration — **declined 2026-05-20** after verifying stock `[AV]camera`'s name-bound code is dead. Its `main_script="[AV]sitA"` global (avstock `[AV]camera.lsl` L19) is only referenced by `get_number_of_scripts()` (L32-40), which is **never called anywhere in the file** — pure dead code. All working code paths in [AV]camera are protocol-based (90020/90022/90045/90065/90230/90231/90174 use `SCRIPT_CHANNEL` and sender-filtering, not script-name matching), so stock [AV]camera runs correctly in QS-sitter setups without modification. Our remaining `camera_script="[AV]camera"` references (boot L28/L739 DUMP cascade, adjuster L444/L822/L940 menu gate + 90174-dispatch) are stock-AVsitter-protocol surface, not internal coupling — they're equivalent to having a hardcoded `"[AV]camera"` because that **is** the protocol-mandated name. No `[QS]camera` fork planned; no migration possible.
+- AVpos notecard without `SITTER` directive — boot 0.913 synthesizes a virtual `SITTER 0` when the first pose-ish directive (POSE / SYNC / MENU / TOMENU / BUTTON / SEQUENCE / `{posename}<...>` splice line) arrives with `current_channel == -1`. Replicates stock AVsitter's "implicit slot 0" behavior (in stock, each `[AV]sitA` instance had its own SCRIPT_CHANNEL baked into the script name, so the slot was never implicit; QS's consolidated boot parser made it implicit by accident). Verified safe: empty SITTER_INFO falls back to first POSE name as slot button via [`[QS]select`'s existing fallback](./[QS]select.lsl) L210-214, and empty GENDERS returns FALSE for gender-based swap checks rather than matching falsely. The companion case "no MENU directive, only POSE entries" (A2 in the original analysis) was deferred — current evidence suggests sitA's MENU_LIST picks up all pose names regardless of type, so likely works as a flat list already; reconsider only if a real-world notecard with this shape surfaces broken end-to-end.
+- `[QS]boot` self-check false-positive during updater runs — boot 0.914 resets the self-check safety-net timer on every `CHANGED_INVENTORY` while `selfcheck_pending` is TRUE; boot 0.915 extends the timer from 5s → 10s for additional headroom on busy regions. The updater swaps sibling scripts one-by-one over a window that can exceed 5s, and the previous code fired `self_check_report()` mid-swap and reported false-positive `"[QS]sitA missing"` ERRORs for scripts the updater was about to re-add. Now each inventory event during the pending window pushes the 10s deadline back, and the report only fires once inventory has been quiescent for a full 10s. Untouched: notecard-asset-key-driven reset path (`llResetScript()` still wipes LSD when the AVpos changes), `try_complete_selfcheck()` early-exit when both flags flip TRUE, and the legitimate "actually missing" detection (after inventory settles with sitA truly absent, the timer fires normally). Considered + rejected: full reset on every `CHANGED_INVENTORY` (Variante B) — solves the same race at much higher cost (Reset-Karussell on texture swaps, prop drops, plugin additions) without meaningful additional benefit because boot's state is already idempotent vs notecard via the `qs:boot:asset` skip-check from 0.901.
 
 ## Migration patterns by cluster
 
@@ -48,21 +51,24 @@ file.
 `SCRIPT_CHANNEL` is still derived from the script's own name suffix
 — that's a permanent feature of AVsitter's slot model, not a TODO.
 
-### AVsitter-plugin probes (`[AV]prop` / `[AV]faces` / `[AV]camera`)
+### AVsitter-plugin probes (resolved)
 
 These names are part of the AVsitter protocol, not internal coupling.
 Stock plugins identify themselves by exact script name in inventory
 and in the `id` field of 90020/90022 link messages.
 
-QSDUMP (boot 0.032) replaces the prop hardcode in boot's cascade by
-having `[QS]prop` announce itself via 90094/90095. The same pattern
-generalizes to any QS-side use case once `[QS]faces` / `[QS]camera`
-forks exist.
+QSDUMP (boot 0.032) replaced the prop hardcode in boot's cascade by
+having `[QS]prop` announce itself via 90094/90095. `[QS]faces`
+(≥ 0.902) followed the same pattern via QSDUMP_HELLO + QS_FACES_HELLO
+(90090), so boot's cascade only hardcodes `camera_script` for the
+one stock plugin we don't fork.
 
-Until those forks: adjuster and menu probe `prop_script="[QS]prop"`
-for menu-item visibility. These could also be replaced by an
-"is this plugin DUMP-capable?" probe consuming boot's `dump_plugins`
-list, or by a separate per-feature QSALIVE-cap protocol.
+adjuster's `[PROP]` gate migrated in 0.912 via QS_PROP_HELLO (90089;
+see "Recently retired" above). `[QS]menu` was retired from the fork
+2026-05-20 — menu-prop linksets now use stock `[AV]menu` directly.
+`[AV]camera` stays stock — no `[QS]camera` fork planned (see Recently
+retired for the dead-code analysis showing stock [AV]camera's
+name-bound paths are unused).
 
 ## Big refactor — slot identity without script names
 
@@ -78,46 +84,6 @@ plugins probing `[AV]sitA N` would never find QS sitters.
 Benefit: complete script-name independence on the sitter side.
 
 Parked. Reconsider only if AVsitter compat is dropped as a goal.
-
-## Quick wins still on the table
-
-1. `[QS]menu` prop_script — consume boot's `dump_plugins` list via a
-   new "active DUMP plugins?" probe, or extend QSDUMP with a
-   per-plugin "I'm here" cap that menu can cache (mirrors the
-   QS_ADJUSTER_HELLO / QS_SELECT_HELLO pattern).
-
-## AVpos notecard edge case — no MENU, no sitter-slot prefix
-
-Some single-sitter AVpos notecards omit both the MENU section and any
-sitter-slot prefix on POSE directives. Example shape:
-
-```
-POSE FSit1|FSit1
-POSE FSit2|FSit2
-...
-{FSit1}<0.438,0,0.77><0,0,0>
-{FSit2}<0.438,0,0.77><0,0,0>
-...
-PROP1 FCoffee|mug|G1|<...>|<...>|left hand
-PROP  Laptop|laptop|G1|<...>|<...>
-```
-
-No MENU lines, no `[N]` slot prefix on POSE — the notecard implicitly
-addresses sitter 0 only. (Mixed `PROP1` / `PROP` in the same card is
-also part of the real-world example.)
-
-**Open question:** does the QS pipeline handle this correctly today
-(auto-fall-back to a flat single-sitter pose list / synthesize a default
-menu), or does it silently misbehave?
-
-Action: load such a notecard against the current sitA / boot / menu /
-prop chain and verify end-to-end. If the result is broken or confusing,
-pick one:
-- **Tolerate** — auto-build a flat "POSES" menu from the bare POSE list,
-  treat all entries as slot 0.
-- **Warn** — load it, but emit a one-shot `llOwnerSay` to the creator
-  ("notecard has no MENU section; defaulting to flat list").
-- **Reject** — refuse to load and explain what is missing.
 
 ## Watchdog-only standby — global script-time savings
 
@@ -161,40 +127,7 @@ other QS fork scripts are put to sleep with
 **Out of scope here:** memory savings. `llSetScriptState(FALSE)`
 keeps the heap allocated; this is purely a script-time optimization.
 
-## `[RESET]`-button in `[QS]menu` does not reload AVpos
-
-`[QS]menu` advertises `[RESET] = Reload notecard.` in its help text
-(`[QS]menu.lsl` L187), but the handler at L531-538 only calls
-`llResetOtherScript(prop_script)` + `llResetScript()` on itself —
-`[QS]boot` is never touched, so AVpos is *not* re-read. Today this
-mostly happens to work because boot itself re-reads on every state_entry
-(see boot 0.026 regression), so any unrelated reset of boot also reloads
-AVpos. Once boot's state_entry skip-check lands (boot ≥ 0.901, cached
-asset-key via `qs:boot:asset`), `[RESET]` will visibly stop reloading
-the notecard.
-
-Options:
-- **menu wipes the marker** — `llLinksetDataDelete("qs:boot:asset")` +
-  `llResetOtherScript("[QS]boot")` before the self-reset. Simple, no
-  new protocol.
-- **menu sends LinkMsg to boot** — new "force-reload" num that boot
-  reacts to by clearing its own marker + `llResetScript()`. Cleaner
-  surface but adds a protocol number.
-- **Drop the button** — if creators don't need a manual reload (notecard
-  save already triggers it via CHANGED_INVENTORY), retire the menu item
-  and update the help text. Smallest code, biggest UX change.
-
 ## Open improvements
-
-- **`[QUICKYHUD]` button visibility / hint.** Currently the `[QUICKYHUD]`
-  entry in the adjust menu (gated in `[QS]sitA.lsl`, branch in
-  `[QS]adjuster.lsl` ~L635) is shown to anyone with menu access. Mirror
-  the `[HELPER]` button's owner-gating: either hide `[QUICKYHUD]` for
-  non-owners entirely, or keep it visible and emit a hint message
-  ("only the owner can configure the HUD" or similar) when a non-owner
-  taps it. Match whichever pattern `[HELPER]` uses today (check the
-  `[HELPER]` dispatch in `[QS]adjuster.lsl` ~L629 and the gating in
-  `[QS]sitA.lsl`).
 
 - **RLV: general plumbing review.** HUD-side SWAP gate shipped in
   `[QS]hudproxy.lsl` 0.904 — `openSwapDialog` refuses HUD-initiated
@@ -208,12 +141,3 @@ Options:
   (vs. the current furniture-global flag) is needed for finer gates,
   and document the supported RLV verbs in `PROTOCOL.md`.
 
-- **Boot: warn on LSD wipe via `linkset_data` event.** `[QS]boot.lsl`
-  reads the notecard and populates LSD with config keys. If someone
-  runs `/88` (or any path that calls `llLinksetDataReset`), later
-  scripts read empty keys with no surfaced error. Add a
-  `linkset_data(integer action, string name, string value, integer
-  size)` event handler in boot: when `action == LINKSETDATA_RESET`,
-  owner-say a clear warning ("LSD was wiped — furniture state may be
-  inconsistent, re-rez or reset scripts"). No time-window logic
-  needed — the event itself is the trigger.

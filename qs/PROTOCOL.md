@@ -56,6 +56,7 @@ notice.
 | `90023` | between stock `90022` and `90050` | `[QS]boot` → all: emitted at the end of the seed cascade. `[QS]sitB` re-reads MENU_LIST from LSD on receipt, eliminating the manual-reset step after a notecard re-save. |
 | `90077` | between stock `90076` and `90090` | `[QS]boot` → `[QS]sitB`: boot self-check probe ("is the menu pipeline present?"). Sent once from boot's `state_entry`. See [§ Boot self-check](#boot-self-check--90077--90078). |
 | `90078` | same | `[QS]sitB` → `[QS]boot`: boot self-check reply. Sent in response to `90077`. |
+| `90089` | same | `[QS]prop` → all: announces prop presence so `[QS]adjuster` can gate the `[PROP]` menu item without inventory-probing `[QS]prop`. Broadcast on state_entry / on_rez / QSALIVE-reply (mirrors `QS_FACES_HELLO`). id = announcer's script name. |
 | `90090` | between stock `90076` and `90100` | `[QS]faces` → all: announces faces presence so `[QS]sitA` can gate the `[FACES]` menu item without inventory-probing `[AV]faces` (id = announcer's script name) |
 | `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
 | `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
@@ -562,8 +563,8 @@ plugins announce themselves, boot collects.
 
 Boot maintains `list dump_plugins;` — a deduped list of announced
 plugin names. The 90021 cascade iterates `dump_plugins +
-[expression_script, camera_script]` per channel; the stock plugin
-names stay hardcoded until those forks adopt QSDUMP too.
+[camera_script]` per channel; the camera script name stays hardcoded
+until `[QS]camera` is forked and adopts QSDUMP.
 
 Boot still `llGetInventoryType`-checks each name before sending 90020,
 so a stale announce (plugin script was deleted from inventory) is
@@ -596,13 +597,18 @@ A plugin that never announces still works in stock-AVsitter furniture
 
 ### Migration status
 
-- `[QS]prop` (≥ 0.020) — announces ✅
-- `[AV]faces` — stock, still hardcoded in boot
-- `[AV]camera` — stock, still hardcoded in boot
-
-When `[AV]faces` and `[AV]camera` are forked into `[QS]faces` /
-`[QS]camera`, they get QSDUMP announce and the matching constants
-drop from boot.
+- `[QS]prop` (≥ 0.020) — announces ✅ (also broadcasts QS_PROP_HELLO
+  90089 since 0.901 so `[QS]adjuster` can gate the `[PROP]` menu item
+  without an inventory probe)
+- `[QS]faces` (≥ 0.902) — announces ✅ (also broadcasts QS_FACES_HELLO
+  90090 so sitA / adjuster can gate the `[FACES]` / `[EXPRESSION]`
+  menu items without an inventory probe)
+- `[AV]camera` — stock, hardcoded in boot's cascade. No `[QS]camera`
+  fork planned: stock [AV]camera's only name-bound code
+  (`get_number_of_scripts` via `main_script="[AV]sitA"`) is dead code
+  (never called anywhere in the file), and all working paths are
+  protocol-based and script-name-agnostic. The `camera_script` literal
+  in boot stays as legitimate AVsitter-protocol surface.
 
 ## `[DUMP]` — entirely in `[QS]boot`
 
@@ -632,10 +638,11 @@ at a time.
 `90021` and `90022` are stock-AVsitter numbers (not fork-specific) but their
 **handlers** moved to boot along with the dump pipeline:
 
-- `90021` (channel-done signal): boot probes plugin scripts (`[AV]prop` /
-  `[AV]faces` / `[AV]camera`) for the current channel via 90020, advances to
-  the next channel via 90098, or — when no more channels — calls `web(TRUE)`
-  to flush the cache and shouts the upload URL to the owner.
+- `90021` (channel-done signal): boot probes plugin scripts (announced
+  plugins in `dump_plugins`, plus the hardcoded `camera_script`) for the
+  current channel via 90020, advances to the next channel via 90098, or
+  — when no more channels — calls `web(TRUE)` to flush the cache and
+  shouts the upload URL to the owner.
 - `90022` (one dump line): boot's handler does the format substitution
   (`S:P:` → `POSE`, `S:M:` → `MENU`, `{pose}<pos><rot>` formatted via
   `FormatFloat`, etc.) and pipes the result through `Readout_Say`. Sources

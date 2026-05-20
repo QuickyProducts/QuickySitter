@@ -20,9 +20,8 @@ key key_request;
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
 string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.911";
+string version = "0.912";
 string helper_name = "[AV]helper";
-string prop_script = "[QS]prop";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
 
@@ -47,6 +46,16 @@ integer QS_ADJUSTER_HELLO = 90091;
 // the 9007x-9009x fork range; see PROTOCOL.md.
 integer QS_FACES_HELLO = 90090;
 integer faces_present  = FALSE;
+
+// QS_PROP_HELLO — [QS]prop broadcasts this on state_entry / on_rez
+// and in response to QSALIVE-reply (mirrors QS_FACES_HELLO). We cache
+// the flag and gate the [PROP] menu item below on it (replaces the
+// legacy llGetInventoryType("[QS]prop") inventory probe). 90089 sits
+// in the 9007x-9008x fork-hello band just below QS_FACES_HELLO.
+// Together with the L898 generic diagnostic, adjuster is fully
+// name-agnostic for prop (no "[QS]prop" literal left in this file).
+integer QS_PROP_HELLO = 90089;
+integer prop_present  = FALSE;
 
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
@@ -542,6 +551,11 @@ default
             faces_present = TRUE;
             return;
         }
+        if (num == QS_PROP_HELLO) // 90089=prop announces presence
+        {
+            prop_present = TRUE;
+            return;
+        }
         if (num == QSALIVE_REPLY)
         {
             // Slot-0 sitA reports the real sitter count. Resize the
@@ -888,14 +902,14 @@ default
             }
             else if (msg == "[PROP]")
             {
-                if (llGetInventoryType(prop_script) == INVENTORY_SCRIPT)
+                if (prop_present)
                 {
                     adding = msg;
                     choice_menu(get_choices(), "Choose your prop:");
                 }
                 else
                 {
-                    llSay(0, "For this you need the " + prop_script + " plugin script.");
+                    llSay(0, "For this you need the prop plugin script.");
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
                 }
             }

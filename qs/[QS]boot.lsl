@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.910";
+string version = "0.915";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -46,7 +46,7 @@ integer QS_BOOT_RELOAD = 90023;
 // PROP* directives but [QS]prop is missing. Fires from finalize_boot
 // (fresh-boot) or state_entry's skip-seed branch as soon as both
 // sita_seen and sitb_seen land (via try_complete_selfcheck), with a
-// 5s safety-net timer for the no-reply case. See qs/PROTOCOL.md
+// 10s safety-net timer for the no-reply case. See qs/PROTOCOL.md
 // § QSALIVE (sitA-side) and § QS_SITB_PROBE (sitB-side).
 //
 // Detection has two complementary paths per base script: an explicit
@@ -355,16 +355,16 @@ finalize_boot()
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
-    // Arm self-check timer — 5s safety net for probe replies. Replies
+    // Arm self-check timer — 10s safety net for probe replies. Replies
     // typically arrive in <1s on small notecards, but multi-prim builds
     // with many poses (251+) and several sitter slots can cumulatively
-    // run past 1s on busy regions. The 5s timer is a fail-safe; when
+    // run past 1s on busy regions. The 10s timer is a fail-safe; when
     // both sita_seen and sitb_seen become TRUE the link_message handler
     // calls try_complete_selfcheck() to short-circuit the wait and run
     // the report immediately. arm_autosync() is deferred to either
     // path so it always runs after the self-check resolves.
     selfcheck_pending = TRUE;
-    llSetTimerEvent(5.0);
+    llSetTimerEvent(10.0);
 }
 
 // Early-exit hook for the self-check: if both base scripts have
@@ -437,7 +437,7 @@ start_boot()
 // to call from finalize_boot, linkset_data, or after manual changes.
 // Skips while boot is still running so we don't trample the boot flow.
 // Also skips during the self-check window — the timer is reserved for
-// the 5s self-check safety net, which re-arms AUTOSYNC itself when it
+// the 10s self-check safety net, which re-arms AUTOSYNC itself when it
 // fires (or try_complete_selfcheck fires it early on both flags set).
 // Without this guard, a linkset_data event on QPP_CFG:AUTOSYNC during
 // the self-check window would overwrite the timer and silently drop
@@ -600,11 +600,11 @@ default
             // still needs verification after a script reset. PROP-warn
             // is skipped here (no notecard parse → has_prop_in_notecard
             // stays FALSE). Timer handler runs arm_autosync() after the
-            // check, replacing the direct call. 5s safety net (see
+            // check, replacing the direct call. 10s safety net (see
             // finalize_boot for rationale); try_complete_selfcheck()
             // short-circuits early when both base scripts report in.
             selfcheck_pending = TRUE;
-            llSetTimerEvent(5.0);
+            llSetTimerEvent(10.0);
         }
         else
         {
@@ -615,7 +615,7 @@ default
         llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
         // Self-check probes. Replies land in sita_seen / sitb_seen via
         // link_message; try_complete_selfcheck() fires the report once
-        // both flags are TRUE (or the 5s safety-net timer fires if not).
+        // both flags are TRUE (or the 10s safety-net timer fires if not).
         // Strictly needed only on the skip-seed path — on fresh-boot,
         // finalize_boot's QS_BOOT_RELOAD broadcast triggers the same
         // HELLOs via qs_load_from_lsd() anyway. Kept unconditional here
@@ -670,7 +670,12 @@ default
     linkset_data(integer act, string name, string val)
     {
         // Re-arm whenever the AUTOSYNC config changes (from hudproxy's
-        // settings dialog) or the whole LSD is reset (/88 nuke).
+        // settings dialog) or the whole LSD is reset (/88 nuke). On a
+        // full wipe, also warn the owner: cached RAM state in sibling
+        // scripts (sitA/sitB/adjuster/...) is now inconsistent with
+        // empty LSD until they're reset or the furniture is re-rezzed.
+        if (act == LINKSETDATA_RESET)
+            llOwnerSay("[QS] LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.");
         if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
             arm_autosync();
     }
@@ -770,8 +775,9 @@ default
         {
             // Format one dump line and Readout_Say it. Sources: boot's
             // own qs_dump_start/qs_dump_tick (V:/S:/{}) and plugin
-            // scripts ([AV]prop / [AV]faces / [AV]camera) that the 90021
-            // cascade wakes via 90020.
+            // scripts (announced via QSDUMP — [QS]prop, [QS]faces —
+            // plus the hardcoded camera_script) that the 90021 cascade
+            // wakes via 90020.
             list data = llParseStringKeepNulls(msg, ["|"], []);
             if (llGetSubString(msg, 0, 3) == "S:M:" || llGetSubString(msg, 0, 3) == "S:T:")
             {
@@ -995,6 +1001,26 @@ default
             has_prop_in_notecard = TRUE;
         }
 
+        // Single-sitter AVpos notecards (real-world example shape from
+        // older AVsitter products) omit the explicit `SITTER 0` directive
+        // and just start emitting POSE/MENU/{posename} lines. Stock parses
+        // these as implicit slot 0 because each [AV]sitA instance has its
+        // own SCRIPT_CHANNEL baked into the script name; the consolidated
+        // QS boot needs to synthesize the missing SITTER 0 when the first
+        // pose-ish line arrives with no channel established yet.
+        // Verified safe: empty SITTER_INFO → select.lsl falls back to
+        // first POSE name as slot label; empty GENDERS → sitA's swap-by-
+        // gender returns FALSE rather than matching (correct semantic).
+        if (current_channel == -1
+            && (command == "POSE" || command == "SYNC"
+                || command == "MENU" || command == "TOMENU"
+                || command == "BUTTON" || command == "SEQUENCE"
+                || llGetSubString(data, 0, 0) == "{"))
+        {
+            current_channel = 0;
+            reset_channel_locals();
+        }
+
         // ===== Stock AVsitter sitA dataserver — verbatim parser block =====
         // Only difference: where stock dispatches 90300/90301 to sitB, we
         // also write to LSD. Locals (FIRST_POSENAME etc.) are kept even
@@ -1092,6 +1118,17 @@ default
             {
                 llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|boot):", "");
                 llResetScript();
+            }
+            // Updater runs replace sibling scripts one by one. If the
+            // self-check safety-net is still pending when an inventory
+            // change fires, reset the 10s countdown — the update window
+            // is still active and sitA/sitB are about to (or just did)
+            // get re-added. Without this reset the timer fires mid-update
+            // and reports false-positive "[QS]sitA missing" ERRORs for
+            // scripts the updater is in the middle of swapping back in.
+            else if (selfcheck_pending)
+            {
+                llSetTimerEvent(10.0);
             }
         }
     }
