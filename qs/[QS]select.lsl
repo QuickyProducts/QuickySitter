@@ -1,14 +1,20 @@
 /*
  * [QS]select - QuickySitter seat-select menu
  *
- * Fork of [AV]select from AVsitter2 (MPL 2.0). The only functional
- * change is replacing the hard-coded "[AV]sitA" reference used to
- * count sitter slots with "[QS]sitA"; everything else is verbatim.
- *
- * Why fork: stock [AV]select looks for "[AV]sitA 1", "[AV]sitA 2", ...
- * in the prim's inventory. QuickySitter renames the runtime scripts
- * to [QS]sitA so the count returns 1 even on multi-sitter setups,
- * which collapses the seat-select dialog to a single button.
+ * Fork of [AV]select from AVsitter2 (MPL 2.0). Two functional changes
+ * vs stock:
+ *   1. Sitter count comes from the QSALIVE handshake (90096/90097)
+ *      instead of llGetInventoryType("[AV]sitA <n>") probes; stock
+ *      probes by literal script name which fails against the [QS]sitA
+ *      runtime name.
+ *   2. Notecard parsing replaced with on-demand LSD reads. Boot has
+ *      already parsed the AVpos contents into qs:cfg / qs:sitter / qs:p
+ *      keys — re-parsing the whole notecard here costs minutes on
+ *      multi-thousand-pose stress decks. state_entry calls
+ *      load_from_lsd() immediately if qs:meta:0 is already there;
+ *      otherwise the QS_BOOT_RELOAD (90023) link_message dispatches it
+ *      once boot finishes. Same event-driven pattern as sitA 0.904 /
+ *      sitB 0.905 — no sleep-poll.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -20,14 +26,9 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.902";
+string version = "0.903";
 integer select_type;
 list BUTTONS;
-integer reading_notecard_section = -1;
-key notecard_key;
-key notecard_query;
-string notecard_name = "AVpos";
-string helper_object = "[AV]helper";
 
 // QSALIVE — sitter-count cache (replaces the legacy
 // llGetInventoryType("[QS]sitA " + i) loop). See qs/PROTOCOL.md § QSALIVE.
@@ -43,13 +44,24 @@ integer qs_sitter_count_cached = 1;
 // probes for [QS]select. (The legacy [AV]select probe in sitB
 // stays as a stock-AVsitter backward-compat fallback.)
 integer QS_SELECT_HELLO = 90092;
+
+// QS_BOOT_RELOAD — broadcast by [QS]boot at the end of its seed cascade.
+// Triggers a fresh load_from_lsd() so a notecard re-save doesn't require
+// a manual reset to pick up the new BUTTONS / menu_type / select_type.
+integer QS_BOOT_RELOAD = 90023;
+
+// SEP must match the U+FFFD separator that [QS]boot uses when packing
+// SITTER_INFO into qs:sitter:<ch>. Initialized at runtime via
+// llUnescapeURL because the SL script editor mangles a literal U+FFFD
+// to 0x20 (space) on upload.
+string SEP;
+
 string CUSTOM_TEXT;
 list SITTERS;
 list SYNCS = [CUSTOM_TEXT]; //OSS::list SYNCS; // Force error in LSO
 integer menu_channel;
 integer menu_handle;
 integer menu_type;
-integer variable1;
 integer verbose = 0;
 
 Out(integer level, string out)
@@ -107,16 +119,15 @@ integer get_number_of_scripts()
 // Resize SITTERS / SYNCS / BUTTONS to the cached count. Preserves
 // existing entries when growing (NULL_KEY / FALSE / "Sitter N" for
 // new slots) and trims only the tail when shrinking — keeps the
-// notecard-derived BUTTONS labels intact across QSALIVE-reply-driven
+// LSD-derived BUTTONS labels intact across QSALIVE-reply-driven
 // resizes during boot.
 init_lists()
 {
     // Use get_number_of_scripts() so the 7-fallback applies before
     // the QSALIVE_REPLY arrives — otherwise state_entry pre-sizes
-    // to qs_sitter_count_cached's default (1), the dataserver
-    // handler's `section < llGetListLength(SITTERS)` guard drops
-    // SITTER 1+ entries, and the late grow appends "Sitter N"
-    // defaults instead of the notecard-supplied button labels.
+    // to qs_sitter_count_cached's default (1), the load_from_lsd
+    // pass drops SITTER 1+ slots, and the late grow appends
+    // "Sitter N" defaults instead of the LSD-supplied labels.
     integer count = get_number_of_scripts();
     if (count < 1) count = 1;
     while (llGetListLength(SITTERS) > count)
@@ -134,10 +145,96 @@ init_lists()
         i++;
     }
 }
+
+// Scan qs:p:<ch>:0..N for the first POSE/SYNC entry. Returns the
+// display name with leading "P:" stripped and clamped to 23 chars
+// (matches the stock parser's part0 truncation). Empty string on
+// no-pose sitter (shouldn't happen for valid notecards).
+string first_pose_name(integer ch)
+{
+    integer i = 0;
+    string v;
+    while ((v = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i)) != "")
+    {
+        list pp = llParseStringKeepNulls(v, ["|"], []);
+        string type = llList2String(pp, 1);
+        if (type == "P" || type == "S")
+        {
+            string name = llList2String(pp, 0);
+            if (llGetSubString(name, 0, 1) == "P:")
+                name = llGetSubString(name, 2, 99999);
+            return llGetSubString(name, 0, 22);
+        }
+        ++i;
+    }
+    return "";
+}
+
+// Populate menu_type / select_type / CUSTOM_TEXT / BUTTONS from LSD
+// keys that [QS]boot wrote during its seed cascade. Replaces the
+// previous notecard-read pass — boot has already parsed AVpos, no
+// reason to re-parse it here. Also re-publishes qs:select:btn:<i>
+// so [QS]hudproxy picks up the freshest slot labels.
+load_from_lsd()
+{
+    // Global config — see qs_cfg_pack in [QS]boot for the field order.
+    string cfg = llLinksetDataRead("qs:cfg:0");
+    list p = llParseStringKeepNulls(cfg, ["\n"], []);
+    menu_type   = (integer)llList2String(p, 0);
+    select_type = (integer)llList2String(p, 4);
+    string ctext = llList2String(p, 13);
+    if (ctext != "")
+        CUSTOM_TEXT = llDumpList2String(llParseStringKeepNulls(ctext, ["\\n"], []), "\n") + "\n";
+    else
+        CUSTOM_TEXT = "";
+
+    // Per-sitter button labels.
+    integer count = llGetListLength(SITTERS);
+    integer ch;
+    for (ch = 0; ch < count; ++ch)
+    {
+        string info = llLinksetDataRead("qs:sitter:" + (string)ch);
+        list info_fields = llParseStringKeepNulls(info, [SEP], []);
+        string button_text = llList2String(info_fields, 0);
+
+        if (button_text != "" && llListFindList(BUTTONS, [button_text]) == -1)
+        {
+            BUTTONS = llListReplaceList(BUTTONS, [button_text], ch, ch);
+        }
+        else
+        {
+            // Fallback when SITTER_INFO field 0 is empty or duplicate:
+            // use the first POSE name (with "P:" prefix stripped and
+            // 23-char clamp) as the slot button. Same behavior as the
+            // old dataserver pass.
+            string first = first_pose_name(ch);
+            if (first != "" && llListFindList(BUTTONS, [first]) == -1)
+            {
+                BUTTONS = llListReplaceList(BUTTONS, [first], ch, ch);
+            }
+            // Otherwise BUTTONS[ch] stays at the init_lists default
+            // ("Sitter N").
+        }
+    }
+
+    // Publish BUTTONS to LSD so [QS]hudproxy can use the notecard-
+    // derived names ("Male", "Female", …) for empty-slot labels in
+    // the SWAP dialog instead of generic "Sitter N". Hudproxy reads
+    // qs:select:btn:<i> by slot index; stale entries past the
+    // current count are harmless (hudproxy iterates 0..iSlots-1).
+    integer n = llGetListLength(BUTTONS);
+    integer i;
+    for (i = 0; i < n; ++i)
+    {
+        llLinksetDataWrite("qs:select:btn:" + (string)i, llList2String(BUTTONS, i));
+    }
+}
+
 default
 {
     state_entry()
     {
+        SEP = llUnescapeURL("%EF%BF%BD");
         menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1; // 7FFFFF80 = max float < 2^31
         menu_handle = llListen(menu_channel, "", "", "");
         llListenControl(menu_handle, FALSE);
@@ -152,9 +249,20 @@ default
         // QSALIVE_REPLY receipt below covers a late sitB boot.
         llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
         init_lists();
-        notecard_key = llGetInventoryKey(notecard_name);
-        Out(0, "Loading...");
-        notecard_query = llGetNotecardLine(notecard_name, variable1);
+        // Event-driven boot — same pattern as [QS]sitA 0.904 /
+        // [QS]sitB 0.905. If boot already seeded qs:meta:0, load now;
+        // otherwise just return and let QS_BOOT_RELOAD (90023) dispatch
+        // load_from_lsd() once boot finishes. No sleep-poll, so the
+        // script stays event-responsive even before boot lands.
+        if (llLinksetDataRead("qs:meta:0") != "")
+        {
+            load_from_lsd();
+            Out(0, "Ready");
+        }
+        else
+        {
+            Out(0, "Loading...");
+        }
     }
     listen(integer listen_channel, string name, key id, string message)
     {
@@ -181,17 +289,6 @@ default
     }
     changed(integer change)
     {
-        if (change & CHANGED_INVENTORY)
-        {
-            // Notecard-key change → full reset to re-read.
-            // Sitter-count change is propagated by sitA-slot-0's
-            // unsolicited QSALIVE-reply broadcast on its own reset, which
-            // we handle via init_lists() in the link_message handler.
-            if (llGetInventoryKey(notecard_name) != notecard_key)
-            {
-                llResetScript();
-            }
-        }
         if (change & CHANGED_LINK)
         {
             if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) == ZERO_VECTOR)
@@ -199,6 +296,10 @@ default
                 llListenControl(menu_handle, FALSE);
             }
         }
+        // CHANGED_INVENTORY handling removed: boot's own changed handler
+        // resets + re-seeds on notecard swap, then broadcasts 90023.
+        // We pick the new state up via QS_BOOT_RELOAD below — no
+        // independent notecard-key tracking needed.
     }
     link_message(integer sender, integer num, string msg, key id)
     {
@@ -220,6 +321,17 @@ default
                 // broadcast 90097) catches our presence flag.
                 llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
             }
+            return;
+        }
+        if (num == QS_BOOT_RELOAD)
+        {
+            // Boot finished seeding (initial boot or notecard re-save).
+            // Loads / refreshes BUTTONS, menu_type, select_type,
+            // CUSTOM_TEXT from the just-written LSD. Doubles as the
+            // event-driven wake-up for state_entry's "boot not ready
+            // yet" branch.
+            load_from_lsd();
+            Out(0, "Ready");
             return;
         }
         if (sender == llGetLinkNumber())
@@ -256,82 +368,6 @@ default
             else if (num == 90009)
             {
                 menu(id);
-            }
-        }
-    }
-    dataserver(key query_id, string data)
-    {
-        if (query_id == notecard_query)
-        {
-            if (data == EOF)
-            {
-                integer i;
-                // Publish BUTTONS to LSD so [QS]hudproxy can use the
-                // notecard-derived names ("Male", "Female", …) for
-                // empty-slot labels in the SWAP dialog instead of
-                // generic "Sitter N". Hudproxy reads qs:select:btn:<i>
-                // by slot index; stale entries past the current count
-                // are harmless (hudproxy iterates 0..iSlots-1).
-                integer n = llGetListLength(BUTTONS);
-                for (i = 0; i < n; i++)
-                {
-                    llLinksetDataWrite("qs:select:btn:" + (string)i,
-                        llList2String(BUTTONS, i));
-                }
-                Out(0, "Ready");
-            }
-            else
-            {
-                data = llGetSubString(data, llSubStringIndex(data, "◆") + 1, 99999);
-                data = llStringTrim(data, STRING_TRIM);
-                string command = llGetSubString(data, 0, llSubStringIndex(data, " ") - 1);
-                list parts = llParseString2List(llGetSubString(data, llSubStringIndex(data, " ") + 1, 99999), [" | ", " |", "| ", "|"], []);
-                string part0 = llList2String(parts, 0);
-                if (command == "TEXT")
-                {
-                    CUSTOM_TEXT = strReplace(part0, "\\n", "\n") + "\n";
-                }
-                else if (command == "SITTER")
-                {
-                    reading_notecard_section = (integer)part0;
-                    string button_text = llList2String(parts, 1);
-                    if (reading_notecard_section < llGetListLength(SITTERS))
-                    {
-                        if (button_text != "" && llListFindList(BUTTONS, [button_text]) == -1)
-                        {
-                            BUTTONS = llListReplaceList(BUTTONS, [button_text], reading_notecard_section, reading_notecard_section);
-                            reading_notecard_section = -1;
-                        }
-                    }
-                }
-                else if (command == "MTYPE")
-                {
-                    menu_type = (integer)part0;
-                }
-                else if (command == "SELECT")
-                {
-                    select_type = (integer)part0;
-                }
-                else if (command == "POSE" || command == "SYNC")
-                {
-                    if (reading_notecard_section < llGetListLength(SITTERS) && reading_notecard_section != -1)
-                    {
-                        if (llList2String(BUTTONS, reading_notecard_section) == "Sitter " + (string)reading_notecard_section)
-                        {
-                            part0 = llGetSubString(part0, 0, 22);
-                            if (llListFindList(BUTTONS, [part0]) == -1)
-                            {
-                                BUTTONS = llListReplaceList(BUTTONS, [part0], reading_notecard_section, reading_notecard_section);
-                            }
-                        }
-                        else
-                        {
-                            BUTTONS = llListReplaceList(BUTTONS, ["Sitter " + (string)reading_notecard_section], reading_notecard_section, reading_notecard_section);
-                            reading_notecard_section = -1;
-                        }
-                    }
-                }
-                notecard_query = llGetNotecardLine(notecard_name, ++variable1);
             }
         }
     }
