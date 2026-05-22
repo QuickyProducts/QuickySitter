@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.909";
+string version = "0.910";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -63,14 +63,16 @@ integer QS_SITB_HELLO     = 90078;
 // PROTOCOL.md § QSPLUG_REGISTER). We cache strided 3 and dedupe by
 // scriptName so a re-announce on reset / inventory change overwrites
 // instead of duplicating. When the registry is non-empty, the
-// animation_menu builder shows a [PLUGINS] top-level button (parallel
-// to [ADJUST]); the dialog opened by [PLUGINS] lists every registered
+// animation_menu builder shows an [OPTIONS] top-level button (parallel
+// to [ADJUST]); the dialog opened by [OPTIONS] lists every registered
 // label and dispatches clicks straight to the plugin's click_chan.
+// Internal vars keep "plugin" naming because they describe the
+// plug-and-play mechanism; the user-facing label is just friendlier.
 integer QSPLUG_REGISTER   = 90212;
 list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
-integer in_plugin_menu;         // TRUE while [PLUGINS] dialog is open;
+integer in_plugin_menu;         // TRUE while [OPTIONS] dialog is open;
                                 // flips listen() to plugin-flavored routing
-integer plugin_page;            // pagination state for [PLUGINS] dialog
+integer plugin_page;            // pagination state for [OPTIONS] dialog
 
 // ADJUST submenu — migrated from sitA in 0.909 (Phase 2 of the
 // sitB-as-UI refactor). sitA used to inline the builder in its 90101
@@ -272,13 +274,13 @@ integer animation_menu(integer animation_menu_function)
                     menu_items2 += "[ADJUST]";
             }
         }
-        // [PLUGINS] — top-level entry into the plug-and-play plugin menu.
+        // [OPTIONS] — top-level entry into the plug-and-play plugin menu.
         // Self-hides when the registry is empty so furniture without any
         // QSPLUG_REGISTER-using plugins looks identical to pre-0.908.
         // Only on the root menu (current_menu == -1) — submenus stay clean.
         if (current_menu == -1 && llGetListLength(QSPLUG_REGISTRY))
         {
-            menu_items2 += "[PLUGINS]";
+            menu_items2 += "[OPTIONS]";
         }
         if (llSubStringIndex(onSit, "ASK") && ((current_menu == -1 && SWAP == 1) || SWAP == 2 || llSubStringIndex(submenu_info, "S") != -1) && (number_of_sitters > 1 && !select_present()))
         {
@@ -412,8 +414,8 @@ qs_load_from_lsd()
         llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
 }
 
-// [PLUGINS] dialog — pure plugin-button list with paging. Called when
-// the user clicks [PLUGINS] in the pose menu (gated on QSPLUG_REGISTRY
+// [OPTIONS] dialog — pure plugin-button list with paging. Called when
+// the user clicks [OPTIONS] in the pose menu (gated on QSPLUG_REGISTRY
 // non-empty by animation_menu). Click routing happens in listen() while
 // in_plugin_menu is TRUE: registry-lookup dispatches direct to the
 // plugin's click_chan; [<<]/[>>] re-render this dialog; [BACK] returns
@@ -423,7 +425,7 @@ plugin_dialog()
     integer total = llGetListLength(QSPLUG_REGISTRY) / 3;
     if (total == 0)
     {
-        // Defensive: registry emptied between [PLUGINS] click and here.
+        // Defensive: registry emptied between [OPTIONS] click and here.
         in_plugin_menu = FALSE;
         animation_menu(0);
         return;
@@ -458,7 +460,7 @@ plugin_dialog()
     llListenRemove(menu_handle);
     menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     menu_handle = llListen(menu_channel, "", CONTROLLER, "");
-    string text = product + " " + version + "\n\nPlugins:";
+    string text = product + " " + version + "\n\nOptions:";
     if (pages > 1) text += " (" + (string)(plugin_page + 1) + "/" + (string)pages + ")";
     llDialog(CONTROLLER, text, reordered, menu_channel);
 }
@@ -567,7 +569,7 @@ default
     listen(integer listen_channel, string name, key id, string msg)
     {
         string channel;
-        // While the [PLUGINS] dialog is open, route clicks via the plugin
+        // While the [OPTIONS] dialog is open, route clicks via the plugin
         // registry. Checked first so a MENU_LIST collision (e.g. a pose
         // happens to be named "[BACK]") never hijacks plugin-menu nav.
         if (in_plugin_menu)
@@ -610,9 +612,9 @@ default
             animation_menu(0);
             return;
         }
-        // [PLUGINS] top-level entry. Gated in animation_menu on a non-empty
+        // [OPTIONS] top-level entry. Gated in animation_menu on a non-empty
         // registry, but check here defensively too.
-        if (msg == "[PLUGINS]")
+        if (msg == "[OPTIONS]")
         {
             if (!llGetListLength(QSPLUG_REGISTRY))
             {

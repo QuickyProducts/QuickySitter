@@ -67,7 +67,7 @@ notice.
 | `90097` | same | `[QS]sitA` (slot 0) → plugin: QSALIVE reply / boot-announce |
 | `90098` | same | `[QS]adjuster` → `[QS]boot`: "start dump for channel" |
 | `90099` | same | `[QS]boot` → self: dump tick |
-| `90212` | between stock `90211` and `90230` | plugin → `[QS]sitB`: `QSPLUG_REGISTER` — register a button into the `[PLUGINS]` top-level menu. msg = `<label>\|<click_chan>\|<scriptName>`, id = `""`. sitB dedupes by scriptName so a plugin reset overwrites instead of duplicates. Click dispatched directly to `<click_chan>` (msg = label, id = controller key) — no adjuster hop. See [§ QSPLUG_REGISTER](#qsplug_register--dynamic-plugins-menu). |
+| `90212` | between stock `90211` and `90230` | plugin → `[QS]sitB`: `QSPLUG_REGISTER` — register a button into the `[OPTIONS]` top-level menu. msg = `<label>\|<click_chan>\|<scriptName>`, id = `""`. sitB dedupes by scriptName so a plugin reset overwrites instead of duplicates. Click dispatched directly to `<click_chan>` (msg = label, id = controller key) — no adjuster hop. See [§ QSPLUG_REGISTER](#qsplug_register--dynamic-options-menu). |
 | `90260` | between stock `90230` and `90298` | `[QS]offset` → `[QS]sitA`: push personal offset |
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
@@ -185,7 +185,7 @@ the plugin needs to react to sitter-count changes — slot 0 will re-emit
 `90097` on its own reset (state_entry runs again), but the plugin can
 also pull on demand.
 
-## QSPLUG_REGISTER — dynamic [PLUGINS] menu
+## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 
 Adding a top-level menu entry for a plugin used to require editing
 `[QS]sitA` and/or `[QS]sitB`: a new capability flag, a new HELLO
@@ -196,19 +196,19 @@ extensions.
 
 QSPLUG_REGISTER is the plug-and-play alternative. A plugin announces
 its button at runtime via one link-message; `[QS]sitB` exposes a new
-top-level `[PLUGINS]` button (parallel to `[ADJUST]`) that opens a
+top-level `[OPTIONS]` button (parallel to `[ADJUST]`) that opens a
 dedicated dialog listing every registered plugin. Clicks dispatch
 straight back to the plugin's chosen channel. No sitA / adjuster
 edits, no builtin-mix in the dialog.
 
-**Self-hiding:** `[PLUGINS]` only appears in the pose menu when the
+**Self-hiding:** `[OPTIONS]` only appears in the pose menu when the
 registry is non-empty. A furniture with no plug-and-play plugins
 installed looks identical to pre-0.908.
 
 | Num    | Direction              | `msg`                                | `id`             | Meaning |
 |--------|------------------------|--------------------------------------|------------------|---------|
-| 90212  | plugin → `[QS]sitB`    | `<label>\|<click_chan>\|<scriptName>`| `""`             | "Add this button to the `[PLUGINS]` menu." |
-| `<click_chan>` | `[QS]sitB` → plugin | `<label>` | `<controller-key>` | "User clicked your button." Fired when the avatar picks the button in the `[PLUGINS]` dialog. |
+| 90212  | plugin → `[QS]sitB`    | `<label>\|<click_chan>\|<scriptName>`| `""`             | "Add this button to the `[OPTIONS]` menu." |
+| `<click_chan>` | `[QS]sitB` → plugin | `<label>` | `<controller-key>` | "User clicked your button." Fired when the avatar picks the button in the `[OPTIONS]` dialog. |
 
 **Announce payload** (pipe-delimited, parse with `llParseString2List`):
 
@@ -222,8 +222,8 @@ installed looks identical to pre-0.908.
 
 sitB caches registrations in a strided-3 RAM list `QSPLUG_REGISTRY =
 [label, click_chan, scriptName, ...]`. When the registry is non-empty,
-sitB renders `[PLUGINS]` in the pose menu's right-column buttons
-(next to `[ADJUST]`). Clicking `[PLUGINS]` opens a dedicated dialog
+sitB renders `[OPTIONS]` in the pose menu's right-column buttons
+(next to `[ADJUST]`). Clicking `[OPTIONS]` opens a dedicated dialog
 that lists every registered label with automatic paging
 (`[<<]`/`[>>]`) when more than ~10 plugins are installed.
 
@@ -265,13 +265,13 @@ default
 
 ### Limits and v1 scope
 
-- **`[PLUGINS]` menu only.** The pose menu's main button strip
+- **`[OPTIONS]` menu only.** The pose menu's main button strip
   (`[ADJUST]`, `[NEW]`, `[DUMP]`, etc.) and the `[ADJUST]` submenu
   are not Plugin-Registry targets in v1. Plugin authors who want
   buttons in those dialogs must still patch sitB directly (or use
   the legacy notecard `ADJUST` line, which is functionally identical
   to a registry entry but boot-time and scoped to the ADJUST
-  submenu, not the new `[PLUGINS]` menu).
+  submenu, not the new `[OPTIONS]` menu).
 - **No active staleness probe in v1.** If a plugin script crashes
   silently between announces, its label stays in the registry until
   sitB resets (which re-issues a 90097 broadcast, prompting all
@@ -280,7 +280,7 @@ default
   not detected actively. v2 may add a probe channel mirroring
   HUDPROXY's 90093 pattern.
 - **Order = announce order.** First plugin to register gets the first
-  slot in the `[PLUGINS]` dialog. No priority field in v1.
+  slot in the `[OPTIONS]` dialog. No priority field in v1.
 - **Click `id` is the controller key only.** sitA's legacy
   `<controller>|<sitter>` composite (used by the 90101 ADJUST_MENU
   dispatch when `AMENU & 4` is unset) is not emulated. Plugins that
