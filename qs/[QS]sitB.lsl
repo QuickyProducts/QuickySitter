@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.907";
+string version = "0.908";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -57,6 +57,21 @@ integer QS_BOOT_RELOAD    = 90023;
 // reply on receipt. See qs/PROTOCOL.md § QS_SITB_PROBE.
 integer QS_SITB_PROBE     = 90077;
 integer QS_SITB_HELLO     = 90078;
+
+// QSPLUG_REGISTER — plug-and-play plugin-button registration. Plugin
+// sends "<label>|<click_chan>|<scriptName>" on this channel (see
+// PROTOCOL.md § QSPLUG_REGISTER). We cache strided 3 and dedupe by
+// scriptName so a re-announce on reset / inventory change overwrites
+// instead of duplicating. When the registry is non-empty, the
+// animation_menu builder shows a [PLUGINS] top-level button (parallel
+// to [ADJUST]); the dialog opened by [PLUGINS] lists every registered
+// label and dispatches clicks straight to the plugin's click_chan.
+integer QSPLUG_REGISTER   = 90212;
+list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
+integer in_plugin_menu;         // TRUE while [PLUGINS] dialog is open;
+                                // flips listen() to plugin-flavored routing
+integer plugin_page;            // pagination state for [PLUGINS] dialog
+
 // Set TRUE once qs_load_from_lsd() has run. Slot-0 sitB uses this in
 // changed(CHANGED_LINK) to eject pre-boot sit attempts with a chat hint
 // (sitA is gated on the same flag but isn't the one ejecting — keeping
@@ -239,6 +254,14 @@ integer animation_menu(integer animation_menu_function)
                     menu_items2 += "[ADJUST]";
             }
         }
+        // [PLUGINS] — top-level entry into the plug-and-play plugin menu.
+        // Self-hides when the registry is empty so furniture without any
+        // QSPLUG_REGISTER-using plugins looks identical to pre-0.908.
+        // Only on the root menu (current_menu == -1) — submenus stay clean.
+        if (current_menu == -1 && llGetListLength(QSPLUG_REGISTRY))
+        {
+            menu_items2 += "[PLUGINS]";
+        }
         if (llSubStringIndex(onSit, "ASK") && ((current_menu == -1 && SWAP == 1) || SWAP == 2 || llSubStringIndex(submenu_info, "S") != -1) && (number_of_sitters > 1 && !select_present()))
         {
             menu_items2 += "[SWAP]";
@@ -366,6 +389,57 @@ qs_load_from_lsd()
         llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
 }
 
+// [PLUGINS] dialog — pure plugin-button list with paging. Called when
+// the user clicks [PLUGINS] in the pose menu (gated on QSPLUG_REGISTRY
+// non-empty by animation_menu). Click routing happens in listen() while
+// in_plugin_menu is TRUE: registry-lookup dispatches direct to the
+// plugin's click_chan; [<<]/[>>] re-render this dialog; [BACK] returns
+// to the pose menu. See PROTOCOL.md § QSPLUG_REGISTER.
+plugin_dialog()
+{
+    integer total = llGetListLength(QSPLUG_REGISTRY) / 3;
+    if (total == 0)
+    {
+        // Defensive: registry emptied between [PLUGINS] click and here.
+        in_plugin_menu = FALSE;
+        animation_menu(0);
+        return;
+    }
+    integer items_per_page = 11; // 12 dialog slots minus [BACK]
+    integer pages = 1;
+    if (total > items_per_page)
+    {
+        items_per_page -= 2; // [<<] + [>>]
+        pages = (total + items_per_page - 1) / items_per_page;
+    }
+    if (plugin_page >= pages) plugin_page = 0;
+    integer start = plugin_page * items_per_page;
+    integer end = start + items_per_page;
+    if (end > total) end = total;
+    list page;
+    integer i = start;
+    while (i < end)
+    {
+        page += llList2String(QSPLUG_REGISTRY, i * 3);
+        ++i;
+    }
+    list nav = ["[BACK]"];
+    if (pages > 1) nav += ["[<<]", "[>>]"];
+    list buttons = nav + page;
+    // Bottom-up reorder — same trick as animation_menu (LSL renders
+    // dialog buttons bottom-row first, left-to-right within each row).
+    list reordered = llList2List(buttons, -3, -1);
+    reordered += llList2List(buttons, -6, -4);
+    reordered += llList2List(buttons, -9, -7);
+    reordered += llList2List(buttons, -12, -10);
+    llListenRemove(menu_handle);
+    menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
+    menu_handle = llListen(menu_channel, "", CONTROLLER, "");
+    string text = product + " " + version + "\n\nPlugins:";
+    if (pages > 1) text += " (" + (string)(plugin_page + 1) + "/" + (string)pages + ")";
+    llDialog(CONTROLLER, text, reordered, menu_channel);
+}
+
 default
 {
     state_entry()
@@ -395,6 +469,63 @@ default
     listen(integer listen_channel, string name, key id, string msg)
     {
         string channel;
+        // While the [PLUGINS] dialog is open, route clicks via the plugin
+        // registry. Checked first so a MENU_LIST collision (e.g. a pose
+        // happens to be named "[BACK]") never hijacks plugin-menu nav.
+        if (in_plugin_menu)
+        {
+            if (msg == "[<<]" || msg == "[>>]")
+            {
+                if (msg == "[<<]")
+                {
+                    if (--plugin_page < 0) plugin_page = 0;
+                }
+                else
+                {
+                    ++plugin_page; // upper bound clamped in plugin_dialog
+                }
+                plugin_dialog();
+                return;
+            }
+            if (msg == "[BACK]")
+            {
+                in_plugin_menu = FALSE;
+                plugin_page = 0;
+                animation_menu(0);
+                return;
+            }
+            // Registry is strided 3 (label, click_chan, scriptName).
+            // (pi % 3) == 0 guards against a pos-2 scriptName accidentally
+            // matching when an avatar clicks a label that equals some
+            // other plugin's script name.
+            integer pi = llListFindList(QSPLUG_REGISTRY, [msg]);
+            if (pi != -1 && (pi % 3) == 0)
+            {
+                llMessageLinked(LINK_SET,
+                    llList2Integer(QSPLUG_REGISTRY, pi + 1), msg, CONTROLLER);
+                return;
+            }
+            // Unknown click — bail back to the pose menu rather than
+            // silently swallow (could be a stale registry race).
+            in_plugin_menu = FALSE;
+            plugin_page = 0;
+            animation_menu(0);
+            return;
+        }
+        // [PLUGINS] top-level entry. Gated in animation_menu on a non-empty
+        // registry, but check here defensively too.
+        if (msg == "[PLUGINS]")
+        {
+            if (!llGetListLength(QSPLUG_REGISTRY))
+            {
+                animation_menu(0);
+                return;
+            }
+            in_plugin_menu = TRUE;
+            plugin_page = 0;
+            plugin_dialog();
+            return;
+        }
         integer index = llListFindList(MENU_LIST, [msg]);
         if (index == -1)
         {
@@ -601,6 +732,32 @@ default
             last_menu = 0;
             menu_page = 0;
             iBooted = TRUE;
+            return;
+        }
+        if (num == QSPLUG_REGISTER)
+        {
+            // PROTOCOL.md § QSPLUG_REGISTER. ParseString2List (not
+            // KeepNulls) — see memory note on KeepNulls regressions.
+            list pp = llParseString2List(msg, ["|"], []);
+            string label = llList2String(pp, 0);
+            integer chan = (integer)llList2String(pp, 1);
+            string sName = llList2String(pp, 2);
+            if (label == "" || chan == 0 || sName == "")
+            {
+                // Malformed announce — ignore. Plugin author bug, not ours.
+                return;
+            }
+            // Dedupe by scriptName so a re-announce on plugin reset /
+            // inventory change overwrites instead of appending a duplicate.
+            integer ri = 0;
+            integer rn = llGetListLength(QSPLUG_REGISTRY);
+            while (ri < rn && llList2String(QSPLUG_REGISTRY, ri + 2) != sName)
+                ri += 3;
+            if (ri < rn)
+                QSPLUG_REGISTRY = llListReplaceList(QSPLUG_REGISTRY,
+                    [label, chan, sName], ri, ri + 2);
+            else
+                QSPLUG_REGISTRY += [label, chan, sName];
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
