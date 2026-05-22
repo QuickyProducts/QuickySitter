@@ -157,3 +157,59 @@ keeps the heap allocated; this is purely a script-time optimization.
   (vs. the current furniture-global flag) is needed for finer gates,
   and document the supported RLV verbs in `PROTOCOL.md`.
 
+- **Web-only DUMP (suppress chat output).** Inherited from
+  [AVsitter #14](https://github.com/AVsitter/AVsitter/issues/14).
+  `[QS]boot.lsl`'s `Readout_Say` (L500-509) currently dual-emits every
+  dump line — once via `llRegionSayTo(llGetOwner(), 0, "◆"+say)` to
+  the owner's chat, once into the `cache` buffer that `web()` flushes
+  to `avsitter.com/settings.php`. On large notecards (≥ 200 menu items,
+  cf. AVsitter #109) the chat path is what hits SL's throttle and
+  stalls the dump mid-stream. The web URL gets shouted at the end of
+  the cascade ([`[QS]boot.lsl:770`](qs/[QS]boot.lsl:770)) so the chat
+  copy is redundant whenever the web service is up. Plan: add a config
+  toggle (notecard directive `DUMPMODE web` / `DUMPMODE chat` / default
+  both, or a `[DUMP]` submenu selector) that gates the `llRegionSayTo`
+  call in `Readout_Say` without touching the web pipeline. Keep
+  `--✄--COPY ABOVE/BELOW--✄--` banners + the final URL line on chat
+  always so the user knows the dump finished. Optional second toggle
+  for "URL-only" (no chat copy at all, just the shouted URL) once the
+  web fallback is proven reliable. Cost: ~30 bytes static for the
+  flag, single `if` in `Readout_Say` per line. Persist via `qs:cfg:<ch>`
+  alongside existing dump-shape settings, or stash in a free `qs:meta:*`
+  slot if `cfg` is already packed tight.
+
+- **Strategic refactor: `sitB` = UI, `sitA` = State, `adjuster` = Mutator.**
+  Long-term direction for relieving `sitA`'s 64 KB Mono-cap pressure
+  by consolidating all dialog rendering in `sitB`. State machinery
+  (sit-targets, anim, sequencer, personal-offset cache) stays in
+  `sitA`; position/rotation math + LSD live-save stay in `adjuster`.
+  Each phase is a self-contained commit, testable in isolation.
+  - **Phase 1 (shipped, sitB 0.908 / renamed 0.910):** `QSPLUG_REGISTER`
+    + `[OPTIONS]` top-level menu. Plug-and-play plugin button
+    registration; the button auto-hides when no plugins are registered.
+    Originally shipped labelled `[PLUGINS]`; renamed in sitB 0.910 for
+    user-facing friendliness.
+  - **Phase 2 (shipped, sitA 0.910 + sitB 0.909):** ADJUST submenu
+    migrated. `sitB.adjust_dialog()` renders, dispatches to
+    `ADJUST_MENU` notecard pairs, broadcasts builtins on 90100, bridges
+    `[POSE]` back via 90101 to `sitA.adjust_pose_menu()`. External
+    plugins' 90101[ADJUST] back-routes ([AV]root-security, [QS]faces)
+    keep working via a new receiver in `sitB`. Net: −82 LOC in sitA.
+  - **Phase 3 (planned, ~120 LOC):** `adjust_pose_menu` rendering →
+    `sitB`. `sitA` keeps the math (`CURRENT_POSITION`, `sit_using_prim_params`,
+    `REFERENCE` flag); `sitB` renders the dialog and forwards click
+    events via a new LinkMsg pair (`X+`/`Y+`/`Z+` → sitA mutates state,
+    re-renders via `sitB`). Risk: chatty LinkMsg traffic on rapid clicks.
+  - **Phase 4 (planned, ~200 LOC):** `[QS]adjuster`'s `NEW` dialog
+    (`POSE`/`SYNC`/`PROP`/`CAMERA`/`SUBMENU`) → `sitB`. Adjuster keeps
+    LSD live-save + comm-channel listen for chat-driven naming;
+    rendering moves to sitB. Watch out for `comm_channel` listen
+    conflicts.
+  - **Phase 5 (planned, ~150 LOC):** `[HELPER]` dialog + `TextBox`
+    naming (currently in adjuster) → `sitB`. Adjuster becomes a pure
+    mutator service — math + LSD only, no UI.
+  - **Estimated total:** sitA shrinks ~5-10 KB raw (decisive against
+    the 64 KB Mono cap on furniture with >500 poses); adjuster shrinks
+    ~15 KB raw; sitB grows ~10 KB but stays under cap because it has
+    far less state than sitA.
+
