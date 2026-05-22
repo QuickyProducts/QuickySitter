@@ -129,6 +129,22 @@ keeps the heap allocated; this is purely a script-time optimization.
 
 ## Open improvements
 
+- **ALL-mode sitter cap.** `[QS]hudproxy.lsl`'s ALL fan-out
+  (`change()` L590–614 in hud-repo) iterates the full `getSitterList()`
+  and does one `llJsonGetValue(sJsonSitters,[sUID,"p"])` + one
+  `mutateOneSitter` + one 90057 LinkMsg per matching sitter. At 6+
+  sitters in the same pose this approaches the historical SHC point
+  documented in the `slotToUID` comment (L94–96) — the old O(N²)
+  JSON-parse path collided at 6 sitters, and while slot lookup is
+  now O(1), the ALL fan-out still does N JSON parses + N link-messages
+  per click. Plan: refuse ALL when `iLen > 6` with a chat hint to the
+  triggering user ("Group too large for ALL — use ME/YOU"). The
+  registration cap (`[QS]hudproxy.lsl` L1014: `>= 7`) stays as-is;
+  only the broadcast path gets the new guard so ME/YOU continue to
+  work up to 7 sitters. Verify under region stress (6× sitter, same
+  pose, repeated ZUP) before locking the value in — drop to 5 if heap
+  headroom stays tight.
+
 - **RLV: general plumbing review.** HUD-side SWAP gate shipped in
   `[QS]hudproxy.lsl` 0.904 — `openSwapDialog` refuses HUD-initiated
   seat swaps when the cached 90201/90202 flag from `[AV]root-security`
