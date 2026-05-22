@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.909";
+string version = "0.910";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -26,29 +26,24 @@ string main_script;
 // Removal-detection at changed(CHANGED_INVENTORY) still inventory-probes
 // — a deleted script can't broadcast goodbye, so QSALIVE doesn't fit.
 string memoryscript;
-string helper_object = "[AV]helper";
+// helper_object removed in 0.910 — only used by the migrated
+// options_menu builder. sitB owns the helper_object inventory probe now.
 
-// QS_ADJUSTER_HELLO — [QS]adjuster broadcasts this on its own
-// state_entry and in response to slot-0 sitA's QSALIVE-reply. We
-// cache the flag and gate the [HELPER] menu item on it (replaces
-// the legacy llGetInventoryType("[QS]adjuster") probe).
-integer QS_ADJUSTER_HELLO = 90091;
-integer adjuster_present  = FALSE;
-
-// QS_FACES_HELLO — [QS]faces broadcasts this on its own state_entry
-// and in response to slot-0 sitA's QSALIVE-reply. Cached flag gates
-// the [FACES] menu item below, replacing the legacy
-// llGetInventoryType("[AV]faces") probe. Same shape as adjuster's
-// QS_ADJUSTER_HELLO but at 90090 (next free slot in the
-// 9007x-9009x fork range; see qs/PROTOCOL.md).
-integer QS_FACES_HELLO = 90090;
-integer faces_present  = FALSE;
+// adjuster_present / faces_present / has_texture migrated to sitB in
+// 0.910 (Phase 2 sitB-as-UI refactor). sitB now renders the ADJUST
+// submenu and gates [HELPER]/[FACES]/[TEXTURE] entries on its own
+// LINK_SET-fed copies of these flags. sitA still receives 90091/
+// 90090/90203 LinkMessages via the LINK_SET broadcast, but no longer
+// caches them — has_security stays here because L1454 dispatch +
+// llPassTouches need it.
 integer SCRIPT_CHANNEL;
 list SITTERS;
 integer SWAPPED;
 key MY_SITTER;
 key CONTROLLER;
-list ADJUST_MENU;
+// ADJUST_MENU global removed in 0.910 — sitB now loads qs:cfg slot 14
+// and renders the ADJUST submenu directly. Phase 2 of the sitB-as-UI
+// refactor.
 integer SET = -1;
 integer MTYPE = 0;
 integer ETYPE = 1;
@@ -98,7 +93,9 @@ integer original_my_sittarget;
 list SITTERS_SITTARGETS;
 list ORIGINAL_SITTERS_SITTARGETS;
 integer has_security;
-integer has_texture;
+// has_texture migrated to sitB in 0.910 — ADJUST submenu lives there
+// now. has_security stays because sitA still needs it for the L1454
+// dispatch (90006 vs 90005) and llPassTouches.
 integer increment_pointer;
 integer pos_rot_adjust_toggle;
 integer menu_channel;
@@ -133,18 +130,13 @@ qs_load_from_lsd()
     HASKEYFRAME       = (integer)llList2String(p, 8);
     REFERENCE         = (integer)llList2String(p, 9);
     DFLT              = (integer)llList2String(p, 10);
-    // Slots 11 (BRAND), 12 (onSit), 13 (CUSTOM_TEXT), 15 (RLVDesignations)
-    // are read by [QS]sitB direct from the same qs:cfg:N blob — not
-    // mirrored here. Saves ~200-400 B steady state and ~1-2 KB transient
-    // peak (the CUSTOM_TEXT parse used to be the largest allocation in
-    // this loader). sitA has no reader for these strings.
-    //
-    // Use llParseString2List (drops empties) for ADJUST_MENU. When the
-    // AVpos has no ADJUST line, boot writes "" for this field; KeepNulls
-    // would turn that into [""] and the inlined options_menu below would
-    // emit an empty button label, tripping llDialog with "all buttons
-    // must have label strings".
-    ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
+    // Slots 11 (BRAND), 12 (onSit), 13 (CUSTOM_TEXT), 14 (ADJUST_MENU),
+    // 15 (RLVDesignations) are read by [QS]sitB direct from the same
+    // qs:cfg:N blob — not mirrored here. Saves ~200-400 B steady state
+    // and ~1-2 KB transient peak (the CUSTOM_TEXT parse used to be the
+    // largest allocation in this loader). sitA has no reader for these
+    // strings. ADJUST_MENU joined slot 13 etc. in 0.910 when the ADJUST
+    // submenu migrated to sitB.
     GENDERS = [];
     list gp = llCSV2List(llList2String(p, 16));
     integer gj;
@@ -323,7 +315,7 @@ sittargets()
     original_my_sittarget = my_sittarget;
     ORIGINAL_SITTERS_SITTARGETS = SITTERS_SITTARGETS;
     // inline prep() here
-    has_security = has_texture = FALSE;
+    has_security = FALSE;
     if (!SCRIPT_CHANNEL)
     {
         llMessageLinked(LINK_SET, 90201, "", ""); // 90201=Ask for info about plugins
@@ -696,119 +688,101 @@ default
 
     listen(integer listen_channel, string name, key id, string msg)
     {
-        integer index = llListFindList(ADJUST_MENU, [msg]);
-        if (index != -1)
+        // ADJUST submenu rendering + ADJUST_MENU notecard dispatch + builtin
+        // catch-all (TEXTURE/FACES/SECURITY/HELPER/QUICKYHUD/[BACK]→90005)
+        // all migrated to sitB in 0.910 (Phase 2 sitB-as-UI refactor). This
+        // listen handler is now only triggered by sitA's own dialog() calls
+        // — currently only adjust_pose_menu (Position/Rotation/X+/Y+/Z+/…)
+        // and the [OFFSET ALL] confirmation sub-dialog.
+        integer index = llListFindList(["Position", "Rotation", "X+", "Y+", "Z+", "X-", "Y-", "Z-", "0.05m", "0.25m", "0.01m", "5°", "25°", "1°"], [msg]);
+        if (msg == "[BACK]")
         {
-            if (id != MY_SITTER && !(AMENU & 4))
-            {
-                id = (string)id + "|" + (string)MY_SITTER;
-            }
-            llMessageLinked(LINK_SET, llList2Integer(ADJUST_MENU, index + 1), msg, id);
+            llMessageLinked(LINK_SET, 90005, "", (string)CONTROLLER + "|" + (string)MY_SITTER); // 90005=send menu to user
         }
-        else
+        else if (msg == "[DEFAULT]")
         {
-            index = llListFindList(["Position", "Rotation", "X+", "Y+", "Z+", "X-", "Y-", "Z-", "0.05m", "0.25m", "0.01m", "5°", "25°", "1°"], [msg]);
-            if (msg == "[BACK]")
+            CURRENT_POSITION = DEFAULT_POSITION;
+            CURRENT_ROTATION = DEFAULT_ROTATION;
+            sit_using_prim_params();
+            adjust_pose_menu();
+        }
+        else if (msg == "[OFFSET ALL]")
+        {
+            dialog("Save personal position offset for all poses?", ["[BACK]", "[ALL POSES]"]);
+        }
+        else if (msg == "[ALL POSES]")
+        {
+            vector pd = CURRENT_POSITION - DEFAULT_POSITION;
+            vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
+            // Persist to [QS]offset (SSoT). Don't touch RAM_OVERFLOW
+            // here — offset.lsl owns the storage decision and pushes
+            // 90260 back if it landed in RAM tier; LSD-tier saves
+            // are read direct by apply_current_anim on next pose.
+            // adjust_pose_menu doesn't re-apply, so there's no race
+            // window where the user would land at DEFAULT.
+            llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
+            adjust_pose_menu();
+            llRegionSayTo(id, 0, "Personal offset saved for all poses.");
+        }
+        else if (msg == "[SAVE]")
+        {
+            vector pd = CURRENT_POSITION - DEFAULT_POSITION;
+            vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
+            // Persist to [QS]offset (SSoT). See [ALL POSES] note above
+            // for why we don't pre-populate RAM_OVERFLOW.
+            llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|" + CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
+            adjust_pose_menu();
+            llRegionSayTo(id, 0, "Personal position saved for this pose.");
+        }
+        else if (index != -1)
+        {
+            if (index < 2)
             {
-                llMessageLinked(LINK_SET, 90005, "", (string)CONTROLLER + "|" + (string)MY_SITTER); // 90005=send menu to user
+                pos_rot_adjust_toggle = !pos_rot_adjust_toggle;
             }
-            else if (msg == "[POSE]")
+            else if (index < 8)
             {
-                adjust_pose_menu();
-            }
-            else if (msg == "[DEFAULT]")
-            {
-                CURRENT_POSITION = DEFAULT_POSITION;
-                CURRENT_ROTATION = DEFAULT_ROTATION;
-                sit_using_prim_params();
-                adjust_pose_menu();
-            }
-            else if (msg == "[OFFSET ALL]")
-            {
-                dialog("Save personal position offset for all poses?", ["[BACK]", "[ALL POSES]"]);
-            }
-            else if (msg == "[ALL POSES]")
-            {
-                vector pd = CURRENT_POSITION - DEFAULT_POSITION;
-                vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
-                // Persist to [QS]offset (SSoT). Don't touch RAM_OVERFLOW
-                // here — offset.lsl owns the storage decision and pushes
-                // 90260 back if it landed in RAM tier; LSD-tier saves
-                // are read direct by apply_current_anim on next pose.
-                // adjust_pose_menu doesn't re-apply, so there's no race
-                // window where the user would land at DEFAULT.
-                llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
-                adjust_pose_menu();
-                llRegionSayTo(id, 0, "Personal offset saved for all poses.");
-            }
-            else if (msg == "[SAVE]")
-            {
-                vector pd = CURRENT_POSITION - DEFAULT_POSITION;
-                vector rd = CURRENT_ROTATION - DEFAULT_ROTATION;
-                // Persist to [QS]offset (SSoT). See [ALL POSES] note above
-                // for why we don't pre-populate RAM_OVERFLOW.
-                llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|" + CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
-                adjust_pose_menu();
-                llRegionSayTo(id, 0, "Personal position saved for this pose.");
-            }
-            else if (index != -1)
-            {
-                if (index < 2)
+                float change = llList2Float([0.05, 0.25, 0.01], increment_pointer);
+                if (llGetSubString(msg, 1, 1) == "-")
                 {
-                    pos_rot_adjust_toggle = !pos_rot_adjust_toggle;
+                    change = -1 * change;
                 }
-                else if (index < 8)
+                vector direction = <1,0,0>;
+                if (llGetSubString(msg, 0, 0) == "Y")
                 {
-                    float change = llList2Float([0.05, 0.25, 0.01], increment_pointer);
-                    if (llGetSubString(msg, 1, 1) == "-")
-                    {
-                        change = -1 * change;
-                    }
-                    vector direction = <1,0,0>;
-                    if (llGetSubString(msg, 0, 0) == "Y")
-                    {
-                        direction = <0,1,0>;
-                    }
-                    else if (llGetSubString(msg, 0, 0) == "Z")
-                    {
-                        direction = <0,0,1>;
-                    }
-                    if (pos_rot_adjust_toggle)
-                    {
-                        CURRENT_ROTATION += direction * change * 100;
-                    }
-                    else
-                    {
-                        vector c = direction * change;
-                        if (REFERENCE)
-                        {
-                            if (llGetLinkNumber() > 1)
-                            {
-                                c /= llGetLocalRot();
-                            }
-                        }
-                        else
-                        {
-                            c /= llGetRot();
-                        }
-                        CURRENT_POSITION += c;
-                    }
-                    sit_using_prim_params();
+                    direction = <0,1,0>;
+                }
+                else if (llGetSubString(msg, 0, 0) == "Z")
+                {
+                    direction = <0,0,1>;
+                }
+                if (pos_rot_adjust_toggle)
+                {
+                    CURRENT_ROTATION += direction * change * 100;
                 }
                 else
                 {
-                    increment_pointer = (increment_pointer + 1) % 3;
+                    vector c = direction * change;
+                    if (REFERENCE)
+                    {
+                        if (llGetLinkNumber() > 1)
+                        {
+                            c /= llGetLocalRot();
+                        }
+                    }
+                    else
+                    {
+                        c /= llGetRot();
+                    }
+                    CURRENT_POSITION += c;
                 }
-                adjust_pose_menu();
-            }
-            else if (msg == "[HELPER]" && id != llGetOwner() && llSubStringIndex(llGetLinkName(!!llGetLinkNumber()), "HELPER") == -1)
-            {
-                dialog("Only the owner can rez the helpers. If the owner is nearby they can type '/5 helper' in chat.", ["[BACK]"]);
+                sit_using_prim_params();
             }
             else
             {
-                llMessageLinked(LINK_SET, 90100, (string)SCRIPT_CHANNEL + "|" + msg + "|" + (string)MY_SITTER + "|" + (string)OLD_HELPER_METHOD, id); // 90100=Menu choice
+                increment_pointer = (increment_pointer + 1) % 3;
             }
+            adjust_pose_menu();
         }
     }
 
@@ -922,16 +896,9 @@ default
             if (SCRIPT_CHANNEL == 0) qs_alive_reply();
             return;
         }
-        if (num == QS_ADJUSTER_HELLO) // 90091=adjuster announces presence
-        {
-            adjuster_present = TRUE;
-            return;
-        }
-        if (num == QS_FACES_HELLO) // 90090=faces announces presence
-        {
-            faces_present = TRUE;
-            return;
-        }
+        // 90090 / 90091 receivers removed in 0.910 — adjuster_present
+        // and faces_present moved to sitB along with the ADJUST submenu.
+        // The LinkMessages still broadcast on LINK_SET, sitB handles them.
         if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
         {
             do_resync_tick();
@@ -1019,11 +986,9 @@ default
             llPassTouches(has_security);
             return;
         }
-        if (num == 90203) // 90203=texture script present in root (unused)
-        {
-            has_texture = TRUE;
-            return;
-        }
+        // 90203 (has_texture) receiver removed in 0.910 — moved to sitB
+        // with the ADJUST submenu migration. has_texture was unused in
+        // sitA outside the inlined options_menu builder anyway.
         if (num == 90298) // 90298=show SitTargets (/5 targets)
         {
             target = my_sittarget;
@@ -1061,58 +1026,15 @@ default
             if (num == 90101) // 90101=menu option chosen
             {
                 CONTROLLER = llList2Key(data, 2);
-                if ((msg = llList2String(data, 1)) == "[ADJUST]") // WARNING: reusing msg
+                msg = llList2String(data, 1);
+                // [ADJUST] submenu rendering migrated to sitB in 0.910 —
+                // sitB's link_message 90101[ADJUST] handler now renders
+                // it. The [POSE] handoff below is the bridge back to
+                // adjust_pose_menu, whose Position/Rotation math is
+                // still sitA-owned (CURRENT_POSITION + sit_using_prim_params).
+                if (msg == "[POSE]")
                 {
-                    // options_menu() inlined here:
-                    data = [];
-                    if (has_texture)
-                    {
-                        data += "[TEXTURE]";
-                    }
-                    if (faces_present)
-                    {
-                        data += "[FACES]";
-                    }
-                    if (has_security)
-                    {
-                        data += "[SECURITY]";
-                    }
-                    integer i;
-                    while (i < llGetListLength(ADJUST_MENU))
-                    {
-                        data += llList2String(ADJUST_MENU, i);
-                        i = i + 2;
-                    }
-                    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && adjuster_present)
-                    {
-                        data += "[HELPER]";
-                    }
-                    // [QUICKYHUD] entry point — LSD-key probe; existence
-                    // of QPP_CFG:ADJUSTMODE is the capability signal
-                    // (script-name matching avoided — see PROTOCOL.md).
-                    // Routes through 90100/90101 like [HELPER]. Hidden
-                    // for non-owners: the HUD is worn by exactly one
-                    // avatar (the prim owner in normal use), so
-                    // flipping ADJUSTMODE is meaningless for anyone
-                    // else. Cleaner than [HELPER]'s post-click error
-                    // dialog (L756) — non-owners never see the button.
-                    // Also gated on adjuster_present like [HELPER] is:
-                    // without [QS]adjuster the menu options 90100/90101
-                    // routed by QUICKYHUD have no listener, so the click
-                    // would silently vanish.
-                    if (CONTROLLER == llGetOwner()
-                        && adjuster_present
-                        && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
-                    {
-                        data += "[QUICKYHUD]";
-                    }
-                    if (!llGetListLength(data))
-                    {
-                        adjust_pose_menu();
-                        return;
-                    }
-                    data += "[POSE]";
-                    dialog("Adjust:", ["[BACK]"] + data);
+                    adjust_pose_menu();
                     return;
                 }
                 if (msg == "Harder >>" || msg == "<< Softer")
@@ -1357,7 +1279,7 @@ default
                     set_sittarget();
                 }
                 // inline prep() here
-                has_security = has_texture = FALSE;
+                has_security = FALSE;
                 if (!SCRIPT_CHANNEL)
                 {
                     llMessageLinked(LINK_SET, 90201, "", ""); // 90201=Ask for info about plugins
@@ -1380,7 +1302,7 @@ default
                     llMessageLinked(LINK_SET, 90150, "", ""); // 90150=ask other AVsitA scripts to place their sittargets again
                 }
                 // inline prep() here
-                has_security = has_texture = FALSE;
+                has_security = FALSE;
                 if (!SCRIPT_CHANNEL)
                 {
                     llMessageLinked(LINK_SET, 90201, "", ""); // 90201=Ask for info about plugins

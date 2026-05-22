@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.908";
+string version = "0.909";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -71,6 +71,24 @@ list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
 integer in_plugin_menu;         // TRUE while [PLUGINS] dialog is open;
                                 // flips listen() to plugin-flavored routing
 integer plugin_page;            // pagination state for [PLUGINS] dialog
+
+// ADJUST submenu — migrated from sitA in 0.909 (Phase 2 of the
+// sitB-as-UI refactor). sitA used to inline the builder in its 90101
+// link_message handler and render via its own dialog(); sitB now owns
+// rendering, click-dispatch, and the [AV]root-security/[QS]faces
+// 90101[ADJUST] back-route. Capability flags below are LINK_SET-fed
+// (90090/90091/90202/90203) — sitA still keeps its own has_security
+// for non-menu purposes (llPassTouches + L1454 dispatch), so both
+// scripts maintain parallel copies. ADJUST_MENU comes from qs:cfg
+// slot 14 (notecard ADJUST line, label|chan pairs).
+list    ADJUST_MENU;
+integer has_texture;
+integer has_security;
+integer adjuster_present;
+integer faces_present;
+integer in_adjust_menu;         // TRUE while ADJUST dialog is open
+integer adjust_page;            // pagination state for ADJUST dialog
+string  helper_object = "[AV]helper";
 
 // Set TRUE once qs_load_from_lsd() has run. Slot-0 sitB uses this in
 // changed(CHANGED_LINK) to eject pre-boot sit attempts with a chat hint
@@ -351,7 +369,12 @@ qs_load_from_lsd()
     BRAND             = llList2String(p, 11);
     onSit             = llList2String(p, 12);
     CUSTOM_TEXT       = llDumpList2String(llParseStringKeepNulls(llList2String(p, 13), ["\\n"], []), "\n");
-    // slot 14 (ADJUST_MENU) consumed by [QS]adjuster, not used here
+    // ADJUST_MENU — label|chan|label|chan|... pairs from the notecard
+    // ADJUST line. ParseString2List drops empties: boot writes "" when
+    // the AVpos has no ADJUST line, and KeepNulls would turn that into
+    // [""] which trips llDialog's "all buttons must have label strings".
+    // Migrated from sitA 0.909 (Phase 2 of the sitB-as-UI refactor).
+    ADJUST_MENU       = llParseString2List(llList2String(p, 14), [SEP], []);
     RLVDesignations   = llList2String(p, 15);
 
     SITTER_INFO = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
@@ -440,6 +463,81 @@ plugin_dialog()
     llDialog(CONTROLLER, text, reordered, menu_channel);
 }
 
+// ADJUST submenu — migrated from sitA's inlined options_menu() in 0.909
+// (Phase 2 sitB-as-UI refactor). Renders builtins gated by capability
+// flags + notecard ADJUST_MENU pairs + tail (HELPER/QUICKYHUD/POSE),
+// auto-pages when total > 12 buttons (fixes the silent-truncation bug
+// in sitA's pre-0.910 dialog() that dropped overflow buttons). Click
+// routing lives in listen() under in_adjust_menu, plus a 90101[ADJUST]
+// receiver in link_message for external back-routes ([AV]root-security,
+// [QS]faces). See PROTOCOL.md.
+adjust_dialog()
+{
+    list builtins;
+    if (has_texture)   builtins += "[TEXTURE]";
+    if (faces_present) builtins += "[FACES]";
+    if (has_security)  builtins += "[SECURITY]";
+
+    list dyn;
+    integer i;
+    integer n = llGetListLength(ADJUST_MENU);
+    while (i < n) { dyn += llList2String(ADJUST_MENU, i); i += 2; }
+
+    list tail;
+    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && adjuster_present)
+        tail += "[HELPER]";
+    // [QUICKYHUD] — owner-only entry, gated on the unprotected
+    // QPP_CFG:ADJUSTMODE LSD key (same probe sitA used pre-0.910).
+    // HUDPROXY presence cleanup (90093) keeps the key from going stale
+    // after the HUD is removed.
+    if (CONTROLLER == llGetOwner() && adjuster_present
+        && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
+        tail += "[QUICKYHUD]";
+
+    if (!llGetListLength(builtins) && !llGetListLength(dyn) && !llGetListLength(tail))
+    {
+        // Empty submenu — fall back to pose menu (parity with sitA
+        // pre-0.910 L1109-1112).
+        in_adjust_menu = FALSE;
+        animation_menu(0);
+        return;
+    }
+    tail += "[POSE]";
+
+    integer fixed = 1 + llGetListLength(builtins) + llGetListLength(tail); // [BACK] + builtins + tail
+    integer items_per_page = 12 - fixed;
+    integer total = llGetListLength(dyn);
+    integer pages = 1;
+    if (items_per_page > 0 && total > items_per_page)
+    {
+        items_per_page -= 2; // [<<]/[>>]
+        if (items_per_page < 1) items_per_page = 1;
+        pages = (total + items_per_page - 1) / items_per_page;
+    }
+    if (adjust_page >= pages) adjust_page = 0;
+    list page;
+    if (items_per_page > 0)
+    {
+        integer start = adjust_page * items_per_page;
+        page = llList2List(dyn, start, start + items_per_page - 1);
+    }
+    list nav = ["[BACK]"];
+    if (pages > 1) nav += ["[<<]", "[>>]"];
+    list buttons = nav + builtins + page + tail;
+
+    list reordered = llList2List(buttons, -3, -1);
+    reordered += llList2List(buttons, -6, -4);
+    reordered += llList2List(buttons, -9, -7);
+    reordered += llList2List(buttons, -12, -10);
+
+    llListenRemove(menu_handle);
+    menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
+    menu_handle = llListen(menu_channel, "", CONTROLLER, "");
+    string text = product + " " + version + "\n\nAdjust:";
+    if (pages > 1) text += " (" + (string)(adjust_page + 1) + "/" + (string)pages + ")";
+    llDialog(CONTROLLER, text, reordered, menu_channel);
+}
+
 default
 {
     state_entry()
@@ -524,6 +622,75 @@ default
             in_plugin_menu = TRUE;
             plugin_page = 0;
             plugin_dialog();
+            return;
+        }
+        // While the ADJUST submenu is open, route via the migrated dispatcher
+        // (used to live in sitA's listen handler pre-0.910). Pose-menu paging
+        // uses menu_page, ADJUST paging uses adjust_page — both [<<]/[>>]
+        // handlers below check in_adjust_menu first to disambiguate.
+        if (in_adjust_menu)
+        {
+            if (msg == "[<<]" || msg == "[>>]")
+            {
+                if (msg == "[<<]")
+                {
+                    if (--adjust_page < 0) adjust_page = 0;
+                }
+                else
+                {
+                    ++adjust_page; // upper bound clamped in adjust_dialog
+                }
+                adjust_dialog();
+                return;
+            }
+            if (msg == "[BACK]")
+            {
+                in_adjust_menu = FALSE;
+                adjust_page = 0;
+                // Same path sitA used pre-0.910 (sitA L713): 90005 sends
+                // the user back to the pose menu via the standard menu
+                // dispatcher in 90004/90005.
+                llMessageLinked(LINK_SET, 90005, "",
+                    (string)CONTROLLER + "|" + (string)MY_SITTER);
+                return;
+            }
+            if (msg == "[POSE]")
+            {
+                // Position/Rotation adjust dialog (adjust_pose_menu) still
+                // lives in sitA — its CURRENT_POSITION + sit_using_prim_params
+                // are sit-state. sitA 0.910's 90101[POSE] handler renders it.
+                in_adjust_menu = FALSE;
+                adjust_page = 0;
+                llMessageLinked(LINK_SET, 90101,
+                    llDumpList2String([SCRIPT_CHANNEL, "[POSE]", CONTROLLER, current_menu], "|"),
+                    MY_SITTER);
+                return;
+            }
+            // ADJUST_MENU notecard pair? Strided 2 (label, channel) — only
+            // even indices are labels. The (ami % 2) == 0 guard prevents a
+            // channel-as-string from collision-matching some other label.
+            integer ami = llListFindList(ADJUST_MENU, [msg]);
+            if (ami != -1 && (ami % 2) == 0)
+            {
+                in_adjust_menu = FALSE;
+                adjust_page = 0;
+                key dispatch_id = id;
+                if (id != MY_SITTER && !(AMENU & 4))
+                    dispatch_id = (key)((string)id + "|" + (string)MY_SITTER);
+                llMessageLinked(LINK_SET,
+                    llList2Integer(ADJUST_MENU, ami + 1), msg, dispatch_id);
+                return;
+            }
+            // Built-in conditional buttons ([TEXTURE]/[FACES]/[SECURITY]/
+            // [HELPER]/[QUICKYHUD]): broadcast on 90100 — adjuster +
+            // external plugins ([AV]texture / [AV]root-security) listen
+            // there with their label strings. Same payload format sitA
+            // used in its pre-0.910 catch-all (L810).
+            in_adjust_menu = FALSE;
+            adjust_page = 0;
+            llMessageLinked(LINK_SET, 90100,
+                (string)SCRIPT_CHANNEL + "|" + msg + "|" + (string)MY_SITTER
+                + "|" + (string)OLD_HELPER_METHOD, id);
             return;
         }
         integer index = llListFindList(MENU_LIST, [msg]);
@@ -714,6 +881,15 @@ default
             qs_select_present = TRUE;
             return;
         }
+        // Capability flags for the ADJUST submenu (migrated from sitA in
+        // 0.909). All three are HELLO-broadcast announce-only — see
+        // PROTOCOL.md § 90089/90090/90091. faces_present and
+        // adjuster_present gate the [FACES] and [HELPER]/[QUICKYHUD]
+        // submenu entries; sitA still keeps its own faces_present /
+        // adjuster_present is gone in 0.910 (only has_security stays
+        // because L1454 + llPassTouches need it).
+        if (num == 90090) { faces_present    = TRUE; return; }
+        if (num == 90091) { adjuster_present = TRUE; return; }
         if (num == QS_SITB_PROBE)
         {
             // Boot self-check probe — reply once. One HELLO per probe is
@@ -859,6 +1035,19 @@ default
             {
                 helper_mode = FALSE;
                 menu_page = 0;
+                // Migrated from sitA's inlined options_menu in 0.909.
+                // Triggers from three paths: (1) sitB's own listen catch-all
+                // (user clicks [ADJUST] in pose menu — broadcasts 90101 here),
+                // (2) [AV]root-security back_to_adjust after a security
+                // sub-dialog, (3) [QS]faces faces.lsl:336 back-route.
+                // data[2] is the controller key — empty in some back-routes
+                // (root-security Z72), so we keep the existing CONTROLLER
+                // when the payload is blank.
+                string ctrl_str = llList2String(data, 2);
+                if (ctrl_str != "") CONTROLLER = (key)ctrl_str;
+                in_adjust_menu = TRUE;
+                adjust_page = 0;
+                adjust_dialog();
             }
             if (msg == "[ADJUST OFF]")
             {
@@ -886,12 +1075,32 @@ default
         }
         if (num == 90201)
         {
+            // Plugin-discovery probe from sitA. Reset everything that's
+            // set by the matching reply channels so a removed plugin
+            // doesn't leave its capability flag latched TRUE forever.
             has_RLV = FALSE;
+            has_security = FALSE;
+            has_texture = FALSE;
             return;
         }
         if (num == 90202)
         {
+            // 90202 carries the RLV state in msg (legacy stock-AVsitter
+            // convention) AND signals "[AV]root-security exists in this
+            // linkset" by virtue of being sent. Both interpretations
+            // stack — has_security is bound to the channel's existence,
+            // not the payload value (mirrors sitA's pre-0.910 handler).
             has_RLV = (integer)msg;
+            has_security = TRUE;
+            return;
+        }
+        if (num == 90203)
+        {
+            // Stock-AVsitter: "[AV]texture exists in this linkset".
+            // Unused upstream but reserved; we gate [TEXTURE] in the
+            // ADJUST submenu on it for compatibility with any plugin
+            // that ever does send it.
+            has_texture = TRUE;
             return;
         }
         if (one == SCRIPT_CHANNEL)
