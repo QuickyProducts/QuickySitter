@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.908";
+string version = "0.909";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -254,7 +254,7 @@ adjust_pose_menu()
         posrot_button = "Rotation";
         value_button = llList2String(["5°", "25°", "1°"], increment_pointer);
     }
-    dialog("Personal adjustment:", ["[BACK]", posrot_button, value_button, "[DEFAULT]", "[SAVE]", "[SAVE ALL]", "X+", "Y+", "Z+", "X-", "Y-", "Z-"]);
+    dialog("Personal adjustment:", ["[BACK]", posrot_button, value_button, "[DEFAULT]", "[SAVE]", "[OFFSET ALL]", "X+", "Y+", "Z+", "X-", "Y-", "Z-"]);
 }
 
 integer IsInteger(string data)
@@ -723,7 +723,7 @@ default
                 sit_using_prim_params();
                 adjust_pose_menu();
             }
-            else if (msg == "[SAVE ALL]")
+            else if (msg == "[OFFSET ALL]")
             {
                 dialog("Save personal position offset for all poses?", ["[BACK]", "[ALL POSES]"]);
             }
@@ -739,7 +739,7 @@ default
                 // window where the user would land at DEFAULT.
                 llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
                 adjust_pose_menu();
-                llRegionSayTo(id, 0, "Personal position saved for all poses.");
+                llRegionSayTo(id, 0, "Personal offset saved for all poses.");
             }
             else if (msg == "[SAVE]")
             {

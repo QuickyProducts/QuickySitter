@@ -42,7 +42,7 @@
  *   90262  sitA → offset   slot|pose_name|pos|rot  (id = sitter UUID)
  *                          "Save this offset for (sitter, slot, pose)."
  *                          The magic name M#T! is the [ALL POSES] /
- *                          [SAVE ALL] all-poses fallback; each slot
+ *                          [OFFSET ALL] all-poses fallback; each slot
  *                          can have its own M#T! offset.
  *   90263  adjuster→offset (string)slot            (id = pose_name)
  *                          "[HELPER] [SAVE] just rewrote pose default
@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.901";
+string version = "0.903";
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -241,13 +241,13 @@ push_customs_for(key sitter, integer slot)
 
 // Save / drop —————————————————————————————————————————————————————————
 
-// Stock-AVsitter "[SAVE ALL]" semantics. When sitA's [ALL POSES] confirm
+// Stock-AVsitter "[OFFSET ALL]" semantics. When sitA's [ALL POSES] confirm
 // arrives via 90262 with pose_name "M#T!", mirror stock's behavior: wipe
 // all per-pose entries for this (sitter, slot) first, then let the caller
 // write the new M#T! entry. Without this, pre-existing per-pose entries
 // (HUD-saved on pose change, or sitA [SAVE] earlier) keep winning over
 // M#T! in sitA's apply_current_anim lookup, defeating the "all poses"
-// intent — [SAVE ALL] would only apply to never-adjusted poses.
+// intent — [OFFSET ALL] would only apply to never-adjusted poses.
 //
 // Equivalent stock code in [AV]sitA.lsl:
 //   while (i > 0) { if (CUSTOMS[i] == short) delete; i -= 4; }
@@ -314,23 +314,23 @@ save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
 {
     string short = llGetSubString(sitter, 0, 7);
 
-    // [SAVE ALL] arrival — wipe per-pose entries first, then fall through
-    // to the normal write (or ZERO/ZERO delete) below for M#T! itself.
-    // See wipe_per_pose_for_sitter_slot header for the stock-semantics
-    // rationale.
-    if (pose_name == "M#T!")
-        wipe_per_pose_for_sitter_slot(sitter, slot);
-
     // ZERO/ZERO is the delete sentinel — sitA's [SAVE] (when the user has
-    // dialed all adjustments back to base) and hudproxy's poseBufPush both
-    // converge on this when there's nothing meaningful to store. Cleans up
-    // both tiers AND notifies sitA's RAM_OVERFLOW to drop any matching
-    // entry — without this, a stale RAM_OVERFLOW value from a previous
-    // RAM-tier save would survive the LSD/CUSTOMS delete and keep
-    // applying via apply_current_anim's RAM fallback.
+    // dialed all adjustments back to base), hudproxy's poseBufPush, and
+    // hudproxy's resetPos all converge on this when there's nothing
+    // meaningful to store (or when explicitly deleting). Cleans up both
+    // tiers AND notifies sitA's RAM_OVERFLOW to drop any matching entry
+    // — without this, a stale RAM_OVERFLOW value from a previous RAM-tier
+    // save would survive the LSD/CUSTOMS delete and keep applying via
+    // apply_current_anim's RAM fallback.
     //
     // Convention: 90260 with ZERO/ZERO payload is the "remove from
     // RAM_OVERFLOW" signal, distinct from non-zero values which insert.
+    //
+    // Targeted M#T! deletion: the [OFFSET ALL] per-pose wipe lives in the
+    // non-zero branch below, so a ZERO/ZERO M#T! delete clears only the
+    // all-poses entry without disturbing other poses' saved offsets.
+    // hudproxy's resetPos (>= 0.911) relies on this to wipe M#T! alongside
+    // the current pose entry on "RESET pose to default position".
     if (pos == ZERO_VECTOR && rot == ZERO_VECTOR)
     {
         ramDelete(short, slot, pose_name);
@@ -341,6 +341,14 @@ save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
         update_ram_tier_count();
         return;
     }
+
+    // [OFFSET ALL] non-zero arrival — wipe per-pose entries first so M#T!
+    // becomes effective (stock semantics: setting M#T! supersedes per-pose).
+    // Then fall through to the normal write below for M#T! itself. See
+    // wipe_per_pose_for_sitter_slot header for the stock-semantics
+    // rationale.
+    if (pose_name == "M#T!")
+        wipe_per_pose_for_sitter_slot(sitter, slot);
 
     if (lsdHasRoom())
     {

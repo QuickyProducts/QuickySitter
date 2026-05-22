@@ -9,7 +9,7 @@ link-message protocol that moves data between these stores.
 | What | Where | Persistent? |
 |------|-------|-------------|
 | **Pose defaults** (`<pos><rot>` from AVpos) | LSD `qs:p:<ch>:<i>` — written by [`[QS]boot`](./[QS]boot.lsl) at seed and by [`[QS]adjuster`](./[QS]adjuster.lsl) on `[HELPER] [SAVE]` | ✅ yes, survives rerez |
-| **Personal user offsets** (per-(user, slot, pose), incl. `M#T!` per-slot all-poses fallback, set via `[ADJUSTER] [SAVE]` / `[SAVE ALL]`) | [`[QS]offset`](./[QS]offset.lsl) — LSD `QSO:<short>:<slot>:<pose>` when room exists past `QPP_CFG:RESERVE`, else global `CUSTOMS` list | ✅ LSD persistent (≥ 0.09), ❌ RAM volatile fallback |
+| **Personal user offsets** (per-(user, slot, pose), incl. `M#T!` per-slot all-poses fallback, set via `[ADJUSTER] [SAVE]` / `[OFFSET ALL]`) | [`[QS]offset`](./[QS]offset.lsl) — LSD `QSO:<short>:<slot>:<pose>` when room exists past `QPP_CFG:RESERVE`, else global `CUSTOMS` list | ✅ LSD persistent (≥ 0.09), ❌ RAM volatile fallback |
 | **Pose runtime state** (which pose is playing, menu navigation, speed) | [`[QS]sitB`](./[QS]sitB.lsl) per-sitter globals | ❌ volatile per session |
 | **Playback state** (`CURRENT_POSITION` / `CURRENT_ROTATION`, anim filename, `MY_SITTER`) | [`[QS]sitA`](./[QS]sitA.lsl) per-sitter globals | ❌ volatile |
 | **Channel settings** (MTYPE, ETYPE, SWAP, BRAND, CUSTOM_TEXT, ADJUST_MENU, ...) | LSD `qs:cfg:<ch>` (boot writes) + in-memory cache in sitA/sitB | ✅ LSD persistent, memory is cache |
