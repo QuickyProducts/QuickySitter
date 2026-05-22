@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.910";
+string version = "0.911";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -337,6 +337,19 @@ integer animation_menu(integer animation_menu_function)
                 menu_items1 += " ";
             }
         }
+        // Rendering the pose menu means the user is back at the root —
+        // any sub-menu state left over from a dialog-X-close
+        // ([OPTIONS] or ADJUST submenu was open, user closed via the
+        // dialog's X button instead of [BACK]) must clear here. Without
+        // this, the next click in the freshly-rendered pose menu lands
+        // in the stale in_plugin_menu / in_adjust_menu branch in listen()
+        // and gets misrouted (the "Unknown click — bail back" safety
+        // path), which the user sees as a phantom first-click being
+        // eaten.
+        in_plugin_menu = FALSE;
+        plugin_page = 0;
+        in_adjust_menu = FALSE;
+        adjust_page = 0;
         llListenRemove(menu_handle);
         menu_handle = llListen(menu_channel, "", CONTROLLER, "");
         menu_items0 = menu_items0 + menu_items1 + menu_items2;
