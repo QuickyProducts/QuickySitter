@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.991";
+string version = "0.9911";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -1356,11 +1356,6 @@ default
             llMessageLinked(LINK_THIS, 90261, (string)SCRIPT_CHANNEL, MY_SITTER);
             string channel_or_swap = (string)SCRIPT_CHANNEL;
             integer lnk = 90000; // 90000=play pose
-            // Capture SWAPPED before we reset it — the menu-open path
-            // below skips when the perm-grant came from a SWAP, so the
-            // user doesn't get a fresh pose menu thrust at them after
-            // explicitly choosing to switch seats.
-            integer bSwapEntry = SWAPPED;
             if (SWAPPED)
             {
                 lnk = 90010; // 90010=play pose, ignoring ETYPE
@@ -1382,8 +1377,22 @@ default
                 // primcount_error() inlined here:
                 llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
             }
-            else if (!MTYPE && !bSwapEntry)
+            else if (!MTYPE)
             {
+                // Stock-AVsitter behavior restored in 0.9911: close +
+                // reopen the pose menu after every perm-grant, including
+                // post-swap. Earlier QuickySitter versions skipped the
+                // reopen on SWAP entries (a now-removed `bSwapEntry`
+                // guard) to dodge HUD-swap dialog stacking, but the
+                // trade-off was worse — users lost menu context after
+                // the HUD SWAP-picker / proxy quick-swap and after the
+                // pose-menu [SWAP] click alike. Restoring stock reopen
+                // unifies all swap origins (pose-menu [SWAP] /
+                // [QS]select seat picker / [QS]hudadmin swap dialog /
+                // [QS]hudproxy 2-slot quick swap) under one consistent
+                // post-swap UX. Stacking only happens if the user
+                // triggers rapid swaps in succession; modern viewers
+                // auto-replace prior dialogs from the same script.
                 if (has_security)
                 {
                     llMessageLinked(LINK_SET, 90006, (string)animation_menu_function, MY_SITTER);
