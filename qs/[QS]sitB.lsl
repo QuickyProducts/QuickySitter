@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.912";
+string version = "0.99";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"

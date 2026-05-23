@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.903";
+string version = "0.99";
 
 // LSD storage —————————————————————————————————————————————————————————
 
