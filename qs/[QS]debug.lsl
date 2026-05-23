@@ -25,7 +25,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.99";
+string version = "0.9901";
 integer chan = 88;
 integer listen_handle;
 integer LSD_TOTAL_BYTES = 131072;  // 128 KB linkset cap
@@ -332,7 +332,11 @@ stress_tick_event()
         else if (roll < 85 && n >= 2)
         {
             integer slotB = (slot + 1 + (integer)llFrand((float)(n - 1))) % n;
-            llMessageLinked(LINK_THIS, 90030,
+            // 90031 = QS_SWAP_QUIET — stress-test swaps shouldn't
+            // also trigger the post-swap pose-menu reopen in sitA
+            // (would spam dialogs). Stock 90030 (with reopen) stays
+            // reserved for user-driven pose-menu [SWAP] / seat-picker.
+            llMessageLinked(LINK_THIS, 90031,
                 (string)slot, (key)((string)slotB));
         }
         else

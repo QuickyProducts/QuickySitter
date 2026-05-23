@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9911";
+string version = "0.9912";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -39,6 +39,14 @@ string memoryscript;
 integer SCRIPT_CHANNEL;
 list SITTERS;
 integer SWAPPED;
+// Set TRUE when the swap was triggered by a "quiet" sender (90031 =
+// QS_SWAP_QUIET, used by [QS]hudadmin SWAP-picker, [QS]hudproxy
+// 2-slot quick-swap, [QS]debug stress test). Gates the post-swap menu
+// reopen in run_time_permissions so HUD-driven swaps don't stack a
+// fresh pose menu on top of whatever the user was looking at. Stays
+// FALSE for stock 90030 senders (pose-menu [SWAP], [QS]select seat
+// picker) so they keep the stock-AVsitter reopen behavior.
+integer bSilentSwap;
 key MY_SITTER;
 key CONTROLLER;
 // ADJUST_MENU global removed in 0.910 — sitB now loads qs:cfg slot 14
@@ -928,7 +936,7 @@ default
             release_sitter(one);
             return;
         }
-        if (num == 90030) // 90030=swap sitters
+        if (num == 90030 || num == 90031) // 90030=swap (stock+select, with reopen); 90031=quiet swap (HUD+debug, no reopen)
         {
             if (one == SCRIPT_CHANNEL || two == SCRIPT_CHANNEL)
             {
@@ -941,6 +949,9 @@ default
                 if (reused_key) // OSS::if (osIsUUID(reused_key) && reused_key != NULL_KEY)
                 {
                     SWAPPED = TRUE;
+                    // Per-swap flag for the menu-reopen gate; reset on
+                    // consumption in run_time_permissions.
+                    bSilentSwap = (num == 90031);
                     llRequestPermissions(reused_key, PERMISSION_TRIGGER_ANIMATION);
                 }
                 // Clear MY_SITTER only on the slots actually involved in
@@ -1377,22 +1388,18 @@ default
                 // primcount_error() inlined here:
                 llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
             }
-            else if (!MTYPE)
+            else if (!MTYPE && !bSilentSwap)
             {
-                // Stock-AVsitter behavior restored in 0.9911: close +
-                // reopen the pose menu after every perm-grant, including
-                // post-swap. Earlier QuickySitter versions skipped the
-                // reopen on SWAP entries (a now-removed `bSwapEntry`
-                // guard) to dodge HUD-swap dialog stacking, but the
-                // trade-off was worse — users lost menu context after
-                // the HUD SWAP-picker / proxy quick-swap and after the
-                // pose-menu [SWAP] click alike. Restoring stock reopen
-                // unifies all swap origins (pose-menu [SWAP] /
-                // [QS]select seat picker / [QS]hudadmin swap dialog /
-                // [QS]hudproxy 2-slot quick swap) under one consistent
-                // post-swap UX. Stacking only happens if the user
-                // triggers rapid swaps in succession; modern viewers
-                // auto-replace prior dialogs from the same script.
+                // Stock-AVsitter reopen path (since 0.9912 gated on
+                // bSilentSwap): close + reopen the pose menu after the
+                // perm-grant for stock 90030 senders (pose-menu [SWAP]
+                // click, [QS]select seat picker), but stay quiet for
+                // 90031 (QS_SWAP_QUIET) senders ([QS]hudadmin SWAP-
+                // picker, [QS]hudproxy quick-swap, [QS]debug stress).
+                // The HUD paths use external dialogs that already give
+                // the user feedback on their action; thrusting a fresh
+                // pose menu on top would stack windows in viewers that
+                // don't auto-replace cross-script dialogs.
                 if (has_security)
                 {
                     llMessageLinked(LINK_SET, 90006, (string)animation_menu_function, MY_SITTER);
@@ -1404,6 +1411,8 @@ default
                     llMessageLinked(LINK_SET, 90005, (string)animation_menu_function, llDumpList2String([CONTROLLER, MY_SITTER], "|")); // 90005=send menu to user
                 }
             }
+            // Consume the silent-swap flag whether we reopened or not.
+            bSilentSwap = FALSE;
         }
     }
 
