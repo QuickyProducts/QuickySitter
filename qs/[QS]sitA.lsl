@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.99";
+string version = "0.991";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -789,6 +789,17 @@ default
     link_message(integer sender, integer num, string msg, key id)
     {
         // Boot-done broadcast from [QS]boot.finalize_boot. Triggers the
+        // Boot wipe signal (90024 QS_BOOT_WIPE) — notecard re-save
+        // invalidated the seeded LSD. Drop boot_done so the
+        // !boot_done guards re-engage; sitB slot-0 handles the
+        // actual sit-eject loop. finalize_boot will fire QS_BOOT_RELOAD
+        // again once the re-seed completes and we wake up via the
+        // 90023 handler below.
+        if (num == 90024)   // QS_BOOT_WIPE
+        {
+            boot_done = FALSE;
+            return;
+        }
         // initial load when boot finishes after our state_entry, or
         // re-load after a notecard save. Always processed even when
         // !boot_done so the wake-up path works.

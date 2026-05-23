@@ -54,6 +54,7 @@ notice.
 | Num | Range neighbour | Use |
 |-----|-----------------|-----|
 | `90023` | between stock `90022` and `90050` | `[QS]boot` → all: emitted at the end of the seed cascade. `[QS]sitB` re-reads MENU_LIST from LSD on receipt, eliminating the manual-reset step after a notecard re-save. |
+| `90024` | same | `[QS]boot` → all: emitted BEFORE the LSD wipe + `llResetScript` on a notecard re-save. `[QS]sitA` flips `boot_done = FALSE` and `[QS]sitB` flips `iBooted = FALSE` + clears MENU_LIST so their pre-boot guards re-engage during the re-seed window (would otherwise serve stale data until the matching `90023` arrives at the end of `finalize_boot`). |
 | `90077` | between stock `90076` and `90090` | `[QS]boot` → `[QS]sitB`: boot self-check probe ("is the menu pipeline present?"). Sent once from boot's `state_entry`. See [§ Boot self-check](#boot-self-check--90077--90078). |
 | `90078` | same | `[QS]sitB` → `[QS]boot`: boot self-check reply. Sent in response to `90077`. |
 | `90089` | same | `[QS]prop` → all: announces prop presence so `[QS]adjuster` can gate the `[PROP]` menu item without inventory-probing `[QS]prop`. Broadcast on state_entry / on_rez / QSALIVE-reply (mirrors `QS_FACES_HELLO`). id = announcer's script name. |

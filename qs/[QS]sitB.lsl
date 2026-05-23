@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.992";
+string version = "0.993";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -42,6 +42,14 @@ integer number_of_sitters = 1;
 // kept as a stock-AVsitter backward-compat fallback.
 integer QS_SELECT_HELLO   = 90092;
 integer qs_select_present = FALSE;
+
+// QS_BOOT_WIPE — broadcast by [QS]boot BEFORE its LSD wipe + reset
+// when a notecard re-save invalidates the seeded state. We flip
+// iBooted back to FALSE and clear MENU_LIST so menu opens / sit
+// attempts hit the pre-boot guard instead of serving stale data.
+// finalize_boot fires QS_BOOT_RELOAD (90023) when the re-seed
+// completes.
+integer QS_BOOT_WIPE      = 90024;
 
 // QS_BOOT_RELOAD — broadcast by [QS]boot at the end of its seed cascade.
 // Triggers a fresh qs_load_from_lsd() so a notecard re-save doesn't
@@ -926,6 +934,20 @@ default
             // Boot self-check probe — reply once. One HELLO per probe is
             // enough; boot's handler only sets a flag.
             llMessageLinked(LINK_SET, QS_SITB_HELLO, "", "");
+            return;
+        }
+        if (num == QS_BOOT_WIPE)
+        {
+            // Notecard re-save: boot is about to wipe LSD and reseed.
+            // Drop iBooted so the slot-0 pre-boot eject re-engages on
+            // any sit attempt during the re-seed window. Clear
+            // MENU_LIST so a stale menu can't be rendered between
+            // wipe and the QS_BOOT_RELOAD that wakes us up again.
+            iBooted = FALSE;
+            MENU_LIST = [];
+            current_menu = -1;
+            last_menu = 0;
+            menu_page = 0;
             return;
         }
         if (num == QS_BOOT_RELOAD)

@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.99";
+string version = "0.991";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -40,6 +40,16 @@ list dump_plugins;
 // instead of staying on the stale list from their last state_entry.
 // Without this, a notecard re-save requires manual reset on every sitB.
 integer QS_BOOT_RELOAD = 90023;
+
+// QS_BOOT_WIPE — broadcast BEFORE the LSD wipe + llResetScript when a
+// notecard re-save invalidates the seeded state. sitA / sitB receive
+// and flip boot_done / iBooted back to FALSE so their pre-boot guards
+// (sitA's link_message/changed `!boot_done return`, sitB slot-0's
+// CHANGED_LINK eject) re-engage during the re-seed window. Without
+// this signal, sitter scripts kept serving stale MENU_LIST / pose
+// data between the wipe and the QS_BOOT_RELOAD that fires at the end
+// of finalize_boot.
+integer QS_BOOT_WIPE = 90024;
 
 // Boot self-check — verifies the minimum base scripts (sitA + sitB) are
 // present in the linkset, plus a conditional warn if the notecard has
@@ -1251,6 +1261,14 @@ default
             // SITTER directive in AVpos, which flips the asset key anyway.
             if (llGetInventoryKey(notecard_name) != notecard_key)
             {
+                // Tell sitA / sitB their cached MENU_LIST / pose data
+                // is about to become invalid — they flip back to the
+                // pre-boot state and engage their sit/menu eject guards
+                // until our finalize_boot fires QS_BOOT_RELOAD again.
+                // Broadcast BEFORE the wipe so the receivers have the
+                // signal even if scheduling re-orders us; they read no
+                // LSD on this path, just clear flags.
+                llMessageLinked(LINK_SET, QS_BOOT_WIPE, "", "");
                 llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|boot):", "");
                 llResetScript();
             }
