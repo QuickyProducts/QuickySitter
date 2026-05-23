@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.99";
+string version = "0.991";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -694,6 +694,27 @@ default
                         }
                     }
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
+                }
+                if (msg == "[BACK]")
+                {
+                    // sitB asked us to tear down the active mode
+                    // (helper_mode or ADJUSTMODE) — it's already
+                    // opening its adjust submenu, we only do the
+                    // cleanup here. Both modes can theoretically be
+                    // independently active; handle whichever is on.
+                    // Silent (no menu re-render from here; sitB owns
+                    // the navigation).
+                    controller = id;
+                    if (helper_mode)
+                    {
+                        helper_mode = FALSE;
+                        end_helper_mode();
+                    }
+                    if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
+                    {
+                        llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
+                        helper_method = 0;
+                    }
                 }
                 if (msg == "[HELPER]")
                 {

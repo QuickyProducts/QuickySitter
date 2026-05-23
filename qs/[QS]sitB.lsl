@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.991";
+string version = "0.992";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -220,8 +220,16 @@ integer animation_menu(integer animation_menu_function)
         }
         list menu_items0;
         list menu_items2;
-        if (current_menu != -1 || select_present())
+        // qh_on lifted from L245 → here so [BACK] visibility (and the
+        // [ADJUST]/[BACK] swap below) can reference it. Single read.
+        integer qh_on = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
+        if (current_menu != -1 || select_present() || helper_mode || qh_on)
         {
+            // [BACK] does pose-submenu navigation by default. In
+            // helper_mode / qh_on it ALSO exits the mode and opens the
+            // adjust submenu — see [BACK] handler in listen for the
+            // unified branch (replaces the old [ADJUST]/[ADJUST OFF]
+            // swap that confused navigation between the two modes).
             menu_items0 += "[BACK]";
         }
         string submenu_info;
@@ -231,10 +239,12 @@ integer animation_menu(integer animation_menu_function)
         }
         // QuickyHUD ADJUSTMODE mirrors helper_mode's main-menu
         // enrichment: while the HUD is in adjust state, the user gets
-        // [NEW]/[DUMP]/[SAVE] in the pose menu and [ADJUST] becomes
-        // [ADJUST OFF] as the toggle-off button. LSD key is the single
-        // source of truth — sitA gates its [QUICKYHUD] entry button
-        // off the same probe.
+        // [NEW]/[DUMP]/[SAVE] in the pose menu. Exit/back navigation
+        // is via [BACK] (added above) since 0.992 — the previous
+        // [ADJUST]/[ADJUST OFF] swap had asymmetric semantics
+        // (helper's [ADJUST] meant "off and back to adjust submenu";
+        // qh's [ADJUST OFF] meant "off, stay in pose menu") which
+        // surprised users.
         // [SAVE] is needed in both modes despite ADJUSTMODE auto-saving
         // sitter pose offsets via the 90055 → qs_save_pose_offset path:
         // [PROP] in-world drag has no HUD-driven auto-save and the
@@ -242,7 +252,6 @@ integer animation_menu(integer animation_menu_function)
         // way prop positions get persisted ([QS]prop.lsl:736 explicitly
         // tells the user "Position your prop and click [SAVE]."). The
         // pose-offset re-write under qh_on is idempotent — same value.
-        integer qh_on = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
         if (helper_mode || qh_on)
         {
             menu_items2 += "[NEW]";
@@ -257,13 +266,11 @@ integer animation_menu(integer animation_menu_function)
         }
         if (AMENU == 2 || (AMENU == 1 && current_menu == -1) || llSubStringIndex(submenu_info, "A") != -1)
         {
-            if (!(OLD_HELPER_METHOD && helper_mode))
-            {
-                if (qh_on)
-                    menu_items2 += "[ADJUST OFF]";
-                else
-                    menu_items2 += "[ADJUST]";
-            }
+            // [ADJUST] is the entry button when neither mode is active.
+            // In helper_mode / qh_on, [BACK] (added above) carries the
+            // exit+navigate semantics — no [ADJUST]/[ADJUST OFF] here.
+            if (!helper_mode && !qh_on)
+                menu_items2 += "[ADJUST]";
         }
         // [OPTIONS] — top-level entry into the plug-and-play plugin menu.
         // Self-hides when the registry is empty so furniture without any
@@ -774,6 +781,24 @@ default
         else if (msg == "[BACK]")
         {
             menu_page = 0;
+            // Mode-exit branch (since 0.992): when helper_mode or
+            // ADJUSTMODE-on, [BACK] from the pose menu exits the mode
+            // and opens the adjust submenu — replaces the old
+            // [ADJUST]/[ADJUST OFF] swap. adjuster handles the actual
+            // tear-down (de-rez helpers, 90266 Off, etc.) via the
+            // 90100[BACK] broadcast below.
+            integer qh_on_now = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
+            if (helper_mode || qh_on_now)
+            {
+                helper_mode = FALSE;
+                llMessageLinked(LINK_SET, 90100,
+                    llDumpList2String([SCRIPT_CHANNEL, "[BACK]", CONTROLLER, OLD_HELPER_METHOD], "|"),
+                    id);
+                in_adjust_menu = TRUE;
+                adjust_page = 0;
+                adjust_dialog();
+                return;
+            }
             if (current_menu == -1)
             {
                 if (select_present())
