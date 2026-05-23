@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.915";
+string version = "0.924";
 string notecard_name = "AVpos";
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
@@ -69,10 +69,27 @@ integer selfcheck_pending;
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
 // Readout_Say, web() flushes to the AVsitter settings service every
 // ~1024 escaped chars or on force(TRUE) at the end of the cascade.
-string url = "https://avsitter.com/settings.php";
+//
+// Two endpoints: `url` (stock avsitter.com/settings.php, third-party,
+// uncontrolled TTL/uptime) is used for the loud [HELPER] path, keeping
+// stock behavior + chat fallback if the service goes down. `url_qs`
+// (self-hosted at slquicky.com) is used for the quiet [QUICKYHUD]
+// path — same w/c/t POST + ?q GET protocol (selfhosted PHP is a verbatim
+// deploy of the AVsitter PHP receiver, MIT). web() picks the endpoint
+// per-request based on `dump_quiet`. http_response sets `dump_failed`
+// when the QS endpoint returns non-200 so the end-of-cascade URL shout
+// can fall back to a chat-only failure hint instead of a dead link.
+string url    = "https://avsitter.com/settings.php";
+string url_qs = "https://slquicky.com/quicky-sitter/dump/settings.php";
 string cache;
 string webkey;
 integer webcount;
+integer dump_failed;
+// Note: web() reads `notecard_lines` directly for the &n=<lines>
+// QUICKYHUD-progress param. `notecard_lines` is populated by the
+// dataserver callback from state_entry's unconditional
+// llGetNumberOfNotecardLines call — works on both fresh-seed and
+// skip-seed paths, no LSD persist or per-dump iteration needed.
 
 // Settings parsed from notecard (one set, applied to every channel).
 integer MTYPE;
@@ -164,8 +181,24 @@ integer dialog_handle;
 // then ticks via 90099 — one qs:p entry per event — so per-iteration
 // locals are released and the 90022 echo queue drains between ticks.
 // Idle when qs_dump_ch == -1.
+//
+// dump_quiet: when TRUE, Readout_Say feeds the web cache only and
+// skips the per-line llRegionSayTo to the owner — including the
+// `--✄--COPY ABOVE/BELOW--✄--` banners (they still land in the web
+// cache because the AVpos paste format expects them, just not in chat).
+// The only chat output in quiet mode is the one-shot start hint from
+// the 90098 handler and either the final `Settings copy: <url>` shout
+// or a `[DUMP] Upload failed` hint (per dump_failed below) after
+// web(TRUE). Set from the initial 90098 trigger's id field (id="quiet"
+// → quiet, anything else → loud, preserving stock-style helper [DUMP]
+// behavior). Reset at end of the cascade. See qs/PROTOCOL.md § DUMP.
+//
+// The quiet path also drives endpoint selection: dump_url() returns
+// url_qs (self-hosted) when dump_quiet, else stock url (avsitter.com).
+// See globals near `string url` for the endpoint-pair rationale.
 integer qs_dump_ch = -1;
 integer qs_dump_pi;
+integer dump_quiet;
 
 // Notecard cursor.
 key notecard_query;
@@ -420,14 +453,16 @@ self_check_report()
 
 // Kick off (or restart) the notecard read. Called from state_entry and
 // from the wipe-confirmation listen handler after llLinksetDataReset().
+// notecard_lines is set by state_entry's unconditional
+// llGetNumberOfNotecardLines call (works on both seed and skip-seed
+// paths) — we don't re-fetch here, and we don't reset it either since
+// the wipe-rerun case keeps the same notecard with the same line count.
 start_boot()
 {
     current_channel = -1;
     boot_done = FALSE;
     boot_failed = FALSE;
-    reused_key = llGetNumberOfNotecardLines(notecard_name);
     reused_variable = 0;
-    notecard_lines = 0;
     last_pct = -1;   // force first qs_loading_text() to paint
     llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
     notecard_query = llGetNotecardLine(notecard_name, 0);
@@ -483,6 +518,15 @@ string FormatFloat(float f, integer num_decimals)
     return ret;
 }
 
+// Resolve the endpoint for the current dump. Stays a tiny helper so
+// the URL choice is in one place (web POST + end-of-cascade shout both
+// call it).
+string dump_url()
+{
+    if (dump_quiet) return url_qs;
+    return url;
+}
+
 web(integer force)
 {
     if (llStringLength(llEscapeURL(cache)) > 1024 || force)
@@ -492,18 +536,33 @@ web(integer force)
             cache += "\n\nend";
         }
         webcount++;
-        llHTTPRequest(url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], "w=" + webkey + "&c=" + (string)webcount + "&t=" + llEscapeURL(cache));
+        // Quiet-mode adds &n=<lines> so settings.php can render
+        // progress as "X of ~Y lines". The `> 0` gate handles the
+        // tiny race where boot just reset and dataserver hasn't yet
+        // populated notecard_lines (first chunk would still send &n=
+        // once that response lands). Loud-mode skips it (stock
+        // endpoint ignores unknown params anyway).
+        string params = "w=" + webkey + "&c=" + (string)webcount;
+        if (dump_quiet && notecard_lines > 0)
+        {
+            params += "&n=" + (string)notecard_lines;
+        }
+        params += "&t=" + llEscapeURL(cache);
+        llHTTPRequest(dump_url(), [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], params);
         cache = "";
     }
 }
 
 Readout_Say(string say)
 {
-    string objectname = llGetObjectName();
-    llSetObjectName("");
-    llRegionSayTo(llGetOwner(), 0, "◆" + say);
-    llSetObjectName(objectname);
     cache += say + "\n";
+    if (!dump_quiet)
+    {
+        string objectname = llGetObjectName();
+        llSetObjectName("");
+        llRegionSayTo(llGetOwner(), 0, "◆" + say);
+        llSetObjectName(objectname);
+    }
     say = "";
     web(FALSE);
 }
@@ -585,6 +644,12 @@ default
             llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
             return;
         }
+        // Always fetch line count — used by the seed-phase progress
+        // hovertext AND by the QUICKYHUD live-view's &n= total. Async;
+        // dataserver populates notecard_lines whenever the response
+        // arrives. Single call site so the dataserver branch's
+        // query_id == reused_key check stays unambiguous.
+        reused_key = llGetNumberOfNotecardLines(notecard_name);
         if (llLinksetDataRead("qs:boot:asset") == (string)notecard_key)
         {
             // Already seeded for this notecard — skip the re-parse.
@@ -719,7 +784,45 @@ default
         }
         if (num == 90098)
         {
-            qs_dump_start((integer)msg);
+            // Initial trigger (msg == "0") consumes the id field as a
+            // mode marker: id="quiet" → QUICKYHUD-path web-only dump,
+            // anything else → stock-style loud dump (full chat output).
+            // Cascade re-emits for additional channels (msg >= 1, see
+            // 90021 handler) leave dump_quiet untouched so the mode
+            // persists across all channels of a multi-channel furniture.
+            //
+            // Reject gate: initial triggers while a cascade is already
+            // running would clobber webkey + cache + qs_dump_pi mid-stream
+            // (qs_dump_start unconditionally resets them and emits a fresh
+            // V: line), producing a half-uploaded "abc" file on the web
+            // service and duplicated pose entries in the "def" file. The
+            // gate is keyed on ch == 0 so it only fires for initial
+            // triggers — cascade re-emits (ch >= 1) always have
+            // qs_dump_ch == -1 (qs_dump_tick clears it before sending 90021,
+            // and the 90021 handler advances synchronously), so the gate
+            // never blocks normal channel progression.
+            integer ch = (integer)msg;
+            if (ch == 0 && qs_dump_ch != -1)
+            {
+                llRegionSayTo(llGetOwner(), 0,
+                    "[QS] DUMP already in progress — wait for the URL.");
+                return;
+            }
+            if (ch == 0)
+            {
+                dump_quiet = ((string)id == "quiet");
+                dump_failed = FALSE;
+                // No start-hint here — the V: handler (90022 branch
+                // below) emits the live-view URL the moment the webkey
+                // is generated, which happens in the next event-loop
+                // tick. Adding a hint here would just be two rapid-fire
+                // chat lines saying the same thing.
+                //
+                // No total-lines fetch needed — web() reads
+                // `notecard_lines` (populated unconditionally at
+                // state_entry) directly in quiet mode.
+            }
+            qs_dump_start(ch);
             return;
         }
         if (num == 90099)
@@ -767,7 +870,29 @@ default
                 Readout_Say("--✄--COPY ABOVE INTO \"AVpos\" NOTECARD--✄--");
                 Readout_Say("");
                 web(TRUE);
-                llRegionSayTo(llGetOwner(), 0, "Settings copy: " + url + "?q=" + webkey);
+                // End-of-cascade chat. Quiet mode already gave the URL
+                // upfront, so we only emit a completion / failure
+                // signal here. Loud mode keeps the stock end-of-dump
+                // URL shout (URL wasn't emitted earlier in that path).
+                if (dump_quiet)
+                {
+                    if (dump_failed)
+                    {
+                        llRegionSayTo(llGetOwner(), 0,
+                            "[DUMP] Upload failed — link may be incomplete.");
+                    }
+                    else
+                    {
+                        llRegionSayTo(llGetOwner(), 0,
+                            "[DUMP] Done — link finalized.");
+                    }
+                }
+                else
+                {
+                    llRegionSayTo(llGetOwner(), 0,
+                        "Settings copy: " + dump_url() + "?q=" + webkey);
+                }
+                dump_quiet = FALSE;
             }
             return;
         }
@@ -789,6 +914,16 @@ default
                 {
                     webkey = (string)llGenerateKey();
                     webcount = 0;
+                    // Quiet-mode live-view URL: shouted upfront so the
+                    // owner can open the link the moment the dump
+                    // starts and watch chunks accumulate in the
+                    // browser (settings.php serves partial content +
+                    // Refresh: 3 until the .done marker lands).
+                    if (dump_quiet)
+                    {
+                        llRegionSayTo(llGetOwner(), 0,
+                            "[DUMP] Live view: " + dump_url() + "?q=" + webkey);
+                    }
                     Readout_Say("");
                     Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
                     Readout_Say("");
@@ -1130,6 +1265,24 @@ default
             {
                 llSetTimerEvent(10.0);
             }
+        }
+    }
+
+    // QS DUMP-endpoint failure detection. Stock-loud dumps go to
+    // avsitter.com (not our concern, chat fallback already covers).
+    // Quiet dumps go to url_qs (self-hosted) — if any chunk POST
+    // returns non-200, set dump_failed so the end-of-cascade URL
+    // shout flips to a chat-only failure hint instead of advertising
+    // a dead/incomplete link. Race note: web(TRUE) is async, so the
+    // FINAL chunk's response may not have arrived when the URL shout
+    // fires (HTTP responses come after the next event loop tick).
+    // Intermediate-chunk failures are caught reliably; same-connection
+    // final-chunk-only failures are rare in practice.
+    http_response(key request_id, integer status, list metadata, string body)
+    {
+        if (dump_quiet && status != 200)
+        {
+            dump_failed = TRUE;
         }
     }
 }

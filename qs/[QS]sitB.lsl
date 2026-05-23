@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.911";
+string version = "0.912";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -117,19 +117,10 @@ key CONTROLLER;
 string RLVDesignations;
 string onSit;
 integer speed_index;
-integer verbose = 0;
 // SEP = U+FFFD. Initialized at runtime via llUnescapeURL because the
 // SL script editor mangles a literal U+FFFD to 0x20 (space) on upload,
 // which silently splits anim names containing spaces.
 string SEP;
-
-Out(integer level, string out)
-{
-    if (verbose >= level)
-    {
-        llOwnerSay(llGetScriptName() + "[" + version + "]:" + out);
-    }
-}
 
 // Read pose data straight from LSD by integer index. Returns the parsed
 // list [name, type, anim, pos, rot]; "" if the index is out of range.

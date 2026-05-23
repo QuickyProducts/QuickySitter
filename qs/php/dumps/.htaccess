@@ -1,0 +1,16 @@
+# Block direct HTTP access to stored dump chunks.
+# settings.php reads them server-side via file_get_contents — clients
+# only ever talk to settings.php?q=<webkey>, never to the raw files.
+#
+# nginx users: this file is ignored. Add to your server block instead:
+#   location ~ /quicky-sitter/dump/dumps/ { deny all; }
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 fallback
+    Order deny,allow
+    Deny from all
+</IfModule>

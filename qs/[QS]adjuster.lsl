@@ -19,8 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string url = "https://avsitter.com/settings.php"; // the settings dump service remains up for AVsitter customers. settings clear periodically.
-string version = "0.912";
+string version = "0.914";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -104,13 +103,6 @@ string last_text;
 integer menu_pages;
 integer number_per_page = 9;
 list chosen_animations = [last_text]; //OSS::list chosen_animations; // Force error in LSO
-// SEP = U+FFFD. Initialized at runtime via llUnescapeURL because the
-// SL script editor mangles a literal U+FFFD to 0x20 (space) on upload,
-// which silently splits anim names containing spaces.
-string SEP;
-
-// FormatFloat / web / Readout_Say moved to [QS]boot — they belong with
-// the dump receiver chain that boot now owns.
 
 // ========================================================================
 // QuickySitter LSD persistence layer (adjuster side)
@@ -503,7 +495,6 @@ default
 {
     state_entry()
     {
-        SEP = llUnescapeURL("%EF%BF%BD");
         if (llSubStringIndex(llGetScriptName(), " ") != -1)
         {
             remove_script("Use only one of this script!");
@@ -632,7 +623,27 @@ default
                     // 90022s, formats and Readout_Says them itself, then
                     // runs the plugin/next-channel cascade and finalizes
                     // the upload.
-                    llMessageLinked(LINK_THIS, 90098, "0", "");
+                    //
+                    // Mode marker in the id field: "quiet" → boot's
+                    // Readout_Say suppresses the per-line chat output,
+                    // emitting only the COPY ABOVE/BELOW banners and the
+                    // final URL shout to the owner. Anything else (""
+                    // here) keeps stock-style loud chat output.
+                    //
+                    // Routing rule: [DUMP] reached us via the same pose
+                    // menu, but the user entered that menu either via
+                    // [HELPER] (helper_mode=TRUE) or via [QUICKYHUD]
+                    // (helper_mode=FALSE, ADJUSTMODE flipped to "On").
+                    // Helper path keeps stock behavior; QUICKYHUD path
+                    // goes quiet because the HUD user already has a
+                    // chat-free workflow and the URL is the deliverable.
+                    string dump_mode = "";
+                    if (!helper_mode
+                        && llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
+                    {
+                        dump_mode = "quiet";
+                    }
+                    llMessageLinked(LINK_THIS, 90098, "0", dump_mode);
                 }
                 if (msg == "[NEW]")
                 {
