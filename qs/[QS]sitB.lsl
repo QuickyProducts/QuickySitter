@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.99";
+string version = "0.991";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -1028,6 +1028,17 @@ default
         {
             // reuse msg to save a local
             msg = llList2String((data = llParseStringKeepNulls(msg, ["|"], data)), 1);
+            // Slot filter (since 0.991): 90100/90101 broadcasts carry the
+            // originating slot in data[0] (set by senders in [QS]sitB
+            // self-catch-all, [QS]adjuster, [QS]faces back-route, etc.).
+            // Without this guard, every sitB instance in a multi-sit prim
+            // reacts to every broadcast — user-reported symptom: clicking
+            // [ADJUST] on the slot-0 menu spawned a second adjust dialog
+            // for slot 1 too. "X" is a wildcard used by [QS]select for
+            // cross-slot routing (e.g. [QUICKYHUD] entry); accept it so
+            // those paths still fan out to all sitB instances.
+            string sSlot = llList2String(data, 0);
+            if (sSlot != "X" && (integer)sSlot != SCRIPT_CHANNEL) return;
             if (msg == "[HELPER]")
             {
                 menu_page = 0;
