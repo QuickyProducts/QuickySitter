@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.9912";
+string version = "0.9913";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -750,6 +750,30 @@ default
                 }
                 if (msg == "[HELPER]")
                 {
+                    // Non-owner gate — stock-AVsitter parity (verbatim
+                    // wording so long-time AVsitter muscle memory still
+                    // applies). Without this, anyone seated on the prim
+                    // who reaches the ADJUST submenu can flip
+                    // helper_mode, rez the [AV]helper bars, and move
+                    // pose anchors for everyone.
+                    //
+                    // This guard has regressed multiple times in past
+                    // edits — the [HELPER] click handler is a hot spot
+                    // because helper_mode toggles, [QUICKYHUD] cross-
+                    // routes through here, and the [HELPER] / [DONE]
+                    // exit-button rename touched the same block. Any
+                    // future change here MUST preserve this owner check.
+                    // Don't fold the early-return into a single big
+                    // if-statement — the explicit `return` keeps the
+                    // intent visible during diff review.
+                    if (id != llGetOwner()) {
+                        llDialog(id,
+                            "Only the owner can rez the helpers. If "
+                            + "the owner is nearby they can type "
+                            + "'/5 helper' in chat.",
+                            ["OK"], -3675);
+                        return;
+                    }
                     controller = id;
                     OLD_HELPER_METHOD = (integer)llList2String(data, 3);
                     toggle_helper_mode();

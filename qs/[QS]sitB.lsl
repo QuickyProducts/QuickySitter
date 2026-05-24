@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9934";
+string version = "0.9936";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -528,8 +528,18 @@ adjust_dialog()
     // QPP_CFG:ADJUSTMODE LSD key (same probe sitA used pre-0.910).
     // HUDPROXY presence cleanup (90093) keeps the key from going stale
     // after the HUD is removed.
+    //
+    // License gate (0.9935+): hudadmin writes `qs:hud:unlicensed` = "1"
+    // when its protected isLicensed() check fails (Creator build with
+    // no LSD token). Suppress [QUICKYHUD] in that case — the HUD
+    // pipeline shouldn't be advertised for an unlicensed build.
+    // Customer builds (LICENSE_SALT == 0 in hudadmin) and licensed
+    // Creator builds never set the key, so the gate is a no-op for
+    // the normal flow. Inverted polarity, see hudadmin's
+    // ensureLicenseFlag header for the full rationale.
     if (CONTROLLER == llGetOwner() && adjuster_present
-        && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)))
+        && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1))
+        && llLinksetDataRead("qs:hud:unlicensed") != "1")
         tail += "[QUICKYHUD]";
 
     if (!llGetListLength(builtins) && !llGetListLength(dyn) && !llGetListLength(tail))
@@ -1151,6 +1161,19 @@ default
             if (sSlot != "X" && (integer)sSlot != SCRIPT_CHANNEL) return;
             if (msg == "[HELPER]")
             {
+                // Non-owner gate — MUST match adjuster's [HELPER] click
+                // handler ([QS]adjuster.lsl, "Only the owner can rez
+                // the helpers..." dialog). Without this guard, sitB
+                // flips helper_mode and opens animation_menu(0) even
+                // though adjuster refused — user sees BOTH the "Only
+                // the owner" dialog AND the helper sub-menu, plus
+                // helper_mode toggles globally for everyone seated.
+                // Same regression-hotspot warning as adjuster's gate:
+                // any future change here MUST preserve this owner check.
+                // data[2] is the controller key (the avatar who clicked
+                // [HELPER] in the ADJUST submenu); compared to
+                // llGetOwner() of the furniture prim.
+                if (llList2Key(data, 2) != llGetOwner()) return;
                 menu_page = 0;
                 helper_mode = !helper_mode;
                 if (llList2Key(data, 2) == MY_SITTER && !OLD_HELPER_METHOD)
