@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9932";
+string version = "0.9933";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -96,6 +96,16 @@ integer has_texture;
 integer has_security;
 integer adjuster_present;
 integer faces_present;
+// Script-name captures from 90091 / 90090 HELLO broadcasts. Used by the
+// changed(CHANGED_INVENTORY) handler to detect plugin removal — a
+// deleted script can't broadcast goodbye (QSALIVE doesn't fit, see
+// sitA's same comment for the slot-detection path), so we inventory-
+// probe the captured name and clear the cached flag on removal. Stock
+// AVsitter inventory-probed directly at every menu render; we keep the
+// HELLO cache (rename-friendly) and only inventory-probe on
+// CHANGED_INVENTORY to refresh it.
+string  adjuster_script_name;
+string  faces_script_name;
 integer in_adjust_menu;         // TRUE while ADJUST dialog is open
 integer adjust_page;            // pagination state for ADJUST dialog
 string  helper_object = "[AV]helper";
@@ -899,6 +909,32 @@ default
                 }
             }
         }
+        if (change & CHANGED_INVENTORY)
+        {
+            // Removal-detection for plugins that announced via HELLO.
+            // adjuster/faces are renamed-friendly (creators can ship as
+            // [FOO]adjuster etc.), so we use the script name captured
+            // from the HELLO id field rather than a hardcoded literal.
+            // Without this branch the cached *_present flag would stay
+            // TRUE after the plugin script is removed, leaving the
+            // [HELPER] / [FACES] buttons in the ADJUST submenu pointing
+            // at a dead receiver until sitB next resets. Stock-AVsitter
+            // achieved the same instant detection by inventory-probing
+            // before every menu render — we trade that per-render cost
+            // for a per-inventory-change refresh.
+            if (adjuster_script_name != ""
+                && llGetInventoryType(adjuster_script_name) == INVENTORY_NONE)
+            {
+                adjuster_present     = FALSE;
+                adjuster_script_name = "";
+            }
+            if (faces_script_name != ""
+                && llGetInventoryType(faces_script_name) == INVENTORY_NONE)
+            {
+                faces_present     = FALSE;
+                faces_script_name = "";
+            }
+        }
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -933,8 +969,8 @@ default
         // submenu entries; sitA still keeps its own faces_present /
         // adjuster_present is gone in 0.910 (only has_security stays
         // because L1454 + llPassTouches need it).
-        if (num == 90090) { faces_present    = TRUE; return; }
-        if (num == 90091) { adjuster_present = TRUE; return; }
+        if (num == 90090) { faces_present    = TRUE; faces_script_name    = (string)id; return; }
+        if (num == 90091) { adjuster_present = TRUE; adjuster_script_name = (string)id; return; }
         if (num == QS_SITB_PROBE)
         {
             // Boot self-check probe — reply once. One HELLO per probe is
