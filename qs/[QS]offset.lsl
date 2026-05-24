@@ -61,7 +61,14 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.99";
+string version = "0.9901";
+
+// QS_OFFSET_HELLO — broadcast on state_entry and in response to
+// QSALIVE-reply (90097), so [QS]adjuster can cache offset_present and
+// mirror the `qs:offset:alive` LSD flag that [QS]sitA gates its
+// personal-offset confirmations on. 90088 sits in the 9008x fork-hello
+// band alongside QS_PROP_HELLO (90089) / QS_FACES_HELLO (90090).
+integer QS_OFFSET_HELLO = 90088;
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -474,6 +481,14 @@ default
         // and we want hudproxy's storage report to reflect that until the
         // first save_offset bumps it.
         update_ram_tier_count();
+        // Authoritative presence write: as long as this script is alive,
+        // `qs:offset:alive` is "1". [QS]adjuster mirrors this via the
+        // QS_OFFSET_HELLO handler below; sitA reads it directly to gate
+        // its "Personal offset saved..." confirmations. If this script
+        // is removed at runtime, adjuster's CHANGED_INVENTORY → reset
+        // clears the key in its own state_entry.
+        llLinksetDataWrite("qs:offset:alive", "1");
+        llMessageLinked(LINK_SET, QS_OFFSET_HELLO, "", llGetScriptName());
         debugSay("Ready. LSD room=" + (string)lsdRoomLeft()
             + " poses; RAM cap=" + (string)LRU_CAP
             + "; Free=" + (string)llGetFreeMemory()
@@ -501,6 +516,19 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == 90097)
+        {
+            // QSALIVE reply from slot-0 sitA. Re-announce our presence
+            // so a late-booting adjuster catches us, and re-stamp the
+            // LSD flag in case it was wiped during the boot cycle.
+            // Substring-match the product token to ignore non-QS replies.
+            if (llSubStringIndex(msg, "QuickySitter|") == 0)
+            {
+                llLinksetDataWrite("qs:offset:alive", "1");
+                llMessageLinked(LINK_SET, QS_OFFSET_HELLO, "", llGetScriptName());
+            }
+            return;
+        }
         if (num == 90261)
         {
             // msg = (string)slot

@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9912";
+string version = "0.9913";
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -730,7 +730,16 @@ default
             // window where the user would land at DEFAULT.
             llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|M#T!|" + (string)pd + "|" + (string)rd, MY_SITTER);
             adjust_pose_menu();
-            llRegionSayTo(id, 0, "Personal offset saved for all poses.");
+            // Gated confirmation: when [QS]offset is missing the 90262
+            // above goes into the void and nothing is persisted. The
+            // `qs:offset:alive` LSD flag is owned by [QS]offset itself
+            // (state_entry write) and mirrored by [QS]adjuster's
+            // QS_OFFSET_HELLO listener; cleared by adjuster's state_entry
+            // until offset re-announces. See PROTOCOL.md § QS_OFFSET_HELLO.
+            if (llLinksetDataRead("qs:offset:alive") == "1")
+                llRegionSayTo(id, 0, "Personal offset saved for all poses.");
+            else
+                llRegionSayTo(id, 0, "Personal offset storage not installed - position not saved.");
         }
         else if (msg == "[SAVE]")
         {
@@ -740,7 +749,12 @@ default
             // for why we don't pre-populate RAM_OVERFLOW.
             llMessageLinked(LINK_THIS, 90262, (string)SCRIPT_CHANNEL + "|" + CURRENT_POSE_NAME + "|" + (string)pd + "|" + (string)rd, MY_SITTER);
             adjust_pose_menu();
-            llRegionSayTo(id, 0, "Personal position saved for this pose.");
+            // See [ALL POSES] branch above for the gated-confirmation
+            // rationale.
+            if (llLinksetDataRead("qs:offset:alive") == "1")
+                llRegionSayTo(id, 0, "Personal position saved for this pose.");
+            else
+                llRegionSayTo(id, 0, "Personal offset storage not installed - position not saved.");
         }
         else if (index != -1)
         {

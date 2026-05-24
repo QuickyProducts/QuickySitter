@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.9911";
+string version = "0.9912";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -55,6 +55,17 @@ integer faces_present  = FALSE;
 // name-agnostic for prop (no "[QS]prop" literal left in this file).
 integer QS_PROP_HELLO = 90089;
 integer prop_present  = FALSE;
+
+// QS_OFFSET_HELLO — [QS]offset broadcasts this on state_entry and in
+// response to QSALIVE-reply (mirrors QS_FACES_HELLO / QS_PROP_HELLO).
+// We mirror the resulting LSD flag `qs:offset:alive` so [QS]sitA can
+// gate its "Personal offset saved..." confirmation on it — if offset
+// is missing, sitA emits "storage not installed" instead of lying.
+// state_entry clears the LSD key as a reset safety net; offset's
+// announce restores it. 90088 sits just below QS_PROP_HELLO in the
+// same 9008x fork-hello band.
+integer QS_OFFSET_HELLO = 90088;
+integer offset_present  = FALSE;
 
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
@@ -520,6 +531,14 @@ default
         hudproxy_present = FALSE;
         llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "PROBE", "");
         llSetTimerEvent(1.0);
+        // Reset-safety: clear the offset-alive flag until [QS]offset
+        // announces itself via QS_OFFSET_HELLO. Without this, a stale
+        // "1" from a previous run could survive offset.lsl's removal
+        // and make sitA falsely report "saved" on personal offsets.
+        // Race window ~30 ms between this delete and offset's HELLO
+        // (state_entry write + 90097 re-announce) is acceptable —
+        // saves don't happen during boot.
+        llLinksetDataDelete("qs:offset:alive");
         init_lists();
     }
 
@@ -545,6 +564,15 @@ default
         if (num == QS_PROP_HELLO) // 90089=prop announces presence
         {
             prop_present = TRUE;
+            return;
+        }
+        if (num == QS_OFFSET_HELLO) // 90088=offset announces presence
+        {
+            offset_present = TRUE;
+            // Mirror to LSD so [QS]sitA's gated confirmations can read
+            // the flag without needing its own Hello-listener. offset.lsl
+            // also writes this in its state_entry — write is idempotent.
+            llLinksetDataWrite("qs:offset:alive", "1");
             return;
         }
         if (num == QSALIVE_REPLY)

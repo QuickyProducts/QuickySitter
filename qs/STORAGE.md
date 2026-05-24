@@ -30,6 +30,7 @@ All keys are namespaced `qs:*`. `<ch>` is the sitter slot (0-based, matches
 | `qs:meta:<ch>` | `"qs1"` (presence = "channel seeded") | boot | sitA, sitB (state_entry poll) |
 | `qs:boot:asset` | notecard asset-key as string — written last in `finalize_boot` after all `qs:meta:<ch>` | boot | boot's `state_entry` skip-check |
 | `QSO:<short>:<slot>:<pose>` | `<pos>\|<rot>` (Euler degrees, both `vector`-string) — unprotected | offset.lsl ≥ 0.09 `save_offset` (when `lsdHasRoom()`) | offset.lsl `push_customs_for`, `drop_pose_for_slot` |
+| `qs:offset:alive` | `"1"` while [QS]offset is in the linkset; absent otherwise. Reset-safety: [QS]adjuster's `state_entry` deletes it, [QS]offset's `state_entry` rewrites authoritatively, [QS]adjuster's `QS_OFFSET_HELLO` handler mirrors. Gates sitA's "Personal offset saved..." confirmation in the `[ALL POSES]` / `[SAVE]` handlers. See [PROTOCOL.md § 90088](./PROTOCOL.md). | offset.lsl `state_entry` + 90097 handler; adjuster `QS_OFFSET_HELLO` handler | sitA `[ALL POSES]` / `[SAVE]` confirmation gates |
 
 `SEP` is U+FFFD, initialized at runtime via `llUnescapeURL("%EF%BF%BD")`
 because the SL script editor mangles a literal U+FFFD on upload.
