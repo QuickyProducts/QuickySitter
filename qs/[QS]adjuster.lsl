@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.991";
+string version = "0.9911";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -695,15 +695,19 @@ default
                     }
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
                 }
-                if (msg == "[BACK]")
+                if (msg == "[DONE]")
                 {
                     // sitB asked us to tear down the active mode
-                    // (helper_mode or ADJUSTMODE) — it's already
+                    // (helper_mode or ADJUSTMODE) via the new [DONE]
+                    // exit button in the pose menu — sitB is already
                     // opening its adjust submenu, we only do the
                     // cleanup here. Both modes can theoretically be
                     // independently active; handle whichever is on.
                     // Silent (no menu re-render from here; sitB owns
-                    // the navigation).
+                    // the navigation). [DONE] supersedes the short-
+                    // lived 0.991 [BACK] message, which conflicted
+                    // with the pose-submenu [BACK] navigation in
+                    // sitB.
                     controller = id;
                     if (helper_mode)
                     {

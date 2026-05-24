@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9931";
+string version = "0.9932";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -228,16 +228,17 @@ integer animation_menu(integer animation_menu_function)
         }
         list menu_items0;
         list menu_items2;
-        // qh_on lifted from L245 → here so [BACK] visibility (and the
-        // [ADJUST]/[BACK] swap below) can reference it. Single read.
+        // qh_on lifted from L245 → here so the [DONE] add-in below can
+        // reference it without re-reading LSD.
         integer qh_on = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
-        if (current_menu != -1 || select_present() || helper_mode || qh_on)
+        if (current_menu != -1 || select_present())
         {
-            // [BACK] does pose-submenu navigation by default. In
-            // helper_mode / qh_on it ALSO exits the mode and opens the
-            // adjust submenu — see [BACK] handler in listen for the
-            // unified branch (replaces the old [ADJUST]/[ADJUST OFF]
-            // swap that confused navigation between the two modes).
+            // [BACK] = pose-submenu navigation (stock semantics).
+            // Mode-exit lives on [DONE] (added in menu_items2 below
+            // when helper_mode / qh_on) — keeping these separate so
+            // [BACK] in deep pose-submenus doesn't accidentally tear
+            // down ADJUSTMODE every time the user navigates up a
+            // level.
             menu_items0 += "[BACK]";
         }
         string submenu_info;
@@ -247,12 +248,16 @@ integer animation_menu(integer animation_menu_function)
         }
         // QuickyHUD ADJUSTMODE mirrors helper_mode's main-menu
         // enrichment: while the HUD is in adjust state, the user gets
-        // [NEW]/[DUMP]/[SAVE] in the pose menu. Exit/back navigation
-        // is via [BACK] (added above) since 0.992 — the previous
-        // [ADJUST]/[ADJUST OFF] swap had asymmetric semantics
-        // (helper's [ADJUST] meant "off and back to adjust submenu";
-        // qh's [ADJUST OFF] meant "off, stay in pose menu") which
-        // surprised users.
+        // [NEW]/[DUMP]/[SAVE] in the pose menu plus a dedicated [DONE]
+        // exit button (since 0.9932). Earlier 0.992 used [BACK] for
+        // the exit but that clashed with the pose-submenu navigation
+        // [BACK] in deeper menus — clicking [BACK] to navigate up
+        // also tore down ADJUSTMODE. [DONE] is the unified exit:
+        // ends helper_mode / qh_on AND opens the adjust submenu (one
+        // click). Pre-0.992 [ADJUST]/[ADJUST OFF] swap had asymmetric
+        // semantics (helper's [ADJUST] meant "off and back to adjust
+        // submenu"; qh's [ADJUST OFF] meant "off, stay in pose menu")
+        // which surprised users — [DONE] resolves that consistently.
         // [SAVE] is needed in both modes despite ADJUSTMODE auto-saving
         // sitter pose offsets via the 90055 → qs_save_pose_offset path:
         // [PROP] in-world drag has no HUD-driven auto-save and the
@@ -267,6 +272,7 @@ integer animation_menu(integer animation_menu_function)
             {
                 menu_items2 = menu_items2 + "[DUMP]" + "[SAVE]";
             }
+            menu_items2 += "[DONE]";
         }
         else if (llSubStringIndex(submenu_info, "V") != -1)
         {
@@ -786,27 +792,27 @@ default
             }
             animation_menu(0);
         }
+        else if (msg == "[DONE]")
+        {
+            // Mode-exit (since 0.9932): clean exit from helper_mode or
+            // ADJUSTMODE that also opens the adjust submenu. Separate
+            // from [BACK] navigation so deep pose-submenu users can
+            // still navigate up without accidentally tearing down the
+            // mode. adjuster handles the actual tear-down (de-rez
+            // helpers, 90266 Off) via the 90100[DONE] broadcast below.
+            menu_page = 0;
+            helper_mode = FALSE;
+            llMessageLinked(LINK_SET, 90100,
+                llDumpList2String([SCRIPT_CHANNEL, "[DONE]", CONTROLLER, OLD_HELPER_METHOD], "|"),
+                id);
+            in_adjust_menu = TRUE;
+            adjust_page = 0;
+            adjust_dialog();
+            return;
+        }
         else if (msg == "[BACK]")
         {
             menu_page = 0;
-            // Mode-exit branch (since 0.992): when helper_mode or
-            // ADJUSTMODE-on, [BACK] from the pose menu exits the mode
-            // and opens the adjust submenu — replaces the old
-            // [ADJUST]/[ADJUST OFF] swap. adjuster handles the actual
-            // tear-down (de-rez helpers, 90266 Off, etc.) via the
-            // 90100[BACK] broadcast below.
-            integer qh_on_now = (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On");
-            if (helper_mode || qh_on_now)
-            {
-                helper_mode = FALSE;
-                llMessageLinked(LINK_SET, 90100,
-                    llDumpList2String([SCRIPT_CHANNEL, "[BACK]", CONTROLLER, OLD_HELPER_METHOD], "|"),
-                    id);
-                in_adjust_menu = TRUE;
-                adjust_page = 0;
-                adjust_dialog();
-                return;
-            }
             if (current_menu == -1)
             {
                 if (select_present())
