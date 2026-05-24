@@ -1,30 +1,9 @@
-# QuickySitter — Testplan: Sync-Drift Investigation
+# QuickySitter — Testplan
 
-## Zweck
-
-Multi-Sitter-SYNC-Posen driften zwischen Viewern auseinander, besonders
-nach Camera-Operationen (Zoom raus/zurück) und anderen Events, die einen
-Avatar temporär aus der Interest-List fallen lassen. Dieser Testplan
-deckt Diagnose und spätere Verifikation einer Re-Sync-Lösung ab.
-
-**Mechanismus:** Fällt ein Avatar aus dem Cull, requested der Viewer
-beim Wiederkommen den Anim-State neu und startet die Loop lokal bei
-`t=0`. Andere Viewer behalten ihre Timeline → Drift. Ein einzelner
-Script-Restart bringt nur die Viewer wieder in Phase, die das
-Restart-Signal im selben Frame empfangen — der gerade aus dem Cull
-zurückkommende Viewer driftet weiter, bis das nächste koordinierte
-Re-Sync-Signal kommt.
-
-**SYNC in QuickySitter:** POSE-Posen werden als `P:<name>` gespeichert,
-SYNC-Posen ohne Prefix. `[QS]sitA.lsl` broadcastet das `IS_SYNC`-Flag via
-LinkMsg 90045; `[QS]sitB.lsl` nutzte es bisher nur für den
-SYNC-Konflikt-Reset auf `FIRST_INDEX`.
-
-Mit `[QS]sitA` ≥ 0.22 nimmt sitA zusätzlich LinkMsg **90271** entgegen,
-um auf Anforderung einen Stop+Start-Cycle der Hauptpose zu fahren.
-Policy (auto-Tick, manual, Frequenz) liegt **nicht** in sitA, sondern
-beim Sender — typischerweise hudproxy aus dem QuickyHUD-Repo. Siehe
-[`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271).
+Funktionale Test-Coverage. SYNC-Drift-Investigation und Re-Sync-
+Architektur sind bewusst auf einen Smoke-Test reduziert (TC-021); für
+Architektur-Details siehe [`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271)
+und die Git-Historie.
 
 ---
 
@@ -38,16 +17,17 @@ beim Sender — typischerweise hudproxy aus dem QuickyHUD-Repo. Siehe
 | TC-014 | 20 Posewechsel in Folge | hoch | keine Race-Condition | finale Pose match; keine Ghost-Einträge in `llGetAnimationList` | ja |
 | TC-015 | Unsit während Posewechsel | mittel | sauberer Cleanup | `release_sitter` ruft `llStopAnimation`; `MY_SITTER == ""` nach 1 s | nein |
 
-## B. Multi-Sitter SYNC (Kern-Thema)
+## B. Multi-Sitter SYNC (Smoke-Test)
+
+Der einzige verbleibende SYNC-Test. Camera-Zoom-Out lässt den Avatar
+aus der Interest-List fallen und triggert beim Re-Acquisition ein
+Restart-Signal vom Sender (hudproxy 90271). Reicht als Smoke-Test für
+die ganze Re-Sync-Pipeline — wir testen nicht alle Drift-Ursachen,
+nur dass der Mechanismus überhaupt greift.
 
 | ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
 |---|---|---|---|---|---|
-| TC-012 | 2 Sitter, FPS 60 vs FPS 15, SYNC-Pose | hoch | kein sichtbarer Drift | Phasen-Offset <200 ms über 5 min | ja |
-| TC-021 | Avatar zoomt aus Draw-Distance raus & zurück | hoch | nach Re-Acquisition synchron | Phasen-Offset <200 ms, 30 s nach Wiedereintritt | ja |
-| TC-022 | SYNC-Pose 20-min-Dauerlauf, 2 Sitter | hoch | kein akkumulierter Drift | Drift-Rate <25 ms/min (lineare Regression) | ja |
-| TC-023 | Re-Sync triggert während Sequence-Frame-Wechsel | mittel | kein Doppel-Restart | `SEQUENCE_POINTER` korrekt; keine T-Pose-Frames | nein |
-| TC-024 | Sync-Konflikt: 2 Sitter starten dieselbe SYNC zeitversetzt | mittel | OLD_SYNC-Reset (90045) | sitB setzt `ANIM_INDEX = FIRST_INDEX` | nein |
-| TC-026 | 2×2 Sitter, 2 verschiedene SYNC-Posen parallel | mittel | beide Gruppen unabhängig synchron | innerhalb Gruppe <200 ms; keine Quer-Beeinflussung | ja |
+| TC-021 | Avatar zoomt aus Draw-Distance raus & wieder rein | hoch | nach Re-Acquisition synchron | visuell synchron innerhalb 30 s nach Wiedereintritt | ja |
 
 ## C. AO / Animation-Konflikte
 
@@ -93,21 +73,43 @@ beim Sender — typischerweise hudproxy aus dem QuickyHUD-Repo. Siehe
 | TC-025 | Sitter denied `PERMISSION_TRIGGER_ANIMATION` | mittel | Pose stoppt, kein Hang | sitA gibt Sitter frei; `MY_SITTER == ""` | nein |
 | TC-027 | Sit während Boot-Race (90098-Stream aktiv) | mittel | Pose-Default greift nach Boot | `boot_done == TRUE` vor erster Anim; kein verlorener Sit | ja |
 | TC-028 | `[QS]hudprop` Auto-Attach bei Sit | mittel | HUD-Prop + Pose laufen | **deferred** — wartet auf QSALIVE LINK_SET-Layer (siehe MEMORY) | ja |
-| TC-029 | ~~Dummy-Anim-Refresh-Trick~~ Multi-Avatar-Test in 0.18/0.19: refresht Skeleton, **nicht** Loop-Phase. Verworfen. | — | n/a | siehe Iterations-History unten | n/a |
-| TC-030 | hudproxy sendet 90271 bei aktivem Multi-Avatar-Setup | hoch | beide Sitter visuell gesynct nach 1 Tick | Phasen-Offset <200 ms 5 s nach Trigger; kein „stand-up"-Flackern | ja |
-| TC-031 | 90271 auf POSE-Pose (P:-Prefix) | niedrig | no-op, kein Stop+Start | `do_resync_tick` returned früh; Pose unverändert | n/a |
-| TC-032 | 90271 ohne Sitter | niedrig | no-op | early return wegen `llGetAgentSize == ZERO_VECTOR` | n/a |
+
+## H. Plugin removal during runtime
+
+Exercises the `CHANGED_INVENTORY` removal-detection paths added in
+sitB 0.9933+ (adjuster / faces / select), adjuster 0.9912+ (offset
+LSD-mirror + self-reset), offset 0.9901+ (`qs:offset:alive` LSD flag),
+and hudproxy 1.1902+ (`requireOffsetPlugin` gate). Each test removes
+a plugin script from the sitter inventory **without** a manual reset,
+then verifies the dependent UI / message path reacts on the next
+interaction.
+
+Section is intentionally English (touch-as-you-migrate convention);
+older sections stay German until they're separately migrated.
+
+| ID | Scenario | Risk | Expected | Pass criterion | Recovery |
+|---|---|---|---|---|---|
+| TC-040 | Remove `[QS]adjuster` → open ADJUST submenu | low | `[HELPER]` missing | sitB renders ADJUST without `[HELPER]` on first owner-touch after removal | no |
+| TC-041 | Remove `[QS]faces` → open ADJUST submenu | low | `[FACES]` missing | sitB renders ADJUST without `[FACES]` | no |
+| TC-042 | Remove `[QS]select` → trigger any select-driven path (sit + multi-slot menu) | medium | Routing falls back to non-select path | `select_present()` returns FALSE; no `[SELECT]`-driven dialog or branch | manual restart if state inconsistent |
+| TC-043 | Remove `[QS]offset` → sitA `[ALL POSES]` / `[SAVE]` | low | `"Personal offset storage not installed - position not saved."` | RegionSayTo message exactly matches; no silent fail | no |
+| TC-044 | Remove `[QS]offset` → HUD `+X` / `+Y` / `+Z` click | medium | `"The offset plugin is required to adjust positions."` | no visual move (90057 suppressed); no single-step ghost | no |
+| TC-045 | Remove `[QS]offset` → HUD "RESET pose" | medium | Same message as TC-044; visual reset skipped | `resetPos` jumps past both 90262 sends and the 90057 reset | no |
+| TC-046 | Remove `[QS]prop` → adjuster NEW → `[PROP]` | low | `"For this you need the prop plugin script."` | adjuster's `prop_present` FALSE after its own `llResetScript` on CHANGED_INVENTORY | no |
+| TC-047 | Plugin re-added (drop adjuster back in) | low | Button reappears on next menu | HELLO on plugin's state_entry → flag flips TRUE → next ADJUST shows `[HELPER]` | no |
+| TC-048 | Toggle plugin (remove → re-add) rapidly | medium | End state correct | One CHANGED_INVENTORY may coalesce both events; flag must reflect final state | no |
+| TC-049 | Renamed plugin: `[FOO]adjuster` removed | medium | `[HELPER]` missing | `adjuster_script_name` captured `"[FOO]adjuster"` from HELLO id; inventory-probe finds `INVENTORY_NONE` | no |
+| TC-050 | Plugin removed with ADJUST dialog still open, user clicks stale button | high | Clean fail or silent drop | No script crash; ideally a chat error; bad UX but acceptable | manual menu reopen |
+| TC-051 | Plugin removed while user is sitting on slot | high | Clean unsit or active session continues | adjuster removal triggers `unsit_all()` + reset (Z.857-862); other plugins must not crash | re-sit |
+| TC-052 | Multiple plugins removed simultaneously (multi-select delete) | medium | All cached flags clear in one CHANGED_INVENTORY tick | Single event probes all captured names; flags reflect post-removal state | no |
+| TC-053 | Notecard re-save concurrent with plugin removal | medium | Boot's wipe + sitB's removal-probe both fire without ordering hazard | `qs:*` keys repopulate; `*_present` reflects post-event state | manual restart if seeds drift |
+| TC-054 | Region restart with plugin already missing | low | Clean boot, no `[HELPER]` / `[FACES]` | All flags FALSE on state_entry; no HELLO from missing → stays FALSE | no |
+| TC-055 | Sitter with only `[QS]sitA` + `[QS]sitB` (all plugins removed) | medium | Sit works; pose menu shows core buttons only | No `[HELPER]` / `[FACES]` / `[QUICKYHUD]` / `[PROP]` entries anywhere | no |
 
 ---
 
 ## Mess-Methodik
 
-- **Phasen-Offset.** Zwei Avatare in selber SYNC-Pose nebeneinander,
-  externe Bildschirmaufnahme mit Frame-Counter. Offset = Frame-Differenz
-  bei identischer Pose-Phase / FPS. „Synchron" = <200 ms (≈ 6 Frames @
-  30 fps).
-- **Drift-Rate.** Phasen-Offset alle 60 s über 20 min loggen → lineare
-  Regression. „Kein akkumulierter Drift" = <25 ms/min.
 - **Pose-Switch-Latenz.** UI-Klick-Timestamp bis `llGetAnimationList`
   neue Anim enthält. Toleranz <1 s.
 - **State-Recovery-Zeit.** Event bis Pose wieder korrekt. <5 s
@@ -116,66 +118,3 @@ beim Sender — typischerweise hudproxy aus dem QuickyHUD-Repo. Siehe
   LSD/`MENU_LIST`/`SITTERS`.
 - **Visuelle Stabilität.** Frame-by-Frame-Review der Aufnahme — keine
   T-Pose-Frames zulässig außer wo explizit erwartet (TC-006).
-
----
-
-## Design-Entscheidungen (Re-Sync-Implementierung)
-
-Endmodell: **HUD owns policy, sitA owns mechanism.** sitA stellt einen
-einzigen LinkMsg-Trigger (90271) bereit; alle Entscheidungen über
-*wann*, *wie oft*, *automatisch oder manuell* treffen Sender —
-typischerweise hudproxy aus dem QuickyHUD-Repo. Implementierungs-
-Referenzen: [`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271)
-und [`[QS]sitA.lsl`](./[QS]sitA.lsl) `do_resync_tick()`.
-
-### Mechanismus
-
-`do_resync_tick()` macht nichts außer einem `Stop`-`Sleep(0.05)`-`Start`-
-Cycle der laufenden Hauptpose, gegated auf vier Conditions:
-
-- aktuelle Pose ist eine SYNC-Pose (kein `P:`-Prefix)
-- `PERMISSION_TRIGGER_ANIMATION` vorhanden
-- Sitter ist alive (`llGetAgentSize != ZERO_VECTOR`)
-- `CURRENT_ANIMATION_FILENAME` nicht leer
-
-Der 50-ms-Sleep ist ≥ 1 Sim-Frame (Sim ~45 Hz) gegen Coalescing,
-< 1 Viewer-Render-Frame bei 30 FPS, um den Gap nicht sichtbar zu
-machen. Das ist die einzige Mechanik, die echt eine Loop-Phase auf
-allen Viewern resettet — Loop-Phase ist viewer-lokal beim `Start`-
-Event determiniert.
-
-### Iterations-History (sitA 0.16-0.21, alle verworfen)
-
-Vor 0.22 hatte sitA verschiedene Auto-Tick-Architekturen, die alle
-verworfen wurden:
-
-- **0.16:** naives Stop+Start der Hauptanim, 30-s-Wall-Clock-Timer,
-  300 ms Sleep. Sync funktioniert, aber sichtbares „Stand-up"-Flackern
-  alle 30 s.
-- **0.17–0.19:** Dummy-Anim-Refresh-Trick mit `SYNC`-Asset
-  (Start+Sleep+Stop einer Mini-Anim, Hauptanim unangetastet).
-  Multi-Avatar-Test in 0.19 bestätigte: refresht Skeleton-State, aber
-  **nicht** die Loop-Phase. Architektonisch dafür ungeeignet.
-- **0.20:** zurück zu Stop+Start der Hauptanim, aber mit verkürztem
-  Sleep auf 50 ms.
-- **0.21:** Wall-Clock-Alignment-Bug-Fix (`llGetTime` → `llGetUnixTime`,
-  weil `llGetTime` per-Script und nicht regions-weit ist). Symptom war
-  „erster Re-Sync verschlimmert es, zweiter behebt es".
-- **0.22 (current):** Auto-Tick-Konstrukt komplett entfernt; sitA hat
-  nur noch den 90271-Handler. hudproxy entscheidet, wann gefeuert wird.
-  Notecard-Direktive `RESYNC OFF` ebenfalls entfernt — wenn der HUD
-  das Feature off lassen will, sendet er einfach kein 90271.
-
-### Warum HUD owns policy
-
-- **Pro-User-Customization.** Jeder User kann auf seinem HUD die
-  gewünschte Re-Sync-Frequenz oder Manual-Mode einstellen. Auto-Tick
-  in sitA wäre furniture-weit, hätte alle Sitter zwangsbeglückt.
-- **Furniture-Creator entlastet.** Keine Notecard-Direktiven, keine
-  cfg-Felder, keine LSD-Migration.
-- **sitA-Memory.** Die ~80 Zeilen Auto-Tick-Code (Wall-Clock-
-  Scheduling, Multiplexing mit Sequence-Timer, RESYNC-Globals,
-  state_entry-Read) waren in einem Skript, das ohnehin am 64-KB-
-  Mono-Cap kratzt. Out + 90271-Handler = Netto-Memory-Gewinn.
-- **Diagnose und Tuning** liegen im HUD-Repo, das eine Menü-UX hat —
-  geeigneter Ort als ein notecard-getriebener Setup.

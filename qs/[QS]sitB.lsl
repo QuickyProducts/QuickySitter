@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9933";
+string version = "0.9934";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -96,16 +96,17 @@ integer has_texture;
 integer has_security;
 integer adjuster_present;
 integer faces_present;
-// Script-name captures from 90091 / 90090 HELLO broadcasts. Used by the
-// changed(CHANGED_INVENTORY) handler to detect plugin removal — a
-// deleted script can't broadcast goodbye (QSALIVE doesn't fit, see
-// sitA's same comment for the slot-detection path), so we inventory-
-// probe the captured name and clear the cached flag on removal. Stock
-// AVsitter inventory-probed directly at every menu render; we keep the
-// HELLO cache (rename-friendly) and only inventory-probe on
-// CHANGED_INVENTORY to refresh it.
+// Script-name captures from 90091 / 90090 / 90092 HELLO broadcasts.
+// Used by the changed(CHANGED_INVENTORY) handler to detect plugin
+// removal — a deleted script can't broadcast goodbye (QSALIVE doesn't
+// fit, see sitA's same comment for the slot-detection path), so we
+// inventory-probe the captured name and clear the cached flag on
+// removal. Stock AVsitter inventory-probed directly at every menu
+// render; we keep the HELLO cache (rename-friendly) and only
+// inventory-probe on CHANGED_INVENTORY to refresh it.
 string  adjuster_script_name;
 string  faces_script_name;
+string  select_script_name;
 integer in_adjust_menu;         // TRUE while ADJUST dialog is open
 integer adjust_page;            // pagination state for ADJUST dialog
 string  helper_object = "[AV]helper";
@@ -934,6 +935,12 @@ default
                 faces_present     = FALSE;
                 faces_script_name = "";
             }
+            if (select_script_name != ""
+                && llGetInventoryType(select_script_name) == INVENTORY_NONE)
+            {
+                qs_select_present  = FALSE;
+                select_script_name = "";
+            }
         }
     }
 
@@ -959,7 +966,8 @@ default
         {
             // [QS]select announces presence (covers both initial state_entry
             // broadcast and the re-announce triggered by our QSALIVE-reply).
-            qs_select_present = TRUE;
+            qs_select_present  = TRUE;
+            select_script_name = (string)id;
             return;
         }
         // Capability flags for the ADJUST submenu (migrated from sitA in
