@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.993";
+string version = "0.9931";
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -1066,8 +1066,21 @@ default
             }
             return;
         }
-        if (num == 90030 && (one == SCRIPT_CHANNEL || two == SCRIPT_CHANNEL))
+        if ((num == 90030 || num == 90031) && (one == SCRIPT_CHANNEL || two == SCRIPT_CHANNEL))
         {
+            // QS_SWAP_QUIET only (90031): tear down our menu_handle so
+            // any pose dialog the user may have left open on this slot
+            // can't fire stale clicks against a now-empty CONTROLLER /
+            // MY_SITTER. Stock 90030 paths typically dismissed their
+            // dialog via the user's own button click (pose-menu [SWAP]
+            // / seat-picker pick), so the listen orphans there are
+            // harmless and best left untouched to keep stock parity.
+            // LSL can't actively close the dialog window — that stays
+            // visually on-screen until the user X's it out or it times
+            // out — but removing the listen prevents wrong-controller
+            // actions if the user clicks it.
+            if (num == 90031)
+                llListenRemove(menu_handle);
             CONTROLLER = MY_SITTER = "";
             return;
         }
