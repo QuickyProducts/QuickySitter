@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9914";
+string version = "0.9915";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -495,7 +495,7 @@ start_boot()
     boot_failed = FALSE;
     reused_variable = 0;
     last_pct = -1;   // force first qs_loading_text() to paint
-    Out(1, "Loading from " + notecard_name + "...");
+    Out(2, "Loading from " + notecard_name + "...");
     notecard_query = llGetNotecardLine(notecard_name, 0);
 }
 
