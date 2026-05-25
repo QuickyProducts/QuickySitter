@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9913";
+string version = "0.9914";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -1000,6 +1000,15 @@ default
                     if (llList2Integer(data, 10))
                     {
                         Readout_Say("HELPER " + llList2String(data, 10));
+                    }
+                    // VERBOSE is global (not per-channel) — read from
+                    // qs:cfg:verbose directly. Emit only when > 0; stock
+                    // AVsitter parses it as unknown-command and ignores,
+                    // so the dumped notecard stays portable.
+                    string vstr = llLinksetDataRead("qs:cfg:verbose");
+                    if (vstr != "" && (integer)vstr > 0)
+                    {
+                        Readout_Say("VERBOSE " + vstr);
                     }
                 }
                 Readout_Say("");
