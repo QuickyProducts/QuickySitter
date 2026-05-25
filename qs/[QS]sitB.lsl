@@ -13,22 +13,16 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9938";
+string version = "0.9939";
 
-// Verbose convention: 0=error/warn floor (default), 1=boot banner,
-// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
-// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
-// state_entry below).
+// Verbose convention applies (see [QS]boot header for the full ladder).
+// sitB diverges from the project trio: Out/OutForce helpers are dropped
+// because this script has exactly one diagnostic call site (memory()
+// banner) and the helper bytecode (~300 B) competes with MENU_LIST on
+// extreme-text furniture (1000+ poses). Verbose check inlined at the
+// memory() call below; AVpos `VERBOSE n` → qs:cfg:verbose LSD still
+// controls it (read in state_entry).
 integer verbose = 0;
-Out(integer level, string msg)
-{
-    if (verbose >= level)
-        llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
-}
-OutForce(string msg)
-{
-    llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
-}
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -144,7 +138,8 @@ integer menu_handle;
 integer menu_channel;
 integer current_menu = -1;
 integer last_menu;
-string submenu_info;
+// (global submenu_info removed — was shadowed by the same-named local
+// in animation_menu and never read outside that scope.)
 integer menu_page;
 key MY_SITTER;
 key CONTROLLER;
@@ -184,7 +179,23 @@ send_anim_info(integer broadcast)
 
 memory()
 {
-    Out(1, (string)llGetListLength(MENU_LIST) + " Items Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+    // Inlined Out(1, …) — see verbose-block header comment for rationale.
+    if (verbose >= 1)
+        llOwnerSay(llGetScriptName() + "[" + version + "] "
+            + (string)llGetListLength(MENU_LIST) + " Items Ready, Mem="
+            + (string)(65536 - llGetUsedMemory()));
+}
+
+// Bottom-up button reorder — LSL renders dialog buttons bottom-row first,
+// left-to-right within each row. Used by animation_menu / plugin_dialog /
+// adjust_dialog; consolidated here to avoid duplicating the 4-line slice
+// pattern at three sites (~80 B bytecode win).
+list reorder_dialog_buttons(list buttons)
+{
+    return llList2List(buttons, -3, -1)
+         + llList2List(buttons, -6, -4)
+         + llList2List(buttons, -9, -7)
+         + llList2List(buttons, -12, -10);
 }
 
 // QS-side presence is QS_SELECT_HELLO-cached (90092); falls back to
@@ -391,11 +402,7 @@ integer animation_menu(integer animation_menu_function)
         llListenRemove(menu_handle);
         menu_handle = llListen(menu_channel, "", CONTROLLER, "");
         menu_items0 = menu_items0 + menu_items1 + menu_items2;
-        menu_items1 = llList2List(menu_items0, -3, -1);
-        menu_items1 += llList2List(menu_items0, -6 ,-4);
-        menu_items1 += llList2List(menu_items0, -9 ,-7);
-        menu_items1 += llList2List(menu_items0, -12 ,-10);
-        llDialog(CONTROLLER, menu, menu_items1, menu_channel);
+        llDialog(CONTROLLER, menu, reorder_dialog_buttons(menu_items0), menu_channel);
     }
     return 0;
 }
@@ -502,18 +509,12 @@ plugin_dialog()
     list nav = ["[BACK]"];
     if (pages > 1) nav += ["[<<]", "[>>]"];
     list buttons = nav + page;
-    // Bottom-up reorder — same trick as animation_menu (LSL renders
-    // dialog buttons bottom-row first, left-to-right within each row).
-    list reordered = llList2List(buttons, -3, -1);
-    reordered += llList2List(buttons, -6, -4);
-    reordered += llList2List(buttons, -9, -7);
-    reordered += llList2List(buttons, -12, -10);
     llListenRemove(menu_handle);
     menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     menu_handle = llListen(menu_channel, "", CONTROLLER, "");
     string text = product + " " + version + "\n\nOptions:";
     if (pages > 1) text += " (" + (string)(plugin_page + 1) + "/" + (string)pages + ")";
-    llDialog(CONTROLLER, text, reordered, menu_channel);
+    llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
 }
 
 // ADJUST submenu — migrated from sitA's inlined options_menu() in 0.909
@@ -588,17 +589,12 @@ adjust_dialog()
     if (pages > 1) nav += ["[<<]", "[>>]"];
     list buttons = nav + builtins + page + tail;
 
-    list reordered = llList2List(buttons, -3, -1);
-    reordered += llList2List(buttons, -6, -4);
-    reordered += llList2List(buttons, -9, -7);
-    reordered += llList2List(buttons, -12, -10);
-
     llListenRemove(menu_handle);
     menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     menu_handle = llListen(menu_channel, "", CONTROLLER, "");
     string text = product + " " + version + "\n\nAdjust:";
     if (pages > 1) text += " (" + (string)(adjust_page + 1) + "/" + (string)pages + ")";
-    llDialog(CONTROLLER, text, reordered, menu_channel);
+    llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
 }
 
 default
