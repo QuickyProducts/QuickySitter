@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.9915";
+string version = "0.9916";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -553,7 +553,12 @@ default
         // saves don't happen during boot.
         llLinksetDataDelete("qs:offset:alive");
         init_lists();
-        Out(1, "Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+        // Banner only on first-fresh / manual reset, not on
+        // CHANGED_INVENTORY-driven auto-reset (see changed handler).
+        if (llLinksetDataRead("qs:adjuster:silent") != "")
+            llLinksetDataDelete("qs:adjuster:silent");
+        else
+            Out(1, "Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -896,6 +901,13 @@ default
         {
             unsit_all();
             end_helper_mode();
+            // Suppress the Ready banner on the immediately-following
+            // state_entry — auto-reset from inventory churn (any script
+            // add/remove/edit triggers this branch) shouldn't show up
+            // as a fresh "Ready" line. Cleared in state_entry after
+            // check. Manual right-click "Reset Scripts" still emits
+            // the banner (no flag set).
+            llLinksetDataWrite("qs:adjuster:silent", "1");
             llResetScript();
         }
     }
