@@ -42,7 +42,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.99";
+string version = "0.9902";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -121,7 +121,13 @@ list ATTACH_POINTS =
     , ATTACH_AVATAR_CENTER,     "avatar center"
     ];
 
-integer verbose = 5;
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below). Default lowered from stock's 5 to 0 — see
+// [[feedback_ownersay_region_spam]]: prop instances on furniture-heavy
+// regions multiply every Out() by N.
+integer verbose = 0;
 
 // LSD key prefixes — all under "qs:prop:" so prop_clear_all() can wipe
 // the whole namespace with a single llLinksetDataDeleteFound.
@@ -137,6 +143,10 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
+}
+OutForce(string out)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 integer get_number_of_scripts()
@@ -489,7 +499,10 @@ default
 {
     state_entry()
     {
-        Out(0, "Mem=" + (string)(65536 - llGetUsedMemory()));
+        // Pick up the boot-written verbose level before any Out() call.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
+        Out(1, "Mem=" + (string)(65536 - llGetUsedMemory()));
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         // Announce DUMP capability so boot's cascade doesn't need to
@@ -517,7 +530,7 @@ default
                 string groups = llList2String(mp, 3);
                 if (groups != "")
                     sequential_prop_groups = llParseStringKeepNulls(groups, ["\n"], []);
-                Out(0, (string)prop_count_cached
+                Out(1, (string)prop_count_cached
                     + " Props Ready (LSD), Mem=" + (string)llGetFreeMemory());
                 return;
             }
@@ -526,7 +539,7 @@ default
         }
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
-            Out(0, "Loading...");
+            Out(2, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, 0);
         }
     }
@@ -847,7 +860,7 @@ default
             }
             else
             {
-                Out(0, "Error, cannot find prop: " + name);
+                Out(0, "ERROR: cannot find prop: " + name);
             }
             return;
         }
@@ -893,7 +906,7 @@ default
             if (data == EOF)
             {
                 prop_write_meta();
-                Out(0, (string)prop_count_cached
+                Out(1, (string)prop_count_cached
                     + " Props Ready, Mem=" + (string)llGetFreeMemory());
                 return;
             }
@@ -910,7 +923,7 @@ default
             {
                 if (prop_count_cached == 100)
                 {
-                    Out(0, "Max props is 100, could not add prop!");
+                    Out(0, "ERROR: max props is 100, could not add prop!");
                 }
                 else
                 {

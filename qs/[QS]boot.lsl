@@ -19,8 +19,29 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.991";
+string version = "0.9913";
 string notecard_name = "AVpos";
+
+// Verbose convention (project-wide):
+//   Out(0, …)  errors + warnings (default — support-feedback floor, always shown)
+//   Out(1, …)  boot banners — first user-visible "ready" line
+//   Out(2, …)  runtime status ("Loading...", pose-switch reports)
+//   Out(3, …)  debug — chatty, only when AVpos has `VERBOSE 3`
+//   OutForce(…) bypasses verbose entirely; reserved for security/license
+//                messages that must never be silenceable.
+// Default verbose=0 (silent except errors); AVpos `VERBOSE n` directive
+// overrides via qs:cfg:verbose LSD key (boot parses + writes, plugins
+// read on state_entry).
+integer verbose = 0;
+Out(integer level, string msg)
+{
+    if (verbose >= level)
+        llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
+OutForce(string msg)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
 // camera plugin name is an AVsitter protocol constant — stock plugin
 // probes and replies by literal script name. Once [QS]camera adopts
 // QSDUMP_HELLO (like [QS]faces 0.902 and [QS]prop do), this constant
@@ -255,10 +276,10 @@ qs_lsd_write(string k, string v)
     llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
     if (wipe_attempted)
     {
-        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage still full after wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
+        Out(0, "ERROR: storage still full after wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
         return;
     }
-    llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: storage full at " + k + " — see dialog to wipe entire storage and retry.");
+    Out(0, "ERROR: storage full at " + k + " — see dialog to wipe entire storage and retry.");
     show_wipe_dialog();
 }
 
@@ -394,7 +415,7 @@ finalize_boot()
     if (boot_failed) return;
     boot_done = TRUE;
     llSetText("", <1, 1, 1>, 1);
-    llOwnerSay(llGetScriptName() + "[" + version + "] Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
+    Out(1, "Load complete; " + (string)total_channels + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory()) + " Storage=" + (string)llLinksetDataAvailable());
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
@@ -436,17 +457,17 @@ self_check_report()
     integer ok = TRUE;
     if (!sita_seen)
     {
-        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: [QS]sitA missing — no sit animation will play.");
+        Out(0, "ERROR: [QS]sitA missing — no sit animation will play.");
         ok = FALSE;
     }
     if (!sitb_seen)
     {
-        llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: [QS]sitB missing — no menu will appear.");
+        Out(0, "ERROR: [QS]sitB missing — no menu will appear.");
         ok = FALSE;
     }
     if (has_prop_in_notecard && llListFindList(dump_plugins, ["[QS]prop"]) == -1)
     {
-        llOwnerSay(llGetScriptName() + "[" + version + "] WARN: " + notecard_name + " has PROP* directives but [QS]prop is missing — props will not be rezzed.");
+        Out(0, "WARN: " + notecard_name + " has PROP* directives but [QS]prop is missing — props will not be rezzed.");
     }
     if (!ok)
     {
@@ -474,7 +495,7 @@ start_boot()
     boot_failed = FALSE;
     reused_variable = 0;
     last_pct = -1;   // force first qs_loading_text() to paint
-    llOwnerSay(llGetScriptName() + "[" + version + "] Loading from " + notecard_name + "...");
+    Out(1, "Loading from " + notecard_name + "...");
     notecard_query = llGetNotecardLine(notecard_name, 0);
 }
 
@@ -644,6 +665,12 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
+        // Restore verbose from LSD before any Out() call. Covers single-
+        // script reset on the skip-seed path, where the notecard parser
+        // doesn't re-run and the source-code default (1) would otherwise
+        // clobber a user-chosen VERBOSE level.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) != INVENTORY_NOTECARD)
         {
@@ -651,7 +678,7 @@ default
             // CHANGED_INVENTORY: notecard_key is NULL_KEY here, so adding
             // the notecard will flip the asset-key compare and reset.
             llSetText("ERROR: " + notecard_name + " notecard missing", <1, 0, 0>, 1);
-            llOwnerSay(llGetScriptName() + "[" + version + "] ERROR: " + notecard_name + " notecard missing — boot stopped.");
+            Out(0, "ERROR: " + notecard_name + " notecard missing — boot stopped.");
             return;
         }
         // Always fetch line count — used by the seed-phase progress
@@ -708,14 +735,14 @@ default
         {
             llLinksetDataReset();
             wipe_attempted = TRUE;
-            llOwnerSay(llGetScriptName() + "[" + version + "] Storage wiped — retrying boot.");
+            Out(1, "Storage wiped — retrying boot.");
             start_boot();
             return;
         }
         // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
         // (or a manual reset) restarts boot fresh; wipe_attempted clears
         // automatically via llResetScript().
-        llOwnerSay(llGetScriptName() + "[" + version + "] Boot aborted — storage wipe declined.");
+        Out(0, "Boot aborted — storage wipe declined.");
     }
 
     timer()
@@ -750,7 +777,7 @@ default
         // scripts (sitA/sitB/adjuster/...) is now inconsistent with
         // empty LSD until they're reset or the furniture is re-rezzed.
         if (act == LINKSETDATA_RESET)
-            llOwnerSay("[QS] LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.");
+            OutForce("LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.");
         if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
             arm_autosync();
     }
@@ -1114,6 +1141,17 @@ default
         if (command == "KFM")    { HASKEYFRAME = (integer)part0; return; }
         if (command == "LROT")   { REFERENCE = (integer)part0; return; }
         if (command == "DFLT")   { DFLT = (integer)part0; return; }
+        if (command == "VERBOSE")
+        {
+            // QS extension (not stock AVsitter). Sets the project-wide
+            // chat-verbosity floor for all QS scripts via the
+            // qs:cfg:verbose LSD key; each script reads it on state_entry.
+            // Stock-AVsitter sitters silently ignore the unknown command,
+            // so notecards stay portable in the read direction.
+            verbose = (integer)part0;
+            llLinksetDataWrite("qs:cfg:verbose", part0);
+            return;
+        }
         if (command == "BRAND")  { BRAND = part0; return; }
         if (command == "ONSIT")  { onSit = part0; return; }
         if (command == "ROLES")  { RLVDesignations = (string)parts; return; }

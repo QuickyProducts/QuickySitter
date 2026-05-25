@@ -26,7 +26,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.99";
+string version = "0.9902";
 integer select_type;
 list BUTTONS;
 
@@ -62,6 +62,10 @@ list SYNCS = [CUSTOM_TEXT]; //OSS::list SYNCS; // Force error in LSO
 integer menu_channel;
 integer menu_handle;
 integer menu_type;
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below).
 integer verbose = 0;
 
 Out(integer level, string out)
@@ -70,6 +74,10 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
+}
+OutForce(string out)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 string strReplace(string str, string search, string replace)
@@ -243,6 +251,9 @@ default
         // 7 until qs_alive flips); the reply handler re-runs it once
         // we know the actual count and shrinks the tail.
         qs_alive = FALSE;
+        // Pick up the boot-written verbose level before any Out() call.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         // Announce ourselves so sitB can gate select-driven menu logic
         // without script-name inventory probes. Re-broadcast on
@@ -257,11 +268,11 @@ default
         if (llLinksetDataRead("qs:meta:0") != "")
         {
             load_from_lsd();
-            Out(0, "Ready");
+            Out(1, "Ready");
         }
         else
         {
-            Out(0, "Loading...");
+            Out(2, "Loading...");
         }
     }
     listen(integer listen_channel, string name, key id, string message)
@@ -331,7 +342,7 @@ default
             // event-driven wake-up for state_entry's "boot not ready
             // yet" branch.
             load_from_lsd();
-            Out(0, "Ready");
+            Out(1, "Ready");
             return;
         }
         if (sender == llGetLinkNumber())

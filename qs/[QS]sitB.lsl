@@ -13,7 +13,22 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9936";
+string version = "0.9938";
+
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below).
+integer verbose = 0;
+Out(integer level, string msg)
+{
+    if (verbose >= level)
+        llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
+OutForce(string msg)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
 string BRAND;
 integer OLD_HELPER_METHOD;
 // main_script global removed in 0.032: it was hardcoded "[QS]sitA"
@@ -169,7 +184,7 @@ send_anim_info(integer broadcast)
 
 memory()
 {
-    llOwnerSay(llGetScriptName() + "[" + version + "] " + (string)llGetListLength(MENU_LIST) + " Items Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+    Out(1, (string)llGetListLength(MENU_LIST) + " Items Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
 }
 
 // QS-side presence is QS_SELECT_HELLO-cached (90092); falls back to
@@ -591,6 +606,9 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
+        // Pick up the boot-written verbose level before any Out() call.
+        string vstr = llLinksetDataRead("qs:cfg:verbose");
+        if (vstr != "") verbose = (integer)vstr;
         SCRIPT_CHANNEL = (integer)llGetSubString(llGetScriptName(), llSubStringIndex(llGetScriptName(), " "), 99999);
         // QSALIVE probe — slot-0 sitA replies with the real sitter count
         // (handled in link_message below). Reply lands well before the

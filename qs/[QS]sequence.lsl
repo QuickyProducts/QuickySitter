@@ -32,7 +32,7 @@
  */
 
 string product = "AVsitter™ sequence";
-string version = "0.99";
+string version = "0.9902";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
 integer QSALIVE_PROBE = 90096;
@@ -60,7 +60,14 @@ integer menu_channel;
 integer menu_handle;
 integer playsounds = TRUE;
 integer no_waits_yet;
-integer verbose = 1;
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below). NOTE: The `DEBUG` integer + DEBUGSay() below are
+// a separate stock-AVsitter feature controlled by `DEBUG n` in the
+// [AV]sequence_settings notecard — independent from this ladder and
+// kept verbatim for stock compat.
+integer verbose = 0;
 
 Out(integer level, string out)
 {
@@ -68,6 +75,10 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
+}
+OutForce(string out)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 string strReplace(string str, string search, string replace)
@@ -260,10 +271,15 @@ default
 {
     state_entry()
     {
+        // Pick up the boot-written verbose level before any Out() call.
+        // Only init here in `default` — transition to state `running`
+        // preserves globals, no need to re-read.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
-            Out(0, "Loading...");
+            Out(2, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, notecard_line);
         }
     }
@@ -329,7 +345,7 @@ state running
         // the reply lands.
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
-        Out(0, (string)llGetListLength(SEQUENCE_DATA_NAMES) + " Sequences Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+        Out(1, (string)llGetListLength(SEQUENCE_DATA_NAMES) + " Sequences Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
         integer i;
         for (i = 0; i < get_number_of_scripts(); i++)
         {

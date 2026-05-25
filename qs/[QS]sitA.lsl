@@ -15,7 +15,22 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9913";
+string version = "0.9915";
+
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below).
+integer verbose = 0;
+Out(integer level, string msg)
+{
+    if (verbose >= level)
+        llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
+OutForce(string msg)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+}
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
 // touching this file; count loops + QSALIVE-reply use the dynamic
@@ -221,7 +236,7 @@ qs_load_from_lsd()
     // booting. Plugins that came up after us still get an answer via
     // the 90096 probe path. Only slot 0 emits — see qs_alive_reply().
     if (!SCRIPT_CHANNEL) qs_alive_reply();
-    llOwnerSay(llGetScriptName() + "[" + version + "] Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
+    Out(1, "Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
 }
 
 integer get_number_of_scripts()
@@ -603,6 +618,9 @@ default
     state_entry()
     {
         SEP = llUnescapeURL("%EF%BF%BD");
+        // Pick up the boot-written verbose level before any Out() call.
+        string vstr = llLinksetDataRead("qs:cfg:verbose");
+        if (vstr != "") verbose = (integer)vstr;
         // Derive own basename — strip the " N" slot suffix if present.
         // Used by the count loops below + get_number_of_scripts() so the
         // hardcoded "[QS]sitA" goes away (creator-renamed scripts still

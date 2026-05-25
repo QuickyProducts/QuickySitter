@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.9913";
+string version = "0.9915";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -90,7 +90,6 @@ list SITTER_POSES;
 list SITTERS;
 integer sitter_count;
 integer end_count;
-integer verbose = 0;
 integer chat_channel = 5;
 integer helper_mode;
 // 0 = old [AV]helper bars, 1 = QuickyHUD ADJUSTMODE handoff. Tracks
@@ -375,7 +374,18 @@ end_helper_mode()
 // as helper_mode). [ADJUST OFF] in the pose menu round-trips back
 // through 90100 to flip ADJUSTMODE off and re-show the pose menu.
 
-Out(string out)
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below).
+integer verbose = 0;
+
+Out(integer level, string out)
+{
+    if (verbose >= level)
+        llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
+}
+OutForce(string out)
 {
     llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
@@ -510,6 +520,9 @@ default
         {
             remove_script("Use only one of this script!");
         }
+        // Pick up the boot-written verbose level before any Out() call.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
         llListen(chat_channel, "", llGetOwner(), "");
         comm_channel = ((integer)llFrand(99999) + 1) * 1000 * -1;
         // QSALIVE probe — slot-0 sitA replies with the real sitter count.
@@ -540,6 +553,7 @@ default
         // saves don't happen during boot.
         llLinksetDataDelete("qs:offset:alive");
         init_lists();
+        Out(1, "Ready, Mem=" + (string)(65536 - llGetUsedMemory()));
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -927,7 +941,7 @@ default
             if (msg == "cleanup")
             {
                 llRegionSay(comm_channel, "DONEA");
-                Out("Cleaning \"" + llGetScriptName() + "\" and \"" + helper_name + "\" from prim " + (string)llGetLinkNumber());
+                Out(1, "Cleaning \"" + llGetScriptName() + "\" and \"" + helper_name + "\" from prim " + (string)llGetLinkNumber());
                 if (llGetInventoryType(helper_name) == INVENTORY_OBJECT)
                 {
                     llRemoveInventory(helper_name);

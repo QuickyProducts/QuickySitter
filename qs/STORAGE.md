@@ -154,8 +154,12 @@ Two-tier store, see [§ Personal pose offsets](./PROTOCOL.md#personal-pose-offse
     diverges from reality (very long Unicode pose names, heap
     fragmentation from other scripts).
 
-`bDebug` flag — when `TRUE`, `debugSay` logs ready/shrink events to the
-owner. Off by default.
+Diagnostics — emergency-shrink events emit at `Out(0, "WARN: …")` so
+they always show (the support-feedback floor); the boot-time "Ready.
+LSD room=…" banner emits at `Out(1, …)`. See the project-wide verbose
+convention (AVpos `VERBOSE n` token + `qs:cfg:verbose` LSD key); default
+is `VERBOSE 0` (silent except errors) — add `VERBOSE 1` to AVpos to
+opt into the Ready banner.
 
 ### [QS]adjuster.lsl (one instance)
 

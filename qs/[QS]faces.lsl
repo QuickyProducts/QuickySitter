@@ -55,7 +55,7 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string version = "0.99";
+string version = "0.9902";
 string notecard_name = "AVpos";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
@@ -101,6 +101,10 @@ integer get_number_of_scripts()
     return 7;
 }
 
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below).
 integer verbose = 0;
 
 Out(integer level, string out)
@@ -109,6 +113,10 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
+}
+OutForce(string out)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 Readout_Say(string say, string SCRIPT_CHANNEL)
@@ -261,6 +269,9 @@ default
         // against the default (7) immediately so the script is usable
         // before the reply lands.
         qs_alive = FALSE;
+        // Pick up the boot-written verbose level before any Out() call.
+        string v = llLinksetDataRead("qs:cfg:verbose");
+        if (v != "") verbose = (integer)v;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         // Announce our presence so [QS]sitA can gate the [FACES] menu
         // item without an inventory probe. Re-broadcast in the QSALIVE
@@ -273,8 +284,7 @@ default
         notecard_key = llGetInventoryKey(notecard_name);
         if (llGetInventoryType(notecard_name) == INVENTORY_NOTECARD)
         {
-            // Out() inlined here:
-            llOwnerSay(llGetScriptName() + "[" + version + "] " + "Loading...");
+            Out(2, "Loading...");
             notecard_query = llGetNotecardLine(notecard_name, 0);
         }
     }
@@ -489,8 +499,7 @@ default
         {
             if (data == EOF)
             {
-                // Out() inlined here:
-                llOwnerSay(llGetScriptName() + "[" + version + "] " + (string)llGetListLength(anim_triggers) + " Expressions Ready, Mem=" + (string)llGetFreeMemory());
+                Out(1, (string)llGetListLength(anim_triggers) + " Expressions Ready, Mem=" + (string)llGetFreeMemory());
             }
             else
             {

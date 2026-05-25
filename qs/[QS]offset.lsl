@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9901";
+string version = "0.9903";
 
 // QS_OFFSET_HELLO — broadcast on state_entry and in response to
 // QSALIVE-reply (90097), so [QS]adjuster can cache offset_present and
@@ -114,14 +114,20 @@ integer LRU_CAP = 200;
 // other scripts in the prim fragmenting the heap, etc).
 integer EMERGENCY_FREE_BYTES = 3000;
 
-// Set to TRUE to enable verbose owner-chat diagnostics on boot and
-// emergency-shrink events. Off by default.
-integer bDebug = FALSE;
+// Verbose convention: 0=error/warn floor (default), 1=boot banner,
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry below). Replaces the previous bDebug/debugSay scheme.
+integer verbose = 0;
 
-debugSay(string s)
+Out(integer level, string s)
 {
-    if (bDebug)
+    if (verbose >= level)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
+}
+OutForce(string s)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
 }
 
 // LSD helpers —————————————————————————————————————————————————————————
@@ -184,7 +190,7 @@ emergency_shrink()
         ++evicted;
     }
     if (evicted)
-        debugSay("Emergency shrink: evicted " + (string)evicted
+        Out(0, "WARN: emergency shrink — evicted " + (string)evicted
             + " entries; free=" + (string)llGetFreeMemory()
             + " list=" + (string)(llGetListLength(CUSTOMS) / CUSTOMS_STRIDE));
 }
@@ -477,6 +483,9 @@ default
 {
     state_entry()
     {
+        // Pick up the boot-written verbose level before any Out() call.
+        string vstr = llLinksetDataRead("qs:cfg:verbose");
+        if (vstr != "") verbose = (integer)vstr;
         // Reset the RAM-tier counter — CUSTOMS is empty post-state-entry,
         // and we want hudproxy's storage report to reflect that until the
         // first save_offset bumps it.
@@ -489,7 +498,7 @@ default
         // clears the key in its own state_entry.
         llLinksetDataWrite("qs:offset:alive", "1");
         llMessageLinked(LINK_SET, QS_OFFSET_HELLO, "", llGetScriptName());
-        debugSay("Ready. LSD room=" + (string)lsdRoomLeft()
+        Out(1, "Ready. LSD room=" + (string)lsdRoomLeft()
             + " poses; RAM cap=" + (string)LRU_CAP
             + "; Free=" + (string)llGetFreeMemory()
             + "; Used=" + (string)llGetUsedMemory());
