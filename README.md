@@ -4,7 +4,7 @@ QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for S
 
 ## Goals
 
-- **Eliminate heap pressure.** Script memory has been restructured onto LinkSet Data (LSD), moving large state out of the per-script heap so complex furniture stays stable.
+- **Eliminate heap pressure.** Script memory has been restructured onto LinkSet Data (LSD), moving large state out of the per-script heap so complex furniture stays stable. Current capacity per furniture: up to ~550 poses per sitter slot and 100 props (stock AVsitter typically caps out around ~200 poses per slot before hitting Mono's 64 KB heap limit).
 - **Full API compatibility with AV stock.** Existing AVsitter 2 notecards, MENU/POSE/PROP syntax, and LinkMsg contracts continue to work.
 - **Plug-and-play HUD addons.** Adding HUD addons is straightforward through the extended LinkMsg API — QuickyHUD attaches as a seamless adjustment addon alongside the built-in adjust menu and can be removed again at any time without side effects.
 - **Animation SYNC via API.** The LinkMsg API exposes a SYNC trigger so HUDs and external tools can restart all currently playing animations in lockstep on demand — useful for couple poses that drift apart over time.
