@@ -20,7 +20,7 @@
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
-string version = "0.99";
+string version = "0.995";
 string script_basename = "[QS]sitA";
 string menu_script = "[AV]menu";
 // Stock-AVsitter fallback — added so root works in both [QS]- and

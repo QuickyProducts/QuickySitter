@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9903";
+string version = "0.995";
 
 // QS_OFFSET_HELLO — broadcast on state_entry and in response to
 // QSALIVE-reply (90097), so [QS]adjuster can cache offset_present and

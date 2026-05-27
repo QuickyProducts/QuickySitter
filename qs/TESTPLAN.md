@@ -63,8 +63,8 @@ nur dass der Mechanismus überhaupt greift.
 |---|---|---|---|---|---|
 | TC-006 | Anim-Asset nicht im Viewer-Cache | hoch | Nachladen, dann korrekt | initial 1–3 s evtl T-Pose; danach korrekt | ja |
 | TC-009a | `[QS]root.lsl` Reset | kritisch | aus LSD rekonstruierbar | aktive Sitter bleiben gesittet; LSD-Re-Init | ja |
-| TC-009b | `[QS]sitA.lsl` Reset | kritisch | per-Sitter-State aus Boot | Re-Init via 90098; `MY_SITTER` aus Sit-Status | ja |
-| TC-009c | `[QS]sitB.lsl` Reset | kritisch | `MENU_LIST` aus Boot rekonstruiert | Re-Init via 90098; `FIRST_INDEX`-Pose | ja |
+| TC-009b | `[QS]sitA.lsl` Reset | kritisch | per-Sitter-State aus Boot | Re-Init via 90023 (QS_BOOT_RELOAD); `MY_SITTER` aus Sit-Status | ja |
+| TC-009c | `[QS]sitB.lsl` Reset | kritisch | `MENU_LIST` aus Boot rekonstruiert | Re-Init via 90023 (QS_BOOT_RELOAD); `FIRST_INDEX`-Pose | ja |
 
 ## G. Neue Coverage
 

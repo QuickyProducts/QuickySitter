@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9939";
+string version = "0.995";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -1020,7 +1020,10 @@ default
             iBooted = FALSE;
             MENU_LIST = [];
             current_menu = -1;
-            last_menu = 0;
+            // -1 is the no-previous-submenu sentinel (see L864 check).
+            // Stock 0 would make the next [BACK] click index MENU_LIST[0]
+            // as a submenu marker, breaking the post-reseed first nav.
+            last_menu = -1;
             menu_page = 0;
             return;
         }
@@ -1032,7 +1035,7 @@ default
             // disengages (covers both initial wake-up and re-seeds).
             qs_load_from_lsd();
             current_menu = -1;
-            last_menu = 0;
+            last_menu = -1;
             menu_page = 0;
             iBooted = TRUE;
             return;

@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.9916";
+string version = "0.995";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -347,6 +347,10 @@ cleanup_helper_mode()
 {
     llRegionSay(comm_channel, "DONEA");
     helper_mode = FALSE;
+    // comm_channel listen is armed in toggle_helper_mode and [QUICKYHUD].
+    // Without removal here it accumulates one handle per helper session.
+    llListenRemove(listen_handle);
+    listen_handle = 0;
 }
 
 end_helper_mode()
@@ -740,7 +744,7 @@ default
                             llSay(0, type + " Saved " + sitter_text(i) + ": {" + temp_pose_name + "}" + llList2String(POS_LIST, i) + llList2String(ROT_LIST, i));
                         }
                     }
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
                 }
                 if (msg == "[DONE]")
                 {
@@ -819,7 +823,7 @@ default
                     // [SAVE] is needed for [PROP] in-world position
                     // persistence (90101[SAVE] → PROPSEARCH); pose
                     // offsets re-write idempotently under ADJUSTMODE.
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
                 }
                 if (msg == "[ADJUST OFF]")
                 {
@@ -828,7 +832,7 @@ default
                     // doesn't double-fire 90266, re-show pose menu.
                     llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
                     helper_method = 0;
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([llList2String(data, 2), id], "|"));
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
                 }
                 if (msg == "[ADJUST]")
                 {

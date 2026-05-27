@@ -31,9 +31,22 @@ All keys are namespaced `qs:*`. `<ch>` is the sitter slot (0-based, matches
 | `qs:boot:asset` | notecard asset-key as string — written last in `finalize_boot` after all `qs:meta:<ch>` | boot | boot's `state_entry` skip-check |
 | `QSO:<short>:<slot>:<pose>` | `<pos>\|<rot>` (Euler degrees, both `vector`-string) — unprotected | offset.lsl ≥ 0.09 `save_offset` (when `lsdHasRoom()`) | offset.lsl `push_customs_for`, `drop_pose_for_slot` |
 | `qs:offset:alive` | `"1"` while [QS]offset is in the linkset; absent otherwise. Reset-safety: [QS]adjuster's `state_entry` deletes it, [QS]offset's `state_entry` rewrites authoritatively, [QS]adjuster's `QS_OFFSET_HELLO` handler mirrors. Gates sitA's "Personal offset saved..." confirmation in the `[ALL POSES]` / `[SAVE]` handlers. See [PROTOCOL.md § 90088](./PROTOCOL.md). | offset.lsl `state_entry` + 90097 handler; adjuster `QS_OFFSET_HELLO` handler | sitA `[ALL POSES]` / `[SAVE]` confirmation gates |
+| `qs:cfg:verbose` | `"0"`–`"3"`. Project-wide verbose ladder (0 = errors only, 1 = boot banner, 2 = runtime status, 3 = debug). Singleton, not per-channel. Set from AVpos `VERBOSE n` directive during seed; every fork script reads it in `state_entry` to populate its local `verbose` global. | boot's `state_entry` (from notecard) | sitA, sitB, adjuster, faces, offset, prop, select, sequence — each in `state_entry` |
+| `qs:adjuster:silent` | `"1"` while a Ready-banner has been suppressed on the last reset (so a re-entry to the same notecard doesn't re-announce). Cleared on `QS_BOOT_WIPE`. | adjuster `state_entry` (writes), boot `QS_BOOT_WIPE` (deletes) | adjuster `state_entry` (read-then-suppress) |
+| `qs:hud:unlicensed` | `"1"` when [QS]hudadmin's license check failed. Singleton flag for cross-script gating of HUD-paid features ([HELPER] / [QUICKYHUD] entries hide when set). External writer (hudadmin in sibling [quicky-hud](https://github.com/QuickyProducts/QuickyHUD) repo). | hudadmin (external repo) | sitB `[OPTIONS]` / `[HELPER]` gate, adjuster license gate |
+| `qs:select:btn:<i>` | `"<label>"` — display string for slot `<i>` shown in [QS]select's multi-slot picker dialog. Cached snapshot so select doesn't have to re-derive from `qs:sitter:<ch>` on every render. | select `state_entry` / `QSALIVE_REPLY` (rewrites from `qs:sitter:<ch>`) | select dialog renderer |
+| `qs:prop:meta` | `"<notecard_key>\t<count>\t<warn>\t<groups_nl>"` — lazy-load index header for the prop database. Existence + matching notecard_key means a parsed prop record is current; mismatch triggers `qs:prop:*` namespace wipe + re-parse. | prop.lsl `state_entry` (after notecard parse) | prop.lsl `state_entry` (skip-re-parse check) |
+| `qs:prop:<i>` | `"<trig>\t<type>\t<obj>\t<grp>\t<pos>\t<rot>\t<pt>\t<prs>"` (8 fields, prs = post_rez_say payload). One row per parsed prop entry. | prop.lsl notecard parser | prop.lsl `comm_channel` listener, `link_message` handlers |
+| `qs:prop:trig:<trig>` | `"i0,i1,…"` — CSV of `qs:prop:<i>` indices matching this trigger string. | prop.lsl notecard parser | prop.lsl trigger dispatch |
+| `qs:prop:sit:<sit>` | `"i0,i1,…"` — CSV of `qs:prop:<i>` indices belonging to this sitter slot. | prop.lsl notecard parser | prop.lsl sit/unsit hooks |
+| `qs:prop:grp:<grp>` | `"i0,i1,…"` — CSV of `qs:prop:<i>` indices belonging to this group. | prop.lsl notecard parser | prop.lsl group dispatch |
 
 `SEP` is U+FFFD, initialized at runtime via `llUnescapeURL("%EF%BF%BD")`
 because the SL script editor mangles a literal U+FFFD on upload.
+
+The `qs:prop:*` namespace is wiped + re-parsed on `CHANGED_INVENTORY`
+when the AVpos notecard's asset-key changes. See [`[QS]prop.lsl`](./[QS]prop.lsl) header
+for the lazy-load architecture rationale.
 
 The `QSO:*` namespace is intentionally outside the `qs:*` family because
 it lives outside the seed-and-forget Linkset Data layout: offset.lsl

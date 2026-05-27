@@ -37,7 +37,13 @@ $stall_seconds = 30;
 // server-side for llHTTPRequest calls, so enabling it blocks naive
 // curl-from-outside-SL submissions. Forgeable by a determined attacker
 // (custom HTTP client setting the header), so it's defense-in-depth
-// rather than authentication. Leave FALSE for testing; flip TRUE once
-// you're past testuser phase. Future: replace with a fork-level shared
-// secret check for real auth.
-$check_owner_key = false;
+// rather than authentication. Default TRUE — production-safe; flip
+// FALSE only for local testing without an SL-side client. Future:
+// replace with a fork-level shared secret check for real auth.
+$check_owner_key = true;
+
+// Per-chunk POST body cap (bytes). boot streams in well under this size
+// in normal operation; the cap exists to refuse pathological POSTs that
+// would otherwise flood disk via the append loop. 64 KiB matches the
+// Mono notecard-line ceiling, so legitimate dumps never approach it.
+$max_chunk_bytes = 65536;

@@ -130,7 +130,7 @@ If the server returns non-200 on any chunk during a quiet dump,
 and the end-of-cascade URL shout is replaced by:
 
 ```
-[DUMP] Upload failed — settings not saved on web.
+[DUMP] Upload failed — link may be incomplete.
 ```
 
 The owner can retry via `[HELPER]` `[DUMP]` (stock loud path,

@@ -42,7 +42,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9902";
+string version = "0.995";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -459,7 +459,7 @@ remove_props_by_group(integer gp)
             send_command("REM_WORLD" + text);
             if (llList2Key(SITTERS, 0))
             {
-                llRegionSayTo((string)SITTERS, comm_channel, "REM_INDEX" + text);
+                llRegionSayTo(llList2Key(SITTERS, 0), comm_channel, "REM_INDEX" + text);
             }
         }
     }

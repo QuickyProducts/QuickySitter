@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9915";
+string version = "0.995";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -1254,8 +1254,11 @@ default
                                 {
                                     llMessageLinked(LINK_SET, 90065, (string)SCRIPT_CHANNEL, MY_SITTER); // 90065=sitter gone
                                 }
-                                if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR && (integer)CURRENT_ANIMATION_FILENAME)
+                                if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR && CURRENT_ANIMATION_FILENAME != "")
                                 {
+                                    // Stock used (integer)CURRENT_ANIMATION_FILENAME
+                                    // which casts any anim name to 0 → llStopAnimation
+                                    // was silently skipped in this branch.
                                     llStopAnimation(CURRENT_ANIMATION_FILENAME);
                                 }
                                 MY_SITTER = "";
@@ -1365,6 +1368,11 @@ default
         }
         if (change & CHANGED_INVENTORY)
         {
+            // Reset i: CHANGED_LINK loops above may have left it at
+            // llGetListLength(SITTERS), which would make ++i probe past
+            // the last slot and trip a false-positive self-reset when
+            // CHANGED_LINK | CHANGED_INVENTORY fire together.
+            i = 0;
             // get_number_of_scripts() inlined here:
             while (llGetInventoryType(main_script + " " + (string)(++i)) == INVENTORY_SCRIPT)
                 ;

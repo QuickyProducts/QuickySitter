@@ -88,8 +88,10 @@ if (!is_dir($dump_dir)) {
 if (isset($_REQUEST['w'])) {
     $webkey = $_REQUEST['w'];
     if (!is_valid_webkey($webkey)) {
-        echo "INVALID WEBKEY";
-        exit;
+        // HTTP 400 (not 200) so boot's dump_failed flag flips and the
+        // owner sees "[DUMP] Upload failed". echo body still surfaces
+        // the reason in the browser if someone hits the endpoint manually.
+        http_400("INVALID WEBKEY");
     }
 
     if ($check_owner_key) {
@@ -100,12 +102,15 @@ if (isset($_REQUEST['w'])) {
             // on llHTTPRequest, so a missing/malformed value means the
             // request didn't come from SL (or someone is poking the
             // endpoint directly).
-            echo "INVALID USER";
-            exit;
+            http_400("INVALID USER");
         }
     }
 
     $text  = isset($_REQUEST['t']) ? $_REQUEST['t'] : '';
+    if (strlen($text) > $max_chunk_bytes) {
+        // Defensive cap — legitimate boot chunks land well under this.
+        http_400("CHUNK TOO LARGE");
+    }
     $paths = paths_for($webkey);
 
     // Append chunk under exclusive lock. file_put_contents with
@@ -163,8 +168,7 @@ if (isset($_REQUEST['w'])) {
 if (isset($_REQUEST['q'])) {
     $webkey = $_REQUEST['q'];
     if (!is_valid_webkey($webkey)) {
-        echo "INVALID WEBKEY";
-        exit;
+        http_400("INVALID WEBKEY");
     }
 
     // Opportunistic cleanup runs on every GET. Cheap at the scale we

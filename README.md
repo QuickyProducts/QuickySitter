@@ -4,7 +4,7 @@ QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for S
 
 ## Goals
 
-- **Eliminate heap pressure.** Script memory has been restructured onto LinkSet Data (LSD), moving large state out of the per-script heap so complex furniture stays stable. Current capacity per furniture: up to ~550 poses per sitter slot and 100 props (stock AVsitter typically caps out around ~200 poses per slot before hitting Mono's 64 KB heap limit).
+- **Eliminate heap pressure.** Script memory has been restructured onto LinkSet Data (LSD), moving large state out of the per-script heap so complex furniture stays stable. Current capacity per furniture: up to ~550 poses per sitter slot and 100 props, with no post-processing required (stock AVsitter typically caps out around ~200 poses per slot before hitting Mono's 64 KB heap limit). The 550-pose capacity is the stable baseline of the shipped source — release packages are not pre-optimized.
 - **Full API compatibility with AV stock.** Existing AVsitter 2 notecards, MENU/POSE/PROP syntax, and LinkMsg contracts continue to work.
 - **Plug-and-play HUD addons.** Adding HUD addons is straightforward through the extended LinkMsg API — QuickyHUD attaches as a seamless adjustment addon alongside the built-in adjust menu and can be removed again at any time without side effects.
 - **Animation SYNC via API.** The LinkMsg API exposes a SYNC trigger so HUDs and external tools can restart all currently playing animations in lockstep on demand — useful for couple poses that drift apart over time.
@@ -13,9 +13,11 @@ QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for S
 
 ## Editing & Optimization
 
-You can edit any scripts, as long as you stay in compliance with the license (see below); however, in order to benefit from the extra memory that the SL Marketplace version provides, you're advised to optimize the scripts following the same method used for packaging the releases.
+You can edit any scripts, as long as you stay in compliance with the license (see below).
 
-For increased script memory, scripts can be run through LSL-PyOptimizer. If you do this, please keep the license notification intact in the header of any scripts you distribute.
+The shipped source compiles directly under SL's Mono compiler — no post-processing required. The ~550-pose/slot, ~100-prop capacity above is the stable baseline at that level; the heap headroom comes from the LSD-backed state architecture, not from optimization. Release packages ship un-optimized.
+
+If you want to push further (significantly larger pose libraries, deeper nested ADJUST states, more concurrent runtime state), you can run the scripts through [LSL-PyOptimizer](https://github.com/Sei-Lisa/LSL-PyOptimizer) before upload. Expect another 10-25% heap headroom via constant folding, dead-code elimination, function inlining, and symbol shortening. This is opt-in — we don't do it as default. If you redistribute optimized scripts, keep the license notification intact in the header.
 
 ## License
 

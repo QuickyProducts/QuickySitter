@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9915";
+string version = "0.995";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -55,6 +55,13 @@ string camera_script = "[AV]camera";
 integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
 list dump_plugins;
+
+// QS_PROP_HELLO — [QS]prop announces presence on state_entry / on_rez /
+// QSALIVE-reply. Drives self_check_report's prop-missing check via the
+// cached flag so a creator-renamed prop fork ([FOO]prop) doesn't trip
+// the WARN by failing a literal "[QS]prop" lookup in dump_plugins.
+integer QS_PROP_HELLO = 90089;
+integer prop_present  = FALSE;
 
 // QS_BOOT_RELOAD — broadcast at the end of the seed cascade so already-
 // running sitB scripts re-read MENU_LIST from the freshly-written LSD
@@ -465,9 +472,9 @@ self_check_report()
         Out(0, "ERROR: [QS]sitB missing — no menu will appear.");
         ok = FALSE;
     }
-    if (has_prop_in_notecard && llListFindList(dump_plugins, ["[QS]prop"]) == -1)
+    if (has_prop_in_notecard && !prop_present)
     {
-        Out(0, "WARN: " + notecard_name + " has PROP* directives but [QS]prop is missing — props will not be rezzed.");
+        Out(0, "WARN: " + notecard_name + " has PROP* directives but the prop plugin is missing — props will not be rezzed.");
     }
     if (!ok)
     {
@@ -802,6 +809,11 @@ default
             string plugin = (string)id;
             if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
                 dump_plugins += plugin;
+            return;
+        }
+        if (num == QS_PROP_HELLO)
+        {
+            prop_present = TRUE;
             return;
         }
         if (num == QSALIVE_REPLY)
