@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9951";
+string version = "0.9952";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -229,6 +229,29 @@ qs_load_from_lsd()
     }
     sittargets();
     boot_done = TRUE;
+
+    // Reset-resume: a script reset (Reset Scripts / re-rez / region
+    // restart) leaves an avatar physically seated but untracked —
+    // changed(CHANGED_LINK) never fired for them, so no 90060 went out
+    // and hudproxy's per-sitter listen/JSON was never (re)built, locking
+    // the HUD out. If our seat is occupied and we hold no sitter yet,
+    // replay the sit: re-request the anim perm (auto-granted for an
+    // already-seated avatar, no dialog) and emit 90060 so
+    // run_time_permissions resumes the pose and hudproxy reconnects.
+    // Pose snaps to FIRST_POSENAME (RAM was wiped); personal offsets
+    // return via the 90260 push. NULL_KEY guard keeps a 90023 reload
+    // (notecard save, no reset) of an already-tracked sitter a no-op.
+    if (MY_SITTER == NULL_KEY)
+    {
+        key resume = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
+        if (llGetListLength(SITTERS) == 1) resume = llAvatarOnSitTarget();
+        if (resume) // OSS::if (osIsUUID(resume) && resume != NULL_KEY)
+        {
+            llRequestPermissions(resume, PERMISSION_TRIGGER_ANIMATION);
+            llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, resume); // 90060=new sitter
+        }
+    }
+
     // QSALIVE boot-announce: plugins that came up before us missed any
     // earlier replies, so emit one unsolicited 90097 once we're done
     // booting. Plugins that came up after us still get an answer via
