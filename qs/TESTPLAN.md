@@ -7,56 +7,6 @@ und die Git-Historie.
 
 ---
 
-## A. Single-Sitter Pose-Lifecycle
-
-| ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
-|---|---|---|---|---|---|
-| TC-001 | Normaler Posewechsel | niedrig | Switch ohne Lücken-Frame | keine T-Pose zwischen alt/neu; `llGetAnimationList` enthält neue Anim ≤1 s | nein |
-| TC-002 | 5 Posewechsel in <2 s | mittel | letzter Klick gewinnt | `llGetAnimationList` nach 1 s = letzte Anfrage; keine Anims aus verworfenen Klicks aktiv | evtl |
-| TC-010 | Non-loop Animation endet | mittel | definierter Übergang | sitA-`timer` feuert; `OLD_ANIMATION_FILENAME` gestoppt | ja |
-| TC-014 | 20 Posewechsel in Folge | hoch | keine Race-Condition | finale Pose match; keine Ghost-Einträge in `llGetAnimationList` | ja |
-| TC-015 | Unsit während Posewechsel | mittel | sauberer Cleanup | `release_sitter` ruft `llStopAnimation`; `MY_SITTER == ""` nach 1 s | nein |
-
-## B. Multi-Sitter SYNC (Smoke-Test)
-
-Der einzige verbleibende SYNC-Test. Camera-Zoom-Out lässt den Avatar
-aus der Interest-List fallen und triggert beim Re-Acquisition ein
-Restart-Signal vom Sender (hudproxy 90271). Reicht als Smoke-Test für
-die ganze Re-Sync-Pipeline — wir testen nicht alle Drift-Ursachen,
-nur dass der Mechanismus überhaupt greift.
-
-| ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
-|---|---|---|---|---|---|
-| TC-021 | Avatar zoomt aus Draw-Distance raus & wieder rein | hoch | nach Re-Acquisition synchron | visuell synchron innerhalb 30 s nach Wiedereintritt | ja |
-
-## C. AO / Animation-Konflikte
-
-| ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
-|---|---|---|---|---|---|
-| TC-003 | AO aktiv (Idle/Walk), Bento-Body-Pose | hoch | Pose dominiert in den belegten Bone-Slots | Pose-Anim in `llGetAnimationList`; visuell keine AO-Bewegung in Pose-Slots | ja |
-| TC-004 | AO während Pose toggle (an/aus/an) | hoch | kein Drift, kein Position-Snap | Phasen-stabil; Avatar-Position ±5 cm konstant | ja |
-| TC-017 | Bento-Pose + Bento-Hand-AO | hoch | Hände bleiben pose-gesteuert | Hand-Anim der Pose in `llGetAnimationList`, nicht AO-Hand | ja |
-
-## D. Netzwerk / Region
-
-| ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
-|---|---|---|---|---|---|
-| TC-005 | Viewer-Lag (>1 s Stutter) | hoch | Pose startet verzögert, korrekt | nach Lag korrekt; Recovery <5 s | ja |
-| TC-007 | Teleport sitzend | kritisch | Sit-Status + Pose erhalten | `MY_SITTER` unverändert; Anim läuft weiter; kein Unsit | ja |
-| TC-008 | Region-Crossing sitzend | kritisch | Position stabil, Pose läuft | KFM-pause/play greift; Positionssprung <0.5 m | ja |
-| TC-011 | Netzwerk-Drop 5–10 s | kritisch | automatische Recovery | Pose nach Reconnect <10 s synchron | ja |
-| TC-013 | Sim-Lag >0.5 s/Frame | hoch | Queue stabil | letzte Anfrage angekommen; `MENU_LIST` intakt | ja |
-| TC-020 | Region-Restart, Sitter persistiert nicht | kritisch | nach Re-Sit Default-Pose aus LSD | LSD-Persistenz greift; `boot_done == TRUE` vor erstem Sit | ja (manuell) |
-
-## E. Avatar-Lifecycle
-
-| ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
-|---|---|---|---|---|---|
-| TC-016 | 10× Sitzen/Unsitzen | mittel | keine Ghost-States | keine doppelten Listener; `MY_SITTER` sauber | nein |
-| TC-018a | Outfit-Replace, kein Sitter-Detach | hoch | Pose-Anim läuft weiter | `llGetAnimationList` stabil | nein |
-| TC-018b | Outfit-Add (Layer) | niedrig | keine Wirkung erwartet | Pose unverändert | nein |
-| TC-019 | Avatar-Rebake | hoch | Pose bleibt aktiv | `llGetAnimationList` stabil über Rebake | nein |
-
 ## F. State-Recovery
 
 | ID | Szenario | Risiko | Erwartetes Ergebnis | Mess-/Pass-Kriterium | Recovery |
