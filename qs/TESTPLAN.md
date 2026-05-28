@@ -1,7 +1,7 @@
 # QuickySitter — Testplan
 
 Funktionale Test-Coverage. SYNC-Drift-Investigation und Re-Sync-
-Architektur sind bewusst auf einen Smoke-Test reduziert (TC-021); für
+Architektur sind bewusst auf einen Smoke-Test reduziert; für
 Architektur-Details siehe [`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271)
 und die Git-Historie.
 
@@ -60,7 +60,7 @@ older sections stay German until they're separately migrated.
 
 Tests derived from recurring bug classes documented in MEMORY
 conventions and the TODOLIST "Recently retired" log. Orthogonal to
-A-H: each one covers a class of failure that has actually shipped to
+F-H: each one covers a class of failure that has actually shipped to
 users in past versions, not a coverage gap in plugin removal or sync
 drift.
 
@@ -118,7 +118,7 @@ select, prop, faces. SCRIPT_CHANNEL suffix preserved
    LSD.
 3. Two avatars sit; both receive default pose ≤1s.
 4. Cycle every avatar through every pose.
-5. SYNC pose on both, observe 5 min (reuses TC-021 method) — visually
+5. SYNC pose on both, observe 5 min (camera zoom-out past draw distance & back) — visually
    synchronous after re-acquisition.
 6. ADJUST: X+/Y+/Z+, REFERENCE toggle, SAVE → LSD `qs:p:<ch>:<i>`
    appears.
@@ -219,7 +219,7 @@ Skippable for pure QSALIVE / plugin changes.
 - **Pose-Switch-Latenz.** UI-Klick-Timestamp bis `llGetAnimationList`
   neue Anim enthält. Toleranz <1 s.
 - **State-Recovery-Zeit.** Event bis Pose wieder korrekt. <5 s
-  (TC-005/006/011), <10 s (TC-008/020).
+  (TC-006).
 - **State-Inspektion.** `[QS]debug.lsl`-Dump als Ground Truth für
   LSD/`MENU_LIST`/`SITTERS`.
 - **Visuelle Stabilität.** Frame-by-Frame-Review der Aufnahme — keine
