@@ -44,13 +44,11 @@ string memoryscript;
 // helper_object removed in 0.910 — only used by the migrated
 // options_menu builder. sitB owns the helper_object inventory probe now.
 
-// adjuster_present / faces_present / has_texture migrated to sitB in
-// 0.910 (Phase 2 sitB-as-UI refactor). sitB now renders the ADJUST
-// submenu and gates [HELPER]/[FACES]/[TEXTURE] entries on its own
-// LINK_SET-fed copies of these flags. sitA still receives 90091/
-// 90090/90203 LinkMessages via the LINK_SET broadcast, but no longer
-// caches them — has_security stays here because L1454 dispatch +
-// llPassTouches need it.
+// Plugin presence (adjuster / faces / select) is not tracked in sitA: the
+// consumers (sitB, adjuster) read the qs:alive:* LSD flags on-demand — see
+// PROTOCOL.md § qs:alive. has_texture moved to sitB in the 0.910 ADJUST-
+// submenu refactor (90203, still LINK_SET-fed). has_security stays here
+// because sitA's L1454 dispatch + llPassTouches need it.
 integer SCRIPT_CHANNEL;
 list SITTERS;
 integer SWAPPED;
@@ -750,10 +748,9 @@ default
             adjust_pose_menu();
             // Gated confirmation: when [QS]offset is missing the 90262
             // above goes into the void and nothing is persisted. The
-            // `qs:offset:alive` LSD flag is owned by [QS]offset itself
-            // (state_entry write) and mirrored by [QS]adjuster's
-            // QS_OFFSET_HELLO listener; cleared by adjuster's state_entry
-            // until offset re-announces. See PROTOCOL.md § QS_OFFSET_HELLO.
+            // `qs:offset:alive` LSD flag is owned by [QS]offset (state_entry
+            // write); boot's CENSUS wipes it on a plugin add/remove, so a
+            // removed offset.lsl leaves it cleared. See PROTOCOL.md § qs:alive.
             if (llLinksetDataRead("qs:offset:alive") == "1")
                 llRegionSayTo(id, 0, "Personal offset saved for all poses.");
             else
@@ -947,9 +944,10 @@ default
             if (SCRIPT_CHANNEL == 0) qs_alive_reply();
             return;
         }
-        // 90090 / 90091 receivers removed in 0.910 — adjuster_present
-        // and faces_present moved to sitB along with the ADJUST submenu.
-        // The LinkMessages still broadcast on LINK_SET, sitB handles them.
+        // faces / adjuster presence is published to qs:alive:* LSD flags
+        // (PROTOCOL.md § qs:alive), read on-demand by sitB/adjuster — sitA
+        // neither receives nor caches presence. The former 90090/90091
+        // HELLO broadcasts were retired in 0.9951.
         if (num == 90271) // 90271=Re-Sync trigger from hudproxy (or any in-prim source)
         {
             do_resync_tick();

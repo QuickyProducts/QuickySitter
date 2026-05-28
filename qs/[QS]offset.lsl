@@ -61,14 +61,14 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.995";
+string version = "0.9951";
 
-// QS_OFFSET_HELLO — broadcast on state_entry and in response to
-// QSALIVE-reply (90097), so [QS]adjuster can cache offset_present and
-// mirror the `qs:offset:alive` LSD flag that [QS]sitA gates its
-// personal-offset confirmations on. 90088 sits in the 9008x fork-hello
-// band alongside QS_PROP_HELLO (90089) / QS_FACES_HELLO (90090).
-integer QS_OFFSET_HELLO = 90088;
+// Presence: [QS]offset owns the qs:offset:alive LSD flag directly (written
+// in state_entry, re-written on QS_ALIVE_CENSUS). [QS]sitA reads it to gate
+// personal-offset confirmations; hudproxy reads it cross-repo. The key name
+// stays qs:offset:alive (not qs:alive:offset) precisely because hudproxy in
+// the HUD repo already reads it. See qs/PROTOCOL.md § qs:alive.
+integer QS_ALIVE_CENSUS = 90079;
 
 // LSD storage —————————————————————————————————————————————————————————
 
@@ -491,13 +491,11 @@ default
         // first save_offset bumps it.
         update_ram_tier_count();
         // Authoritative presence write: as long as this script is alive,
-        // `qs:offset:alive` is "1". [QS]adjuster mirrors this via the
-        // QS_OFFSET_HELLO handler below; sitA reads it directly to gate
-        // its "Personal offset saved..." confirmations. If this script
-        // is removed at runtime, adjuster's CHANGED_INVENTORY → reset
-        // clears the key in its own state_entry.
+        // `qs:offset:alive` is "1". sitA reads it directly to gate its
+        // "Personal offset saved..." confirmations; hudproxy reads it
+        // cross-repo. Removal is detected by boot's CENSUS — it wipes the
+        // flag, and a removed offset can't re-write it. See PROTOCOL.md.
         llLinksetDataWrite("qs:offset:alive", "1");
-        llMessageLinked(LINK_SET, QS_OFFSET_HELLO, "", llGetScriptName());
         Out(1, "Ready. LSD room=" + (string)lsdRoomLeft()
             + " poses; RAM cap=" + (string)LRU_CAP
             + "; Free=" + (string)llGetFreeMemory()
@@ -525,17 +523,13 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        if (num == 90097)
+        if (num == QS_ALIVE_CENSUS)
         {
-            // QSALIVE reply from slot-0 sitA. Re-announce our presence
-            // so a late-booting adjuster catches us, and re-stamp the
-            // LSD flag in case it was wiped during the boot cycle.
-            // Substring-match the product token to ignore non-QS replies.
-            if (llSubStringIndex(msg, "QuickySitter|") == 0)
-            {
-                llLinksetDataWrite("qs:offset:alive", "1");
-                llMessageLinked(LINK_SET, QS_OFFSET_HELLO, "", llGetScriptName());
-            }
+            // boot wiped presence (plugin add/remove, or re-seed / full
+            // LSD reset) — re-publish ours. This is the sole re-stamp path
+            // now that the QS_OFFSET_HELLO broadcast is gone. See
+            // PROTOCOL.md § qs:alive.
+            llLinksetDataWrite("qs:offset:alive", "1");
             return;
         }
         if (num == 90261)

@@ -26,7 +26,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.995";
+string version = "0.9951";
 integer select_type;
 list BUTTONS;
 
@@ -38,12 +38,12 @@ integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
 
-// QS_SELECT_HELLO — broadcast from this script on state_entry and
-// in response to slot-0 sitA's QSALIVE-reply. sitB listens for it
-// to gate select-driven menu logic without script-name inventory
-// probes for [QS]select. (The legacy [AV]select probe in sitB
-// stays as a stock-AVsitter backward-compat fallback.)
-integer QS_SELECT_HELLO = 90092;
+// Presence is published to the qs:alive:select LSD flag (written in
+// state_entry, re-written on QS_ALIVE_CENSUS). sitB's select_present()
+// reads it on-demand; the legacy [AV]select inventory probe stays in
+// sitB as a stock-AVsitter backward-compat fallback. See PROTOCOL.md
+// § qs:alive.
+integer QS_ALIVE_CENSUS = 90079;
 
 // QS_BOOT_RELOAD — broadcast by [QS]boot at the end of its seed cascade.
 // Triggers a fresh load_from_lsd() so a notecard re-save doesn't require
@@ -255,10 +255,9 @@ default
         string v = llLinksetDataRead("qs:cfg:verbose");
         if (v != "") verbose = (integer)v;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
-        // Announce ourselves so sitB can gate select-driven menu logic
-        // without script-name inventory probes. Re-broadcast on
-        // QSALIVE_REPLY receipt below covers a late sitB boot.
-        llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
+        // Publish presence to LSD, read on-demand by sitB's
+        // select_present(). See PROTOCOL.md § qs:alive.
+        llLinksetDataWrite("qs:alive:select", "1");
         init_lists();
         // Event-driven boot — same pattern as [QS]sitA 0.904 /
         // [QS]sitB 0.905. If boot already seeded qs:meta:0, load now;
@@ -314,6 +313,12 @@ default
     }
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == QS_ALIVE_CENSUS)
+        {
+            // boot wiped presence on a plugin add/remove — re-publish ours.
+            llLinksetDataWrite("qs:alive:select", "1");
+            return;
+        }
         if (num == QSALIVE_REPLY)
         {
             // Slot-0 sitA reports the real sitter count. Resize the
@@ -328,9 +333,6 @@ default
                     qs_sitter_count_cached = new_count;
                     init_lists();
                 }
-                // Re-announce so sitB-slot-0 (which just reset and
-                // broadcast 90097) catches our presence flag.
-                llMessageLinked(LINK_SET, QS_SELECT_HELLO, "", llGetScriptName());
             }
             return;
         }

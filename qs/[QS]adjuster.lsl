@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.995";
+string version = "0.9951";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
@@ -32,40 +32,13 @@ integer QSALIVE_REPLY = 90097;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
 
-// QS_ADJUSTER_HELLO — broadcast from this script on state_entry and
-// in response to slot-0 sitA's QSALIVE-reply. sitA listens for it to
-// gate the [HELPER] menu item (replaces the legacy
-// llGetInventoryType("[QS]adjuster") inventory probe).
-integer QS_ADJUSTER_HELLO = 90091;
-
-// QS_FACES_HELLO — [QS]faces broadcasts this on its state_entry and
-// in response to a QSALIVE-reply. We cache the flag and gate the
-// [FACE] menu item below on it (replaces the legacy
-// llGetInventoryType("[AV]faces") inventory probe). 90090 lives in
-// the 9007x-9009x fork range; see PROTOCOL.md.
-integer QS_FACES_HELLO = 90090;
-integer faces_present  = FALSE;
-
-// QS_PROP_HELLO — [QS]prop broadcasts this on state_entry / on_rez
-// and in response to QSALIVE-reply (mirrors QS_FACES_HELLO). We cache
-// the flag and gate the [PROP] menu item below on it (replaces the
-// legacy llGetInventoryType("[QS]prop") inventory probe). 90089 sits
-// in the 9007x-9008x fork-hello band just below QS_FACES_HELLO.
-// Together with the L898 generic diagnostic, adjuster is fully
-// name-agnostic for prop (no "[QS]prop" literal left in this file).
-integer QS_PROP_HELLO = 90089;
-integer prop_present  = FALSE;
-
-// QS_OFFSET_HELLO — [QS]offset broadcasts this on state_entry and in
-// response to QSALIVE-reply (mirrors QS_FACES_HELLO / QS_PROP_HELLO).
-// We mirror the resulting LSD flag `qs:offset:alive` so [QS]sitA can
-// gate its "Personal offset saved..." confirmation on it — if offset
-// is missing, sitA emits "storage not installed" instead of lying.
-// state_entry clears the LSD key as a reset safety net; offset's
-// announce restores it. 90088 sits just below QS_PROP_HELLO in the
-// same 9008x fork-hello band.
-integer QS_OFFSET_HELLO = 90088;
-integer offset_present  = FALSE;
+// Plugin presence (faces / prop / offset) is read on-demand from the
+// qs:alive:* LSD flags when building the [FACE] / [PROP] menus — no
+// cached flags, no HELLO listeners. adjuster publishes its OWN presence
+// to qs:alive:adjuster (sitB gates [HELPER]/[QUICKYHUD] on it). boot's
+// QS_ALIVE_CENSUS wipes + re-stamps all presence flags on a plugin
+// add/remove or re-seed. See qs/PROTOCOL.md § qs:alive.
+integer QS_ALIVE_CENSUS = 90079;
 
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
@@ -536,11 +509,9 @@ default
         qs_alive = FALSE;
         solo_offset_applied = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
-        // Announce ourselves so sitA can gate the [HELPER] menu item
-        // without script-name inventory probes. sitA caches the flag;
-        // we re-announce in the QSALIVE_REPLY handler so a late sitA
-        // boot also catches us.
-        llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
+        // Publish our own presence to LSD; sitB gates [HELPER]/[QUICKYHUD]
+        // on qs:alive:adjuster, read on-demand. boot's CENSUS re-stamps it.
+        llLinksetDataWrite("qs:alive:adjuster", "1");
         // Probe hudproxy. HELLO-reply handler in link_message sets the
         // flag + cancels the timer; if 1 s passes silent, timer()
         // deletes the stale QPP_CFG:ADJUSTMODE key. See header comment
@@ -548,14 +519,9 @@ default
         hudproxy_present = FALSE;
         llMessageLinked(LINK_SET, QS_HUDPROXY_HELLO, "PROBE", "");
         llSetTimerEvent(1.0);
-        // Reset-safety: clear the offset-alive flag until [QS]offset
-        // announces itself via QS_OFFSET_HELLO. Without this, a stale
-        // "1" from a previous run could survive offset.lsl's removal
-        // and make sitA falsely report "saved" on personal offsets.
-        // Race window ~30 ms between this delete and offset's HELLO
-        // (state_entry write + 90097 re-announce) is acceptable —
-        // saves don't happen during boot.
-        llLinksetDataDelete("qs:offset:alive");
+        // offset presence (qs:offset:alive) is owned by [QS]offset and
+        // wiped/re-stamped via boot's CENSUS — adjuster no longer mirrors
+        // or safety-clears it.
         init_lists();
         // Banner only on first-fresh / manual reset, not on
         // CHANGED_INVENTORY-driven auto-reset (see changed handler).
@@ -579,23 +545,12 @@ default
             llSetTimerEvent(0.0);
             return;
         }
-        if (num == QS_FACES_HELLO) // 90090=faces announces presence
+        if (num == QS_ALIVE_CENSUS)
         {
-            faces_present = TRUE;
-            return;
-        }
-        if (num == QS_PROP_HELLO) // 90089=prop announces presence
-        {
-            prop_present = TRUE;
-            return;
-        }
-        if (num == QS_OFFSET_HELLO) // 90088=offset announces presence
-        {
-            offset_present = TRUE;
-            // Mirror to LSD so [QS]sitA's gated confirmations can read
-            // the flag without needing its own Hello-listener. offset.lsl
-            // also writes this in its state_entry — write is idempotent.
-            llLinksetDataWrite("qs:offset:alive", "1");
+            // boot wiped presence on a plugin add/remove or re-seed —
+            // re-publish our own. Other plugins' flags are read on-demand,
+            // so we only re-stamp ours here.
+            llLinksetDataWrite("qs:alive:adjuster", "1");
             return;
         }
         if (num == QSALIVE_REPLY)
@@ -618,9 +573,6 @@ default
                     comm_channel -= 1000000000;
                     solo_offset_applied = TRUE;
                 }
-                // Re-announce so sitA-slot-0 (which just reset and
-                // broadcast 90097) catches our presence flag.
-                llMessageLinked(LINK_SET, QS_ADJUSTER_HELLO, "", llGetScriptName());
             }
             return;
         }
@@ -1020,7 +972,7 @@ default
             }
             else if (msg == "[PROP]")
             {
-                if (prop_present)
+                if (llLinksetDataRead("qs:alive:prop") != "")
                 {
                     adding = msg;
                     choice_menu(get_choices(), "Choose your prop:");
@@ -1033,7 +985,7 @@ default
             }
             else if (msg == "[FACE]")
             {
-                if (faces_present)
+                if (llLinksetDataRead("qs:alive:faces") != "")
                 {
                     adding = msg;
                     choice_menu(get_choices(), "Choose your facial anim:");

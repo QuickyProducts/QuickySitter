@@ -58,11 +58,8 @@ notice.
 | `90031` | same | Quiet sibling of stock `90030` (swap sitters). Identical payload (msg = source slot, id = target slot) and `[QS]sitA` runs the same swap logic, but it sets the per-swap `bSilentSwap` flag so the post-swap pose-menu reopen in `run_time_permissions` is suppressed. Used by HUD-driven swap senders (`[QS]hudadmin` SWAP-picker, `[QS]hudproxy` 2-slot quick-swap) and stress-test senders (`[QS]debug`) that don't want to thrust a fresh pose dialog on top of the user's existing UI context. Stock 90030 senders (pose-menu `[SWAP]` click, `[QS]select` seat picker) keep stock-AVsitter reopen behavior. |
 | `90077` | between stock `90076` and `90090` | `[QS]boot` → `[QS]sitB`: boot self-check probe ("is the menu pipeline present?"). Sent once from boot's `state_entry`. See [§ Boot self-check](#boot-self-check--90077--90078). |
 | `90078` | same | `[QS]sitB` → `[QS]boot`: boot self-check reply. Sent in response to `90077`. |
-| `90088` | between stock `90076` and `90090` | `[QS]offset` → all: announces offset-plugin presence (`QS_OFFSET_HELLO`). Broadcast on state_entry and in response to QSALIVE-reply (90097). `[QS]adjuster` caches `offset_present` and mirrors to LSD key `qs:offset:alive`; `[QS]sitA` reads that flag in its `[ALL POSES]` / `[SAVE]` handlers to gate the "Personal offset saved..." confirmation — if offset.lsl is removed, sitA emits "Personal offset storage not installed - position not saved." instead of lying. offset.lsl also writes the LSD flag directly in its own state_entry (authoritative). adjuster's state_entry deletes the flag as reset-safety net. id = announcer's script name. |
-| `90089` | same | `[QS]prop` → all: announces prop presence so `[QS]adjuster` can gate the `[PROP]` menu item without inventory-probing `[QS]prop`. Broadcast on state_entry / on_rez / QSALIVE-reply (mirrors `QS_FACES_HELLO`). id = announcer's script name. |
-| `90090` | between stock `90076` and `90100` | `[QS]faces` → all: announces faces presence so the `[FACES]` item can be gated without inventory-probing `[AV]faces`. Received by **`[QS]sitB`** (gates `[FACES]` in the ADJUST dialog, `adjust_dialog()`) and **`[QS]adjuster`** (gates the `[FACE]` pose-edit picker). sitA was the receiver pre-0.910; the gate moved when the ADJUST dialog moved to sitB. id = announcer's script name. |
-| `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so **`[QS]sitB`** can gate the `[HELPER]` / `[QUICKYHUD]` entries in the ADJUST dialog without script-name probes. sitA was the receiver pre-0.910; the gate moved when the ADJUST dialog moved to sitB. id = announcer's script name. |
-| `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
+| `90079` | between stock `90076` and `90088` | `[QS]boot` → all presence plugins: `QS_ALIVE_CENSUS`. Broadcast on a plugin add/remove (`changed(CHANGED_INVENTORY)` with the notecard asset key unchanged) and at the end of every `finalize_boot`. Each plugin re-writes its `qs:alive:<name>` LSD flag in response; a removed plugin can't, so its flag stays cleared. See [§ qs:alive](#qsalive--lsd-presence-flags). |
+| `90088`–`90092` | (retired 0.9951) | Former presence HELLO broadcasts (`QS_OFFSET_HELLO` / `QS_PROP_HELLO` / `QS_FACES_HELLO` / `QS_ADJUSTER_HELLO` / `QS_SELECT_HELLO`). Replaced by `qs:alive:*` LSD flags read on demand — see [§ qs:alive](#qsalive--lsd-presence-flags). Numbers left reserved (not reused) so a stale stock/older plugin sending them is harmlessly ignored. |
 | `90093` | same | bidirectional hudproxy presence (`QS_HUDPROXY_HELLO`). `[QS]adjuster` → hudproxy: msg `"PROBE"`, id `""`. hudproxy → `[QS]adjuster`: msg `"HELLO"`, id `<script_name>` (sent unsolicited on hudproxy's state_entry and as reply to `"PROBE"`). adjuster arms a 1 s timer after sending PROBE; if no HELLO arrives → hudproxy has been removed from the linkset → delete the stale `QPP_CFG:ADJUSTMODE` LSD key so sitB stops showing `[QUICKYHUD]` and stops rendering the qh_on-enriched pose menu. See [§ HUDPROXY presence](#hudproxy-presence--90093). |
 | `90094` | between stock `90076` and `90100` | `[QS]boot` → all plugins: QSDUMP probe ("announce yourself if DUMP-capable") |
 | `90095` | same | DUMP plugin → `[QS]boot`: QSDUMP hello (id = announcer's script name) |
@@ -187,6 +184,58 @@ default
 the plugin needs to react to sitter-count changes — slot 0 will re-emit
 `90097` on its own reset (state_entry runs again), but the plugin can
 also pull on demand.
+
+## qs:alive — LSD presence flags
+
+Plugin presence ("is `[QS]faces` installed?") used to be pushed via HELLO
+link-messages (90088–90092) that the consumer cached. That had two costs:
+a boot-time broadcast storm (every plugin announced, and re-announced on
+every QSALIVE reply — an N×M cascade that pressured the heap during the
+heap-critical boot window), and fragility — a broadcast that arrives while
+the receiver is still loading is silently lost (see the `state running`
+note in [`[QS]sequence.lsl`](./[QS]sequence.lsl)).
+
+Presence is now a set of **LSD flags**, read synchronously on demand. An
+`llLinksetDataRead` can't be "missed" like an event, so the boot race is
+gone, and the flags live in linkset storage rather than script heap.
+
+### Keys
+
+| Key | Owner | Read by |
+|-----|-------|---------|
+| `qs:alive:faces` | `[QS]faces` | `[QS]sitB` (`[FACES]`), `[QS]adjuster` (`[FACE]`) |
+| `qs:alive:prop` | `[QS]prop` | `[QS]adjuster` (`[PROP]`), `[QS]boot` (self-check) |
+| `qs:alive:select` | `[QS]select` | `[QS]sitB` (`select_present()`) |
+| `qs:alive:adjuster` | `[QS]adjuster` | `[QS]sitB` (`[HELPER]`/`[QUICKYHUD]`) |
+| `qs:offset:alive` | `[QS]offset` | `[QS]sitA`, hudproxy (cross-repo) |
+
+`qs:offset:alive` keeps its pre-existing name (not `qs:alive:offset`)
+because hudproxy in the QuickyHUD repo already reads it.
+
+### Lifecycle
+
+- **Publish:** each plugin writes its flag (`"1"`) early in `state_entry`,
+  before its notecard load, so the flag is up long before any consumer
+  reads it (consumers read at menu-build time — a user action seconds
+  after boot).
+- **Read:** consumers read on demand at menu-build time and never cache —
+  caching would re-introduce the boot race.
+- **Re-census (`QS_ALIVE_CENSUS`, 90079):** `[QS]boot` broadcasts this on
+  a plugin add/remove and at the end of every `finalize_boot`. On
+  add/remove boot first wipes all `qs:alive:*` + `qs:offset:alive`, then
+  broadcasts — synchronously, so survivors' re-writes are strictly later
+  events (no clear-vs-rewrite race). A removed plugin can't re-write, so
+  its flag stays cleared: that is the removal detection (it replaced
+  sitB's old per-name inventory probe). The `finalize_boot` broadcast
+  re-stamps the flags after a full LSD reset (wipe-retry path) and
+  re-confirms any plugin that became ready only after its own
+  `state_entry` write.
+
+### Relationship to QSALIVE (90096/90097)
+
+QSALIVE stays — but only for the **sitter count / version / caps** payload
+plugins need for SITTERS list-sizing. Presence is no longer part of it;
+the 90097 reply no longer triggers any presence re-announce.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 

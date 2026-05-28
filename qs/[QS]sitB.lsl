@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.995";
+string version = "0.9951";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -44,13 +44,6 @@ integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 integer qs_alive      = FALSE;
 integer number_of_sitters = 1;
-
-// QS_SELECT_HELLO — [QS]select broadcasts this on its own state_entry
-// and in response to slot-0 sitA's QSALIVE-reply. We cache the flag
-// and use it in select_present(), with the legacy [AV]select probe
-// kept as a stock-AVsitter backward-compat fallback.
-integer QS_SELECT_HELLO   = 90092;
-integer qs_select_present = FALSE;
 
 // QS_BOOT_WIPE — broadcast by [QS]boot BEFORE its LSD wipe + reset
 // when a notecard re-save invalidates the seeded state. We flip
@@ -95,27 +88,17 @@ integer plugin_page;            // pagination state for [OPTIONS] dialog
 // sitB-as-UI refactor). sitA used to inline the builder in its 90101
 // link_message handler and render via its own dialog(); sitB now owns
 // rendering, click-dispatch, and the [AV]root-security/[QS]faces
-// 90101[ADJUST] back-route. Capability flags below are LINK_SET-fed
-// (90090/90091/90202/90203) — sitA still keeps its own has_security
-// for non-menu purposes (llPassTouches + L1454 dispatch), so both
-// scripts maintain parallel copies. ADJUST_MENU comes from qs:cfg
-// slot 14 (notecard ADJUST line, label|chan pairs).
+// 90101[ADJUST] back-route. has_texture / has_security are LINK_SET-fed
+// (90202/90203) — sitA keeps its own has_security for non-menu purposes
+// (llPassTouches + L1454 dispatch), so both scripts maintain parallel
+// copies. ADJUST_MENU comes from qs:cfg slot 14 (notecard ADJUST line,
+// label|chan pairs). Plugin presence (faces / adjuster / select) is read
+// on-demand from qs:alive:* LSD flags — no cached flags, no HELLO
+// listeners, no removal-probe (boot's CENSUS handles removal centrally).
+// See qs/PROTOCOL.md § qs:alive.
 list    ADJUST_MENU;
 integer has_texture;
 integer has_security;
-integer adjuster_present;
-integer faces_present;
-// Script-name captures from 90091 / 90090 / 90092 HELLO broadcasts.
-// Used by the changed(CHANGED_INVENTORY) handler to detect plugin
-// removal — a deleted script can't broadcast goodbye (QSALIVE doesn't
-// fit, see sitA's same comment for the slot-detection path), so we
-// inventory-probe the captured name and clear the cached flag on
-// removal. Stock AVsitter inventory-probed directly at every menu
-// render; we keep the HELLO cache (rename-friendly) and only
-// inventory-probe on CHANGED_INVENTORY to refresh it.
-string  adjuster_script_name;
-string  faces_script_name;
-string  select_script_name;
 integer in_adjust_menu;         // TRUE while ADJUST dialog is open
 integer adjust_page;            // pagination state for ADJUST dialog
 string  helper_object = "[AV]helper";
@@ -198,13 +181,12 @@ list reorder_dialog_buttons(list buttons)
          + llList2List(buttons, -12, -10);
 }
 
-// QS-side presence is QS_SELECT_HELLO-cached (90092); falls back to
-// the [AV]select inventory probe so a stock-AVsitter furniture (no
-// QS broadcaster) still gets detected. select_script declaration is
-// no longer needed for the [QS] path — the cache flag carries it.
+// QS-side presence is the qs:alive:select LSD flag, read on-demand;
+// falls back to the [AV]select inventory probe so a stock-AVsitter
+// furniture (no QS broadcaster) still gets detected.
 integer select_present()
 {
-    return qs_select_present
+    return llLinksetDataRead("qs:alive:select") != ""
         || llGetInventoryType("[AV]select") == INVENTORY_SCRIPT;
 }
 
@@ -529,7 +511,7 @@ adjust_dialog()
 {
     list builtins;
     if (has_texture)   builtins += "[TEXTURE]";
-    if (faces_present) builtins += "[FACES]";
+    if (llLinksetDataRead("qs:alive:faces") != "") builtins += "[FACES]";
     if (has_security)  builtins += "[SECURITY]";
 
     list dyn;
@@ -538,7 +520,7 @@ adjust_dialog()
     while (i < n) { dyn += llList2String(ADJUST_MENU, i); i += 2; }
 
     list tail;
-    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && adjuster_present)
+    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
         tail += "[HELPER]";
     // [QUICKYHUD] — owner-only entry, gated on the unprotected
     // QPP_CFG:ADJUSTMODE LSD key (same probe sitA used pre-0.910).
@@ -553,7 +535,7 @@ adjust_dialog()
     // Creator builds never set the key, so the gate is a no-op for
     // the normal flow. Inverted polarity, see hudadmin's
     // ensureLicenseFlag header for the full rationale.
-    if (CONTROLLER == llGetOwner() && adjuster_present
+    if (CONTROLLER == llGetOwner() && llLinksetDataRead("qs:alive:adjuster") != ""
         && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1))
         && llLinksetDataRead("qs:hud:unlicensed") != "1")
         tail += "[QUICKYHUD]";
@@ -934,38 +916,9 @@ default
                 }
             }
         }
-        if (change & CHANGED_INVENTORY)
-        {
-            // Removal-detection for plugins that announced via HELLO.
-            // adjuster/faces are renamed-friendly (creators can ship as
-            // [FOO]adjuster etc.), so we use the script name captured
-            // from the HELLO id field rather than a hardcoded literal.
-            // Without this branch the cached *_present flag would stay
-            // TRUE after the plugin script is removed, leaving the
-            // [HELPER] / [FACES] buttons in the ADJUST submenu pointing
-            // at a dead receiver until sitB next resets. Stock-AVsitter
-            // achieved the same instant detection by inventory-probing
-            // before every menu render — we trade that per-render cost
-            // for a per-inventory-change refresh.
-            if (adjuster_script_name != ""
-                && llGetInventoryType(adjuster_script_name) == INVENTORY_NONE)
-            {
-                adjuster_present     = FALSE;
-                adjuster_script_name = "";
-            }
-            if (faces_script_name != ""
-                && llGetInventoryType(faces_script_name) == INVENTORY_NONE)
-            {
-                faces_present     = FALSE;
-                faces_script_name = "";
-            }
-            if (select_script_name != ""
-                && llGetInventoryType(select_script_name) == INVENTORY_NONE)
-            {
-                qs_select_present  = FALSE;
-                select_script_name = "";
-            }
-        }
+        // No CHANGED_INVENTORY handling needed: plugin presence is read
+        // on-demand from qs:alive:* (always current), and boot's CENSUS
+        // handles removal detection centrally. See qs/PROTOCOL.md § qs:alive.
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -986,23 +939,10 @@ default
             }
             return;
         }
-        if (num == QS_SELECT_HELLO)
-        {
-            // [QS]select announces presence (covers both initial state_entry
-            // broadcast and the re-announce triggered by our QSALIVE-reply).
-            qs_select_present  = TRUE;
-            select_script_name = (string)id;
-            return;
-        }
-        // Capability flags for the ADJUST submenu (migrated from sitA in
-        // 0.909). All three are HELLO-broadcast announce-only — see
-        // PROTOCOL.md § 90089/90090/90091. faces_present and
-        // adjuster_present gate the [FACES] and [HELPER]/[QUICKYHUD]
-        // submenu entries; sitA still keeps its own faces_present /
-        // adjuster_present is gone in 0.910 (only has_security stays
-        // because L1454 + llPassTouches need it).
-        if (num == 90090) { faces_present    = TRUE; faces_script_name    = (string)id; return; }
-        if (num == 90091) { adjuster_present = TRUE; adjuster_script_name = (string)id; return; }
+        // [QS]select / faces / adjuster presence is no longer cached from
+        // HELLO broadcasts — it's published to qs:alive:* LSD flags and
+        // read on-demand by select_present() / adjust_dialog(). See
+        // qs/PROTOCOL.md § qs:alive.
         if (num == QS_SITB_PROBE)
         {
             // Boot self-check probe — reply once. One HELLO per probe is

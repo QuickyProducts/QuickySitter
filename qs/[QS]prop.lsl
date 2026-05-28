@@ -42,19 +42,18 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.995";
+string version = "0.9951";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 // QSDUMP — announce DUMP capability to [QS]boot. See qs/PROTOCOL.md.
 integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
-// QS_PROP_HELLO — announce prop-plugin presence to [QS]adjuster so it
-// can gate the [PROP] menu item on a cached flag without inventory-
-// probing "[QS]prop". Mirrors QS_FACES_HELLO (90090). Broadcast on
-// state_entry, on_rez, and on QSALIVE_REPLY so a late-rezzed adjuster
-// also catches us.
-integer QS_PROP_HELLO = 90089;
+// Presence is published to the qs:alive:prop LSD flag (written in
+// state_entry / on_rez, re-written on QS_ALIVE_CENSUS). adjuster's [PROP]
+// gate and boot's self-check read it on-demand — no HELLO broadcast.
+// See qs/PROTOCOL.md § qs:alive.
+integer QS_ALIVE_CENSUS = 90079;
 integer qs_alive = FALSE;
 integer qs_sitter_count_cached = 1;
 key key_request;
@@ -508,9 +507,9 @@ default
         // Announce DUMP capability so boot's cascade doesn't need to
         // hardcode "[QS]prop" — see qs/PROTOCOL.md § QSDUMP.
         llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
-        // Announce prop-plugin presence so adjuster's [PROP] gate sees
-        // us without an inventory probe. See PROTOCOL.md § QS_PROP_HELLO.
-        llMessageLinked(LINK_SET, QS_PROP_HELLO, "", llGetScriptName());
+        // Publish presence to LSD, read on-demand by adjuster's [PROP]
+        // gate and boot's self-check. See PROTOCOL.md § qs:alive.
+        llLinksetDataWrite("qs:alive:prop", "1");
         init_sitters();
         init_channel();
         notecard_key = llGetInventoryKey(notecard_name);
@@ -550,7 +549,7 @@ default
         qs_alive = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
         llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
-        llMessageLinked(LINK_SET, QS_PROP_HELLO, "", llGetScriptName());
+        llLinksetDataWrite("qs:alive:prop", "1");
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -559,6 +558,12 @@ default
         {
             // Boot is asking who's DUMP-capable. Re-announce.
             llMessageLinked(LINK_SET, QSDUMP_HELLO, "", llGetScriptName());
+            return;
+        }
+        if (num == QS_ALIVE_CENSUS)
+        {
+            // boot wiped presence on a plugin add/remove — re-publish ours.
+            llLinksetDataWrite("qs:alive:prop", "1");
             return;
         }
         if (num == QSALIVE_REPLY)
@@ -572,11 +577,6 @@ default
                 {
                     init_sitters();
                 }
-                // Re-announce QS_PROP_HELLO so a late-rezzed adjuster
-                // (which sends QSALIVE_PROBE on its state_entry, kicking
-                // slot-0 sitA into the 90097 broadcast we just received)
-                // catches our presence flag. Mirrors faces L327.
-                llMessageLinked(LINK_SET, QS_PROP_HELLO, "", llGetScriptName());
             }
             return;
         }

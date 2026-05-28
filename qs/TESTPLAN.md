@@ -26,13 +26,17 @@ und die Git-Historie.
 
 ## H. Plugin removal during runtime
 
-Exercises the `CHANGED_INVENTORY` removal-detection paths added in
-sitB 0.9933+ (adjuster / faces / select), adjuster 0.9912+ (offset
-LSD-mirror + self-reset), offset 0.9901+ (`qs:offset:alive` LSD flag),
-and hudproxy 1.1902+ (`requireOffsetPlugin` gate). Each test removes
-a plugin script from the sitter inventory **without** a manual reset,
-then verifies the dependent UI / message path reacts on the next
-interaction.
+Exercises plugin-removal detection. **As of 0.9951 the mechanism is
+boot's `QS_ALIVE_CENSUS` (90079)**, not the old per-script HELLO cache:
+boot wipes every `qs:alive:*` (+ `qs:offset:alive`) on a
+`CHANGED_INVENTORY` with the notecard unchanged, then re-broadcasts;
+surviving plugins re-write their flag, a removed one can't, so its flag
+stays cleared and consumers read it as absent on their next on-demand
+read. Each test removes a plugin script **without** a manual reset, then
+verifies the dependent UI / message path reacts on the next interaction.
+(Detail pass-criteria below that still name `*_present` / `*_script_name`
+/ HELLO predate 0.9951 — the observable behaviour is unchanged; only the
+mechanism moved to `qs:alive:*`. See PROTOCOL.md § qs:alive and § J.)
 
 Section is intentionally English (touch-as-you-migrate convention);
 older sections stay German until they're separately migrated.
@@ -213,6 +217,32 @@ chat log diff between paths; `[QS]debug.lsl` for `dump_quiet` /
 Skippable for pure QSALIVE / plugin changes.
 
 ---
+
+## J. qs:alive presence migration — minimum in-world acceptance (0.9951)
+
+The presence→LSD migration (HELLO 90088–92 → `qs:alive:*` flags + boot
+`QS_ALIVE_CENSUS`) is not unit-testable. This is the **minimum** set of
+in-world checks that must all pass before the migration ships. Each maps
+to a code path that reasoning alone cannot fully guarantee. Pre-req: a
+fully-loaded furniture (sitA, sitB, boot, adjuster, faces, prop, offset,
+select) with at least one sitter slot.
+
+| ID | Step | Expected | Covers |
+|---|---|---|---|
+| MA-1 | Cold-rez, sit, open pose menu → `[ADJUST]` | `[FACES]` + `[HELPER]` present; `[NEW]`→`[PROP]`/`[FACE]` present | producer state_entry write + consumer on-demand read, normal boot |
+| MA-2 | With QuickyHUD installed, owner opens `[ADJUST]` | `[QUICKYHUD]` present | `qs:alive:adjuster` read in sitB (owner gate) |
+| MA-3 | `[SAVE]` a pose offset (offset installed) | "Personal position saved for this pose." | `qs:offset:alive` read in sitA |
+| MA-4 | Remove `[QS]faces` (no reset), reopen `[ADJUST]` | `[FACES]` gone | CENSUS wipe + removal detection |
+| MA-5 | Re-add `[QS]faces`, reopen `[ADJUST]` | `[FACES]` back | CENSUS re-stamp + state_entry re-write |
+| MA-6 | Remove `[QS]offset`, `[SAVE]` a pose | "Personal offset storage not installed - position not saved." | offset removal via CENSUS (no adjuster mirror anymore) |
+| MA-7 | **Fresh-seed** AVpos with `PROP*` but no `[QS]prop` (notecard new or edited → asset-key change forces the parse) | boot owner-chat WARN "prop plugin is missing" | boot self-check reads `qs:alive:prop`. NB: on the **skip-seed** path (re-rez with unchanged LSD) the notecard isn't re-parsed → `has_prop_in_notecard` stays FALSE → no WARN. Pre-existing behaviour (unchanged HELLO→LSD), not a presence regress. |
+| MA-8 | Edit + save the AVpos notecard while seated | `[FACES]`/`[HELPER]` still present after re-seed (no flicker to absent) | `qs:alive:*` survives the notecard-reseed wipe |
+| MA-9 | Multi-sitter pack: sit two slots, use the seat picker | select routing works | `qs:alive:select` read in `select_present()` |
+| MA-10 | Note `[QS]boot` "Load complete … Mem=" free-memory at boot vs a pre-0.9951 baseline | ≥ baseline (no regression; goal is higher headroom) | the heap-pressure reduction that motivated the change |
+
+A failure in MA-1/MA-4/MA-5 means a producer/consumer key mismatch or a
+CENSUS gap; MA-8 a wipe-pattern error; MA-10 is the success metric, not a
+pass/fail gate.
 
 ## Mess-Methodik
 

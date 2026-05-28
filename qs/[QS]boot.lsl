@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.995";
+string version = "0.9951";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -56,12 +56,16 @@ integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
 list dump_plugins;
 
-// QS_PROP_HELLO — [QS]prop announces presence on state_entry / on_rez /
-// QSALIVE-reply. Drives self_check_report's prop-missing check via the
-// cached flag so a creator-renamed prop fork ([FOO]prop) doesn't trip
-// the WARN by failing a literal "[QS]prop" lookup in dump_plugins.
-integer QS_PROP_HELLO = 90089;
-integer prop_present  = FALSE;
+// QS_ALIVE_CENSUS — boot broadcasts this on plugin add/remove (a
+// CHANGED_INVENTORY with the notecard asset key unchanged). Each presence
+// plugin re-writes its qs:alive:<name> LSD flag in response; a removed
+// plugin can't, so its flag stays cleared — that's the removal detection.
+// The wipe + this broadcast run synchronously in changed(), so every
+// survivor's re-write is a strictly later event (no clear-vs-rewrite
+// race). See PROTOCOL.md § qs:alive. prop presence is now read directly
+// from qs:alive:prop in self_check_report (still rename-safe — the key is
+// name-stable, unlike a literal "[QS]prop" inventory probe).
+integer QS_ALIVE_CENSUS = 90079;
 
 // QS_BOOT_RELOAD — broadcast at the end of the seed cascade so already-
 // running sitB scripts re-read MENU_LIST from the freshly-written LSD
@@ -426,6 +430,11 @@ finalize_boot()
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
+    // Re-stamp presence flags. Covers the rare full-LSD-reset path
+    // (wipe-retry) where qs:alive:* was cleared without the plugins
+    // resetting, and re-confirms any plugin that became ready only after
+    // its own state_entry write. Plugins re-write their flag on CENSUS.
+    llMessageLinked(LINK_SET, QS_ALIVE_CENSUS, "", "");
     // Arm self-check timer — 10s safety net for probe replies. Replies
     // typically arrive in <1s on small notecards, but multi-prim builds
     // with many poses (251+) and several sitter slots can cumulatively
@@ -456,8 +465,8 @@ try_complete_selfcheck()
 
 // One-shot post-boot self-check. Hard-fails on missing sitA/sitB (no
 // animation or no menu). Warns on PROP* directives without [QS]prop.
-// No-ops for missing adjuster — sitA already gates the [HELPER] menu
-// item via QS_ADJUSTER_HELLO, so end-users in read-only setups see
+// No-ops for missing adjuster — sitB already gates the [HELPER] menu
+// item on qs:alive:adjuster, so end-users in read-only setups see
 // nothing broken.
 self_check_report()
 {
@@ -472,7 +481,7 @@ self_check_report()
         Out(0, "ERROR: [QS]sitB missing — no menu will appear.");
         ok = FALSE;
     }
-    if (has_prop_in_notecard && !prop_present)
+    if (has_prop_in_notecard && llLinksetDataRead("qs:alive:prop") == "")
     {
         Out(0, "WARN: " + notecard_name + " has PROP* directives but the prop plugin is missing — props will not be rezzed.");
     }
@@ -809,11 +818,6 @@ default
             string plugin = (string)id;
             if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
                 dump_plugins += plugin;
-            return;
-        }
-        if (num == QS_PROP_HELLO)
-        {
-            prop_present = TRUE;
             return;
         }
         if (num == QSALIVE_REPLY)
@@ -1314,10 +1318,7 @@ default
         if (change & CHANGED_INVENTORY)
         {
             // Notecard is the source of truth — a notecard save/swap mints
-            // a new asset key, which triggers reset + re-seed. Inventory
-            // changes without a notecard touch (e.g. an extra [QS]sitA
-            // dropped) are ignored — adding a slot requires a matching
-            // SITTER directive in AVpos, which flips the asset key anyway.
+            // a new asset key, which triggers reset + re-seed.
             if (llGetInventoryKey(notecard_name) != notecard_key)
             {
                 // Tell sitA / sitB their cached MENU_LIST / pose data
@@ -1326,21 +1327,33 @@ default
                 // until our finalize_boot fires QS_BOOT_RELOAD again.
                 // Broadcast BEFORE the wipe so the receivers have the
                 // signal even if scheduling re-orders us; they read no
-                // LSD on this path, just clear flags.
+                // LSD on this path, just clear flags. qs:alive:* survive
+                // the wipe (presence isn't notecard-derived; the plugins
+                // re-seed it themselves on their own state_entry).
                 llMessageLinked(LINK_SET, QS_BOOT_WIPE, "", "");
                 llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|boot):", "");
                 llResetScript();
             }
-            // Updater runs replace sibling scripts one by one. If the
-            // self-check safety-net is still pending when an inventory
-            // change fires, reset the 10s countdown — the update window
-            // is still active and sitA/sitB are about to (or just did)
-            // get re-added. Without this reset the timer fires mid-update
-            // and reports false-positive "[QS]sitA missing" ERRORs for
-            // scripts the updater is in the middle of swapping back in.
-            else if (selfcheck_pending)
+            else
             {
-                llSetTimerEvent(10.0);
+                // Notecard unchanged → a plugin script was added or removed.
+                // Re-census presence: wipe every qs:alive flag, then trigger
+                // the survivors to re-write theirs. A removed plugin can't
+                // answer, so its flag stays cleared — that's the removal
+                // detection (replaces sitB's old per-name inventory probe).
+                // Wipe + broadcast are synchronous, so survivors' re-writes
+                // are strictly later events: no clear-vs-rewrite race. This
+                // also fires once per script-drag while a creator assembles
+                // the furniture — harmless and self-correcting (each survivor
+                // re-stamps on receipt; the state after the last drag wins).
+                llLinksetDataDeleteFound("^qs:alive:", "");
+                llLinksetDataDelete("qs:offset:alive");
+                llMessageLinked(LINK_SET, QS_ALIVE_CENSUS, "", "");
+                // Updater runs replace sibling scripts one by one. Keep the
+                // self-check safety-net window open if it's still pending so
+                // the timer doesn't fire mid-update with false-positive
+                // "[QS]sitA missing" ERRORs.
+                if (selfcheck_pending) llSetTimerEvent(10.0);
             }
         }
     }
