@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.995";
+string version = "0.9951";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -350,20 +350,28 @@ release_sitter(integer i)
     SITTERS = llListReplaceList(SITTERS, [""], i, i);
     if (i == SCRIPT_CHANNEL)
     {
+        // 90065 + local cleanup must fire on EVERY standup. On a fast
+        // sit-TP or region cross the animation permission is auto-revoked
+        // before this runs; bundling the notify inside the perm gate (as
+        // stock does) then skips it, orphaning hudproxy's per-sitter
+        // listener. The orphan then answers the HUD's region-wide pose
+        // broadcast and leaks this furniture's seat labels. Only
+        // llStopAnimation actually needs the permission, so only it stays
+        // gated.
+        if (MY_SITTER) // OSS::if (osIsUUID(MY_SITTER) && MY_SITTER != NULL_KEY)
+        {
+            llMessageLinked(LINK_SET, 90065, (string)SCRIPT_CHANNEL, MY_SITTER); // 90065=sitter gone
+        }
         if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
         {
-            if (MY_SITTER) // OSS::if (osIsUUID(MY_SITTER) && MY_SITTER != NULL_KEY)
-            {
-                llMessageLinked(LINK_SET, 90065, (string)SCRIPT_CHANNEL, MY_SITTER); // 90065=sitter gone
-            }
             if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR && CURRENT_ANIMATION_FILENAME != "")
             {
                 llStopAnimation(CURRENT_ANIMATION_FILENAME);
             }
-            MY_SITTER = "";
-            RAM_OVERFLOW = [];   // drop sitter-specific cache
-            llListenRemove(menu_handle);
         }
+        MY_SITTER = "";
+        RAM_OVERFLOW = [];   // drop sitter-specific cache
+        llListenRemove(menu_handle);
     }
 }
 
@@ -1246,12 +1254,16 @@ default
                         SITTERS = llListReplaceList(SITTERS, [""], i, i);
                         if (i == SCRIPT_CHANNEL)
                         {
+                            // See release_sitter: notify + cleanup must run
+                            // on every standup, not only while the animation
+                            // permission is still held. Only llStopAnimation
+                            // stays gated.
+                            if (MY_SITTER) // OSS::if (osIsUUID(MY_SITTER) && MY_SITTER != NULL_KEY)
+                            {
+                                llMessageLinked(LINK_SET, 90065, (string)SCRIPT_CHANNEL, MY_SITTER); // 90065=sitter gone
+                            }
                             if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
                             {
-                                if (MY_SITTER) // OSS::if (osIsUUID(MY_SITTER) && MY_SITTER != NULL_KEY)
-                                {
-                                    llMessageLinked(LINK_SET, 90065, (string)SCRIPT_CHANNEL, MY_SITTER); // 90065=sitter gone
-                                }
                                 if (llGetAgentSize(MY_SITTER) != ZERO_VECTOR && CURRENT_ANIMATION_FILENAME != "")
                                 {
                                     // Stock used (integer)CURRENT_ANIMATION_FILENAME
@@ -1259,9 +1271,9 @@ default
                                     // was silently skipped in this branch.
                                     llStopAnimation(CURRENT_ANIMATION_FILENAME);
                                 }
-                                MY_SITTER = "";
-                                llListenRemove(menu_handle);
                             }
+                            MY_SITTER = "";
+                            llListenRemove(menu_handle);
                         }
                     }
                 }
