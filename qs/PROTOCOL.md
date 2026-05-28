@@ -60,10 +60,10 @@ notice.
 | `90078` | same | `[QS]sitB` → `[QS]boot`: boot self-check reply. Sent in response to `90077`. |
 | `90088` | between stock `90076` and `90090` | `[QS]offset` → all: announces offset-plugin presence (`QS_OFFSET_HELLO`). Broadcast on state_entry and in response to QSALIVE-reply (90097). `[QS]adjuster` caches `offset_present` and mirrors to LSD key `qs:offset:alive`; `[QS]sitA` reads that flag in its `[ALL POSES]` / `[SAVE]` handlers to gate the "Personal offset saved..." confirmation — if offset.lsl is removed, sitA emits "Personal offset storage not installed - position not saved." instead of lying. offset.lsl also writes the LSD flag directly in its own state_entry (authoritative). adjuster's state_entry deletes the flag as reset-safety net. id = announcer's script name. |
 | `90089` | same | `[QS]prop` → all: announces prop presence so `[QS]adjuster` can gate the `[PROP]` menu item without inventory-probing `[QS]prop`. Broadcast on state_entry / on_rez / QSALIVE-reply (mirrors `QS_FACES_HELLO`). id = announcer's script name. |
-| `90090` | between stock `90076` and `90100` | `[QS]faces` → all: announces faces presence so `[QS]sitA` can gate the `[FACES]` menu item without inventory-probing `[AV]faces` (id = announcer's script name) |
-| `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so `[QS]sitA` can gate the `[HELPER]` menu item without script-name probes (id = announcer's script name) |
+| `90090` | between stock `90076` and `90100` | `[QS]faces` → all: announces faces presence so the `[FACES]` item can be gated without inventory-probing `[AV]faces`. Received by **`[QS]sitB`** (gates `[FACES]` in the ADJUST dialog, `adjust_dialog()`) and **`[QS]adjuster`** (gates the `[FACE]` pose-edit picker). sitA was the receiver pre-0.910; the gate moved when the ADJUST dialog moved to sitB. id = announcer's script name. |
+| `90091` | between stock `90076` and `90100` | `[QS]adjuster` → all: announces adjuster presence so **`[QS]sitB`** can gate the `[HELPER]` / `[QUICKYHUD]` entries in the ADJUST dialog without script-name probes. sitA was the receiver pre-0.910; the gate moved when the ADJUST dialog moved to sitB. id = announcer's script name. |
 | `90092` | same | `[QS]select` → all: announces select presence so `[QS]sitB` can gate select-driven menu routing without script-name probes for `[QS]select`. The legacy `[AV]select` inventory probe stays in sitB as stock-AVsitter backward-compat. |
-| `90093` | same | bidirectional hudproxy presence (`QS_HUDPROXY_HELLO`). `[QS]adjuster` → hudproxy: msg `"PROBE"`, id `""`. hudproxy → `[QS]adjuster`: msg `"HELLO"`, id `<script_name>` (sent unsolicited on hudproxy's state_entry and as reply to `"PROBE"`). adjuster arms a 1 s timer after sending PROBE; if no HELLO arrives → hudproxy has been removed from the linkset → delete the stale `QPP_CFG:ADJUSTMODE` LSD key so sitA stops showing `[QUICKYHUD]` and sitB stops rendering the qh_on-enriched pose menu. See [§ HUDPROXY presence](#hudproxy-presence--90093). |
+| `90093` | same | bidirectional hudproxy presence (`QS_HUDPROXY_HELLO`). `[QS]adjuster` → hudproxy: msg `"PROBE"`, id `""`. hudproxy → `[QS]adjuster`: msg `"HELLO"`, id `<script_name>` (sent unsolicited on hudproxy's state_entry and as reply to `"PROBE"`). adjuster arms a 1 s timer after sending PROBE; if no HELLO arrives → hudproxy has been removed from the linkset → delete the stale `QPP_CFG:ADJUSTMODE` LSD key so sitB stops showing `[QUICKYHUD]` and stops rendering the qh_on-enriched pose menu. See [§ HUDPROXY presence](#hudproxy-presence--90093). |
 | `90094` | between stock `90076` and `90100` | `[QS]boot` → all plugins: QSDUMP probe ("announce yourself if DUMP-capable") |
 | `90095` | same | DUMP plugin → `[QS]boot`: QSDUMP hello (id = announcer's script name) |
 | `90096` | same | plugin → `[QS]sitA`: QSALIVE presence probe |
@@ -293,17 +293,18 @@ default
 ## HUDPROXY presence — 90093
 
 QuickyHUD's `[QS]hudproxy` writes the `QPP_CFG:ADJUSTMODE` LSD key
-unprotected on its `state_entry`. `[QS]sitA` and `[QS]sitB` both gate
-QuickyHUD-aware UI on key existence/value:
-- sitA renders the `[QUICKYHUD]` button in the Adjust dialog if the key
+unprotected on its `state_entry`. `[QS]sitB` gates QuickyHUD-aware UI
+on the key's existence/value (both pieces moved from sitA in the 0.910
+ADJUST-dialog refactor):
+- the `[QUICKYHUD]` button in the Adjust dialog, rendered if the key
   exists.
-- sitB enriches the main pose menu (`[NEW]`/`[DUMP]`/`[ADJUST OFF]`)
+- the enriched main pose menu (`[NEW]`/`[DUMP]`/`[ADJUST OFF]`)
   if `value == "On"`.
 
 **Problem:** LSD outlives script removal. If the creator removes
 hudproxy + hudadmin from the linkset after first install, the LSD key
-persists with whatever value it last had. sitA keeps showing
-`[QUICKYHUD]` (clicks no-op because nobody handles 90266) and sitB
+persists with whatever value it last had. sitB keeps showing
+`[QUICKYHUD]` (clicks no-op because nobody handles 90266) and
 stays stuck in the qh_on-enriched menu forever if the key happened to
 be `"On"` at removal time — including a non-functional `[ADJUST OFF]`
 button.
@@ -394,7 +395,7 @@ sit attempt instead of seeing a silent no-menu / no-animation furniture:
 2. **Conditional warn:** `AVpos` has `PROP*` directives but `[QS]prop`
    is not installed — props won't be rezzed.
 
-Adjuster presence is deliberately **not** checked. `[QS]sitA` already
+Adjuster presence is deliberately **not** checked. `[QS]sitB` already
 gates the `[HELPER]` menu item on `QS_ADJUSTER_HELLO` (90091), so an
 end-user (read-only) install just doesn't expose the Adjust path —
 nothing is broken from the user's view.
@@ -707,7 +708,7 @@ A plugin that never announces still works in stock-AVsitter furniture
   90089 since 0.901 so `[QS]adjuster` can gate the `[PROP]` menu item
   without an inventory probe)
 - `[QS]faces` (≥ 0.902) — announces ✅ (also broadcasts QS_FACES_HELLO
-  90090 so sitA / adjuster can gate the `[FACES]` / `[EXPRESSION]`
+  90090 so sitB / adjuster can gate the `[FACES]` / `[EXPRESSION]`
   menu items without an inventory probe)
 - `[AV]camera` — stock, hardcoded in boot's cascade. No `[QS]camera`
   fork planned: stock [AV]camera's only name-bound code
