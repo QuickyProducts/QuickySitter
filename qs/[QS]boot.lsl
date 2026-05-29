@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9952";
+string version = "0.9953";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -737,7 +737,13 @@ default
         // arrives. Single call site so the dataserver branch's
         // query_id == reused_key check stays unambiguous.
         reused_key = llGetNumberOfNotecardLines(notecard_name);
-        if (llLinksetDataRead("qs:boot:asset") == (string)notecard_key)
+        // Skip-seed requires BOTH the matching asset key AND the page-oriented
+        // sidecar (qs:cfg:slots:0, written since 0.9952). Furniture seeded by an
+        // older boot has the asset key but no sidecar; force one re-parse so the
+        // sidecar exists before the sitB page-rebuild starts reading it. After
+        // that single reseed the steady-state skip path resumes normally.
+        if (llLinksetDataRead("qs:boot:asset") == (string)notecard_key
+            && llLinksetDataRead("qs:cfg:slots:0") != "")
         {
             // Already seeded for this notecard — skip the re-parse.
             // sitA/sitB read LSD directly; we just rebuild total_channels
