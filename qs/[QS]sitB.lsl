@@ -13,12 +13,13 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9951";
+string version = "0.9956";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
 // because this script has exactly one diagnostic call site (memory()
-// banner) and the helper bytecode (~300 B) competes with MENU_LIST on
+// banner) and the helper bytecode (~300 B) competed with the (now-retired)
+// MENU_LIST on
 // extreme-text furniture (1000+ poses). Verbose check inlined at the
 // memory() call below; AVpos `VERBOSE n` → qs:cfg:verbose LSD still
 // controls it (read in state_entry).
@@ -47,7 +48,7 @@ integer number_of_sitters = 1;
 
 // QS_BOOT_WIPE — broadcast by [QS]boot BEFORE its LSD wipe + reset
 // when a notecard re-save invalidates the seeded state. We flip
-// iBooted back to FALSE and clear MENU_LIST so menu opens / sit
+// iBooted back to FALSE and clear the page state so menu opens / sit
 // attempts hit the pre-boot guard instead of serving stale data.
 // finalize_boot fires QS_BOOT_RELOAD (90023) when the re-seed
 // completes.
@@ -55,7 +56,7 @@ integer QS_BOOT_WIPE      = 90024;
 
 // QS_BOOT_RELOAD — broadcast by [QS]boot at the end of its seed cascade.
 // Triggers a fresh qs_load_from_lsd() so a notecard re-save doesn't
-// require a manual reset to pick up the new MENU_LIST. Resets menu
+// require a manual reset to pick up the new pose data. Resets menu
 // navigation back to root since the old indices may no longer be valid.
 // Since 0.905 also doubles as the initial wake-up: state_entry no
 // longer sleep-polls qs:meta:<ch> — if it's absent we just return,
@@ -110,9 +111,20 @@ string  helper_object = "[AV]helper";
 integer iBooted;
 string CUSTOM_TEXT;
 string SITTER_INFO;
-list MENU_LIST;
-// DATA_LIST and POS_ROT_LIST removed — read on demand from qs:p:<ch>:<i>
-// to keep sitB under the 64 KB Mono cap at scale (1000+ poses).
+// Page-oriented menu state (0.9954, MENU_LIST retired — the ~30 KB flat label
+// list that crashed sitB at scale). RAM is now O(visible page + nav depth):
+//   page_map  = the current dialog's clickable [label, flatIdx] pairs (strided
+//               2); rebuilt every render, used by dispatch (find label -> idx).
+//   nav_stack = the submenu marker indices the user navigated through, the BACK
+//               path (replaces last_menu + the tree-scan).
+//   SLOTS     = this channel's entry count (boot's qs:cfg:slots:<ch>).
+// Labels + anim/pos/rot come from qs:p:<ch>:<i> on demand; submenu structure
+// (child counts, TOMENU targets) from the qs:nm/qs:nt sidecar boot writes.
+// DATA_LIST/POS_ROT_LIST were already on-demand for the same reason — keeping
+// sitB under the 64 KB Mono cap at scale (1000+ poses).
+list page_map;
+list nav_stack;
+integer SLOTS;
 integer helper_mode;
 integer has_RLV;
 integer ANIM_INDEX;
@@ -120,7 +132,8 @@ integer FIRST_INDEX = -1;
 integer menu_handle;
 integer menu_channel;
 integer current_menu = -1;
-integer last_menu;
+// last_menu retired (0.9954) — BACK now pops nav_stack, which records the full
+// navigated path (more faithful than one level + a tree-scan; see MENU_SPEC §4).
 // (global submenu_info removed — was shadowed by the same-named local
 // in animation_menu and never read outside that scope.)
 integer menu_page;
@@ -151,7 +164,7 @@ send_anim_info(integer broadcast)
     string rot  = llList2String(pp, 4);
     llMessageLinked(LINK_THIS, 90055, (string)SCRIPT_CHANNEL,
         llDumpList2String([
-            llList2String(MENU_LIST, ANIM_INDEX),
+            llList2String(pp, 0),
             anim,
             pos,
             rot,
@@ -165,7 +178,7 @@ memory()
     // Inlined Out(1, …) — see verbose-block header comment for rationale.
     if (verbose >= 1)
         llOwnerSay(llGetScriptName() + "[" + version + "] "
-            + (string)llGetListLength(MENU_LIST) + " Items Ready, Mem="
+            + (string)SLOTS + " Items Ready, Mem="
             + (string)(65536 - llGetUsedMemory()));
 }
 
@@ -192,7 +205,7 @@ integer select_present()
 
 integer animation_menu(integer animation_menu_function)
 {
-    if ((animation_menu_function == -1 || llGetListLength(MENU_LIST) < 2) && (!helper_mode) && select_present())
+    if ((animation_menu_function == -1 || SLOTS < 2) && (!helper_mode) && select_present())
     {
         llMessageLinked(LINK_SET, 90009, CONTROLLER, MY_SITTER);
     }
@@ -219,11 +232,12 @@ integer animation_menu(integer animation_menu_function)
         {
             menu += "[Sitter " + (string)SCRIPT_CHANNEL + "]";
         }
-        string animation_file = llList2String(llParseStringKeepNulls(llList2String(qs_pose_data(ANIM_INDEX), 2), [SEP], []), 0);
+        list cur_pose = qs_pose_data(ANIM_INDEX);          // [name,type,anim,pos,rot]
+        string animation_file = llList2String(llParseStringKeepNulls(llList2String(cur_pose, 2), [SEP], []), 0);
         string CURRENT_POSE_NAME;
         if (FIRST_INDEX != -1)
         {
-            CURRENT_POSE_NAME = llList2String(MENU_LIST, ANIM_INDEX);
+            CURRENT_POSE_NAME = llList2String(cur_pose, 0);
             menu += " [" + llList2String(llParseString2List(CURRENT_POSE_NAME, ["P:"], []), 0);
             if (llGetInventoryType(animation_file + "+") == INVENTORY_ANIMATION)
             {
@@ -238,13 +252,11 @@ integer animation_menu(integer animation_menu_function)
             }
             menu += "]";
         }
-        integer total_items;
-        integer i = current_menu + 1;
-        while (i < llGetListLength(MENU_LIST) && llSubStringIndex(llList2String(MENU_LIST, i), "M:"))
-        {
-            ++total_items;
-            ++i;
-        }
+        // Active section's child count straight from the sidecar (boot's
+        // qs:nm), O(1) — replaces the old forward-walk to the next M: marker.
+        // current_menu == -1 reads the root section's count.
+        integer total_items = (integer)llLinksetDataRead("qs:nm:" + (string)SCRIPT_CHANNEL + ":" + (string)current_menu);
+        integer i;
         list menu_items0;
         list menu_items2;
         // qh_on lifted from L245 → here so the [DONE] add-in below can
@@ -334,29 +346,28 @@ integer animation_menu(integer animation_menu_function)
             menu_items2 = menu_items2 + "[<<]" + "[>>]";
             items_per_page -= 2;
         }
+        // Build the visible page by reading qs:p for the window
+        // [section_start + page*ipp, +ipp), bounded by the section's child
+        // count (section_end = the next M: marker — replaces the old jump-end).
+        // page_map records displayed-label -> flat index for dispatch.
         list menu_items1;
-        integer page_start = (i = current_menu + 1 + menu_page * items_per_page);
-        do
+        page_map = [];
+        integer section_end = current_menu + 1 + total_items;
+        integer page_start = current_menu + 1 + menu_page * items_per_page;
+        integer page_stop = page_start + items_per_page;
+        i = page_start;
+        while (i < page_stop && i < section_end)
         {
-            if (i < llGetListLength(MENU_LIST))
-            {
-                string m = llList2String(MENU_LIST, i);
-                if (!llSubStringIndex(m, "M:"))
-                {
-                    jump end;
-                }
-                if (llListFindList(["T:", "P:", "B:"], [llGetSubString(m, 0, 1)]) == -1)
-                {
-                    menu_items1 += m;
-                }
-                else
-                {
-                    menu_items1 += llGetSubString(m, 2, 99999);
-                }
-            }
+            string m = llList2String(qs_pose_data(i), 0); // field 0 = prefixed label
+            string disp;
+            if (llListFindList(["T:", "P:", "B:"], [llGetSubString(m, 0, 1)]) == -1)
+                disp = m;                                 // SYNC (no prefix) shown raw
+            else
+                disp = llGetSubString(m, 2, 99999);       // strip the 2-char prefix
+            menu_items1 += disp;
+            page_map += [disp, i];
+            ++i;
         }
-        while (++i < page_start + items_per_page);
-        @end;
         if (animation_menu_function == 1)
         {
             return (total_items + items_per_page - 1) / items_per_page - 1;
@@ -389,6 +400,46 @@ integer animation_menu(integer animation_menu_function)
     return 0;
 }
 
+// Re-derive this channel's nav sidecar (qs:nm child counts, qs:nt TOMENU
+// targets, qs:cfg:slots) from qs:p — the same derivation [QS]boot does at seed
+// (its qs_close_section + tomenu_pending). Used after a live [NEW] insert
+// (90300): the adjuster issues one or more qs_insert_pose *before* its 90300s
+// (a SUBMENU is a TOMENU + MENU pair = two inserts), so a per-insert index
+// shift can't track the finished layout — rebuilding from qs:p always can, and
+// it wires the new TOMENU->MENU link in the same pass. O(entries), edit-time only.
+qs_rebuild_sidecar()
+{
+    string ch = (string)SCRIPT_CHANNEL;
+    llLinksetDataDeleteFound("^qs:n[mt]:" + ch + ":", "");
+    integer open_marker = -1;
+    list tomenu_pending;                 // strided [key, tomenuIdx]
+    integer i = 0;
+    string v;
+    while ((v = llLinksetDataRead("qs:p:" + ch + ":" + (string)i)) != "")
+    {
+        list pp = llParseStringKeepNulls(v, ["|"], []);
+        string t = llList2String(pp, 1);
+        if (t == "M")
+        {
+            llLinksetDataWrite("qs:nm:" + ch + ":" + (string)open_marker, (string)(i - open_marker - 1));
+            open_marker = i;
+            string mkey = llGetSubString(llList2String(pp, 0), 2, 99999);
+            integer pend = llListFindList(tomenu_pending, [mkey]);
+            if (pend != -1)
+            {
+                llLinksetDataWrite("qs:nt:" + ch + ":" + (string)llList2Integer(tomenu_pending, pend + 1), (string)i);
+                tomenu_pending = llDeleteSubList(tomenu_pending, pend, pend + 1);
+            }
+        }
+        else if (t == "T")
+            tomenu_pending += [llGetSubString(llList2String(pp, 0), 2, 99999), i];
+        ++i;
+    }
+    llLinksetDataWrite("qs:nm:" + ch + ":" + (string)open_marker, (string)(i - open_marker - 1));
+    SLOTS = i;
+    llLinksetDataWrite("qs:cfg:slots:" + ch, (string)i);
+}
+
 // QuickySitter: read this channel's data straight from Linkset Data instead
 // of waiting for [QS]boot to dispatch 90300/90301/90302 messages. Boot is
 // the only script that writes LSD during seed; it resets sitB after the
@@ -396,7 +447,8 @@ integer animation_menu(integer animation_menu_function)
 // 90300/90301 handlers stay for adjuster live-edits.
 qs_load_from_lsd()
 {
-    MENU_LIST = [];
+    page_map = [];
+    nav_stack = [];
     FIRST_INDEX = ANIM_INDEX = -1;
 
     string cfg = llLinksetDataRead("qs:cfg:" + (string)SCRIPT_CHANNEL);
@@ -421,20 +473,19 @@ qs_load_from_lsd()
 
     SITTER_INFO = llLinksetDataRead("qs:sitter:" + (string)SCRIPT_CHANNEL);
 
-    // Cache only the names + types we need for menu rendering and lookup.
-    // anim/pos/rot live in LSD; qs_pose_data(idx) reads them on demand.
+    // Page-oriented load (0.9954): no MENU_LIST. The entry count comes from
+    // the boot-written sidecar; the default pose (FIRST_INDEX) is the first
+    // POSE/SYNC entry, found by a short scan that stops at the first hit (the
+    // default sits near the top). Entries are read transiently here, never
+    // held — that is the whole point of the rebuild (RAM = O(page), not O(N)).
+    SLOTS = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)SCRIPT_CHANNEL);
     integer i = 0;
     string val;
-    while ((val = llLinksetDataRead("qs:p:" + (string)SCRIPT_CHANNEL + ":" + (string)i)) != "")
+    while (FIRST_INDEX == -1 && (val = llLinksetDataRead("qs:p:" + (string)SCRIPT_CHANNEL + ":" + (string)i)) != "")
     {
-        list pp = llParseStringKeepNulls(val, ["|"], []);
-        MENU_LIST += [llList2String(pp, 0)];
-        if (FIRST_INDEX == -1)
-        {
-            string type = llList2String(pp, 1);
-            if (type == "P" || type == "S")
-                FIRST_INDEX = ANIM_INDEX = i;
-        }
+        string type = llList2String(llParseStringKeepNulls(val, ["|"], []), 1);
+        if (type == "P" || type == "S")
+            FIRST_INDEX = ANIM_INDEX = i;
         ++i;
     }
 
@@ -612,7 +663,7 @@ default
     {
         string channel;
         // While the [OPTIONS] dialog is open, route clicks via the plugin
-        // registry. Checked first so a MENU_LIST collision (e.g. a pose
+        // registry. Checked first so a page-item collision (e.g. a pose
         // happens to be named "[BACK]") never hijacks plugin-menu nav.
         if (in_plugin_menu)
         {
@@ -737,59 +788,77 @@ default
                 + "|" + (string)OLD_HELPER_METHOD, id);
             return;
         }
-        integer index = llListFindList(MENU_LIST, [msg]);
-        if (index == -1)
+        // Page-oriented dispatch (0.9954): the clicked label maps to a flat
+        // qs:p index via page_map (built in animation_menu). Re-validate against
+        // current LSD before acting — the page can go stale under an open dialog
+        // (reseed / live-insert / swap); on mismatch we re-render and drop the
+        // click rather than act on a stale index (MENU_SPEC § 5 / § 13).
+        integer pmi = llListFindList(page_map, [msg]);
+        if (pmi != -1 && !(pmi & 1))
         {
-            channel = (string)SCRIPT_CHANNEL;
-            index = llListFindList(MENU_LIST, ["P:" + msg]);
-        }
-        if (index != -1)
-        {
-            llMessageLinked(LINK_THIS, 90050, (string)channel + "|" + msg + "|" + (string)SET, MY_SITTER);
-            llMessageLinked(LINK_THIS, 90000, msg, channel);
-            if (MTYPE != 2 && MTYPE != 4)
+            integer click_idx = llList2Integer(page_map, pmi + 1);
+            list e = qs_pose_data(click_idx);              // [name,type,anim,pos,rot]
+            string elabel = llList2String(e, 0);
+            string etype  = llList2String(e, 1);
+            string disp;
+            if (llListFindList(["T:", "P:", "B:"], [llGetSubString(elabel, 0, 1)]) == -1)
+                disp = elabel;                             // SYNC (no prefix) shown raw
+            else
+                disp = llGetSubString(elabel, 2, 99999);
+            if (disp != msg)
             {
-                llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, MY_SITTER], "|"));
+                animation_menu(0);                         // stale page — re-render, drop click
+                return;
             }
-            return;
-        }
-        index = llListFindList(MENU_LIST, ["M:" + msg]);
-        if (index != -1)
-        {
-            if (llListFindList(MENU_LIST, ["T:" + msg]) != -1) // security check - TOMENU must exist
+            if (etype == "P" || etype == "S")
             {
-                llMessageLinked(LINK_SET, 90051, (string)channel + "|" + llGetSubString(msg, 0, -2) + "|" + (string)SET, MY_SITTER);
+                if (etype == "P") channel = (string)SCRIPT_CHANNEL; // POSE targets this slot; SYNC ("") broadcasts
+                ANIM_INDEX = click_idx;                    // tier-1: set directly, no inbound name lookup
+                llMessageLinked(LINK_THIS, 90050, (string)channel + "|" + msg + "|" + (string)SET, MY_SITTER);
+                llMessageLinked(LINK_THIS, 90000, msg, channel);
+                if (MTYPE != 2 && MTYPE != 4)
+                {
+                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, MY_SITTER], "|"));
+                }
+                return;
+            }
+            if (etype == "T")
+            {
+                // qs:nt -> target MENU index, O(1) (replaces the M:/T: name-pair
+                // findList). Push current_menu so [BACK] returns here.
+                integer target = (integer)llLinksetDataRead("qs:nt:" + (string)SCRIPT_CHANNEL + ":" + (string)click_idx);
+                // 90051 channel field = this slot (matches the pre-rebuild path,
+                // where the bare-name findList miss set channel = SCRIPT_CHANNEL).
+                llMessageLinked(LINK_SET, 90051, (string)SCRIPT_CHANNEL + "|" + llGetSubString(msg, 0, -2) + "|" + (string)SET, MY_SITTER);
                 menu_page = 0;
-                last_menu = current_menu;
-                current_menu = index;
+                nav_stack += [current_menu];
+                current_menu = target;
                 animation_menu(0);
+                return;
             }
-            return;
-        }
-        index = llListFindList(llList2List(MENU_LIST, current_menu + 1, 99999), ["B:" + msg]);
-        if (index != -1)
-        {
-            index += current_menu + 1;
-            list button_data = llParseStringKeepNulls(llList2String(qs_pose_data(index), 2), [SEP], []);
-            if (llList2String(button_data, 1) != "")
+            if (etype == "B")
             {
-                msg = llList2String(button_data, 1);
+                list button_data = llParseStringKeepNulls(llList2String(e, 2), [SEP], []);
+                if (llList2String(button_data, 1) != "")
+                {
+                    msg = llList2String(button_data, 1);
+                }
+                integer n = llList2Integer(button_data, 0);
+                if (llGetListLength(button_data) > 2)
+                {
+                    id = llList2String(button_data, 2);
+                    if (id == "<C>")
+                        id = CONTROLLER;
+                    if (id == "<S>")
+                        id = MY_SITTER;
+                }
+                else if (CONTROLLER != MY_SITTER)
+                {
+                    id = llDumpList2String([CONTROLLER, MY_SITTER], "|");
+                }
+                llMessageLinked(LINK_SET, n, msg, id);
+                return;
             }
-            integer n = llList2Integer(button_data, 0);
-            if (llGetListLength(button_data) > 2)
-            {
-                id = llList2String(button_data, 2);
-                if (id == "<C>")
-                    id = CONTROLLER;
-                if (id == "<S>")
-                    id = MY_SITTER;
-            }
-            else if (CONTROLLER != MY_SITTER)
-            {
-                id = llDumpList2String([CONTROLLER, MY_SITTER], "|");
-            }
-            llMessageLinked(LINK_SET, n, msg, id);
-            return;
         }
         if (msg == "[>>]" || msg == "[<<]")
         {
@@ -838,25 +907,17 @@ default
                 }
                 return;
             }
+            // Pop the navigated back-path (replaces last_menu + the tree-scan
+            // over the flat list). nav_stack records the exact path in, so this
+            // is the faithful inverse of the T: navigation that pushed it.
+            if (llGetListLength(nav_stack))
+            {
+                current_menu = llList2Integer(nav_stack, -1);
+                nav_stack = llDeleteSubList(nav_stack, -1, -1);
+            }
             else
             {
-                if (last_menu != -1)
-                {
-                    current_menu = last_menu;
-                    last_menu = -1;
-                }
-                else
-                {
-                    current_menu = llListFindList(MENU_LIST, ["T:" + llGetSubString(llList2String(MENU_LIST, current_menu), 2, 99999)]);
-                    if (current_menu != -1)
-                    {
-                        current_menu -= 1;
-                        while (current_menu != -1 && llSubStringIndex(llList2String(MENU_LIST, current_menu), "M:") != 0)
-                        {
-                            current_menu--;
-                        }
-                    }
-                }
+                current_menu = -1;
             }
             animation_menu(0);
         }
@@ -864,11 +925,12 @@ default
         {
             llMessageLinked(LINK_SET, 90100, llDumpList2String([SCRIPT_CHANNEL, msg, MY_SITTER], "|"), id);
         }
-        else if (index == -1)
+        else
         {
-            // current_menu (field 3) lets adjuster's [NEW] handler insert new
-            // entries at the end of the user's current submenu instead of at
-            // the LSD tail. Older adjusters (< 0.904) ignore the extra field.
+            // Unknown click (not a page item, not a control button) — route to
+            // adjuster's [NEW] insert. current_menu (field 3) lets it insert at
+            // the end of the user's current submenu, not the LSD tail. Older
+            // adjusters (< 0.904) ignore the extra field.
             llMessageLinked(LINK_SET, 90101, llDumpList2String([SCRIPT_CHANNEL, msg, CONTROLLER, current_menu], "|"), MY_SITTER);
         }
     }
@@ -955,27 +1017,24 @@ default
             // Notecard re-save: boot is about to wipe LSD and reseed.
             // Drop iBooted so the slot-0 pre-boot eject re-engages on
             // any sit attempt during the re-seed window. Clear
-            // MENU_LIST so a stale menu can't be rendered between
+            // the page state so a stale menu can't be rendered between
             // wipe and the QS_BOOT_RELOAD that wakes us up again.
             iBooted = FALSE;
-            MENU_LIST = [];
+            page_map = [];
+            nav_stack = [];
             current_menu = -1;
-            // -1 is the no-previous-submenu sentinel (see L864 check).
-            // Stock 0 would make the next [BACK] click index MENU_LIST[0]
-            // as a submenu marker, breaking the post-reseed first nav.
-            last_menu = -1;
             menu_page = 0;
             return;
         }
         if (num == QS_BOOT_RELOAD)
         {
-            // Boot finished re-seeding LSD. Re-read MENU_LIST and reset
+            // Boot finished re-seeding LSD. Re-read the page state and reset
             // menu navigation — old indices point into the stale list.
             // Also marks iBooted TRUE so the slot-0 pre-boot eject guard
             // disengages (covers both initial wake-up and re-seeds).
             qs_load_from_lsd();
             current_menu = -1;
-            last_menu = -1;
+            nav_stack = [];
             menu_page = 0;
             iBooted = TRUE;
             return;
@@ -1008,13 +1067,37 @@ default
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
         {
-            index = llListFindList(MENU_LIST, [msg]);
-            if (index == -1)
+            // Resolve the pose name to a flat index without MENU_LIST. Tier-1:
+            // if ANIM_INDEX already holds it (self-play set it at click, or a
+            // replay), reuse — O(1). Otherwise scan qs:p (no LSD reverse-map;
+            // kept lean). The scan fires only for plays this sitter did NOT
+            // originate (cross-sitter SYNC, external favs) — see
+            // MENU_REBUILD_PLAN § 6; high pose-count and high SYNC-frequency
+            // never coincide, so it is cheap whenever it runs.
+            index = -1;
+            string curnm;
+            if (ANIM_INDEX != -1) curnm = llList2String(qs_pose_data(ANIM_INDEX), 0);
+            if (curnm == msg)
+                index = ANIM_INDEX;                       // SYNC name already current
+            else if (curnm == "P:" + msg)
             {
-                index = llListFindList(MENU_LIST, ["P:" + msg]);
-                // If it's a POSE entry, don't treat it specially
-                if (~index && num == 90008)
-                    num = 90000;
+                index = ANIM_INDEX;                       // POSE already current
+                if (num == 90008) num = 90000;
+            }
+            else
+            {
+                integer j;
+                for (j = 0; j < SLOTS && index == -1; ++j)
+                {
+                    string nm0 = llList2String(qs_pose_data(j), 0);
+                    if (nm0 == msg)
+                        index = j;                        // SYNC
+                    else if (nm0 == "P:" + msg)
+                    {
+                        index = j;                        // POSE
+                        if (num == 90008) num = 90000;
+                    }
+                }
             }
             if (id) // OSS::if (osIsUUID(id) && id != NULL_KEY)
             {
@@ -1034,7 +1117,7 @@ default
             }
             if (ETYPE == 2)
             {
-                if (num != 90010 && llGetSubString(llList2String(MENU_LIST, ANIM_INDEX), 0, 1) != "P:")
+                if (num != 90010 && llGetSubString(llList2String(qs_pose_data(ANIM_INDEX), 0), 0, 1) != "P:")
                 {
                     if (MY_SITTER != "")
                     {
@@ -1047,7 +1130,7 @@ default
         if (num == 90045 && sender == llGetLinkNumber() && (ETYPE == 1 || ETYPE == 2))
         {
             string OLD_SYNC = llList2String(llParseStringKeepNulls(msg, ["|"], data), 5);
-            if (OLD_SYNC != "" && llList2String(MENU_LIST, ANIM_INDEX) == OLD_SYNC)
+            if (OLD_SYNC != "" && llList2String(qs_pose_data(ANIM_INDEX), 0) == OLD_SYNC)
             {
                 ANIM_INDEX = FIRST_INDEX;
                 send_anim_info(TRUE);
@@ -1066,15 +1149,26 @@ default
             {
                 key lastController = CONTROLLER;
                 CONTROLLER = llList2Key(data, 0);
-                index = llListFindList(MENU_LIST, ["M:" + msg + "*"]);
+                // Restore a named submenu (90005 carrying a submenu name in
+                // msg); empty msg = plain re-render. Scan qs:p for the M:
+                // marker only when a name is given (no MENU_LIST).
+                index = -1;
+                if (msg != "")
+                {
+                    string want = "M:" + msg + "*";
+                    integer j;
+                    for (j = 0; j < SLOTS && index == -1; ++j)
+                        if (llList2String(qs_pose_data(j), 0) == want) index = j;
+                }
                 if (num == 90004)
                 {
                     current_menu = -1;
+                    nav_stack = [];
                     menu_page = 0;
                 }
                 else if (index != -1)
                 {
-                    last_menu = -1;
+                    nav_stack = [];          // restored directly -> BACK goes to root
                     menu_page = 0;
                     current_menu = index;
                     msg = "";
@@ -1098,6 +1192,18 @@ default
             // actions if the user clicks it.
             if (num == 90031)
                 llListenRemove(menu_handle);
+            // View-state reset (MENU_SPEC § 12/§ 13): the occupant just changed,
+            // so the previous occupant's submenu / paging / mode must not carry
+            // over to whoever opens this slot next. Without this a swap-in user
+            // could land in the old user's submenu or a torn-down helper mode.
+            // 90030 (loud) reopens at root via sitA; 90031 (quiet) stays silent
+            // until the new occupant touches, then renders a clean root menu.
+            current_menu = -1;
+            nav_stack = [];
+            menu_page = 0;
+            helper_mode = FALSE;
+            in_plugin_menu = FALSE;
+            in_adjust_menu = FALSE;
             CONTROLLER = MY_SITTER = "";
             return;
         }
@@ -1213,14 +1319,10 @@ default
         if (one == SCRIPT_CHANNEL)
         {
             data = llParseStringKeepNulls(id, ["|"], data);
-            index = llListFindList(MENU_LIST, [llList2String(data, 0)]);
-            if (index == -1)
-            {
-                index = llListFindList(MENU_LIST, ["P:" + llList2String(data, 0)]);
-            }
             if (num == 90299)
             {
-                MENU_LIST = [];
+                page_map = [];
+                nav_stack = [];
                 FIRST_INDEX = ANIM_INDEX = -1;
                 return;
             }
@@ -1229,6 +1331,7 @@ default
                 CONTROLLER = MY_SITTER = id;
                 menu_page = 0;
                 current_menu = -1;
+                nav_stack = [];          // fresh occupant -> clean back-path (invariant: root => empty stack)
                 menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1; // 7FFFFF80 = max float < 2^31
                 llListenRemove(menu_handle);
                 return;
@@ -1241,21 +1344,24 @@ default
             }
             if (num == 90300)
             {
-                // Adjuster signals "new entry inserted in LSD at idx X".
-                // Payload: name | anim | pos | rot | idx — anim is empty
-                // for SUBMENU (T:/M: markers), populated for POSE/SYNC.
-                // anim/pos/rot are already in LSD via qs_insert_pose; we
-                // just mirror the insertion into MENU_LIST and shift any
-                // stored indices that pointed past the insertion point.
+                // Adjuster inserted a new entry in LSD at idx X (payload:
+                // name|anim|pos|rot|idx; anim empty = SUBMENU marker, populated
+                // = POSE/SYNC). qs:p is already shifted by qs_insert_pose — one
+                // shift per inserted entry, and a SUBMENU is TWO (TOMENU + MENU)
+                // done before either 90300 arrives. So shift our RAM view +1 per
+                // 90300 to match, then re-derive the whole sidecar from the
+                // finished qs:p (a per-insert re-key can't track the double
+                // shift; the rebuild also wires the new TOMENU->MENU link).
                 integer insert_at = (integer)llList2String(data, 4);
-                MENU_LIST = llListInsertList(MENU_LIST, [llList2String(data, 0)], insert_at);
                 if (current_menu >= insert_at) ++current_menu;
-                if (last_menu >= insert_at) ++last_menu;
                 if (FIRST_INDEX >= insert_at) ++FIRST_INDEX;
                 if (ANIM_INDEX >= insert_at) ++ANIM_INDEX;
-                // POSE/SYNC (anim field populated) auto-becomes the active
-                // pose so the avatar animates to it and helper-bar moves
-                // adjust the new pose's defaults.
+                integer ns;
+                for (ns = 0; ns < llGetListLength(nav_stack); ++ns)
+                    if (llList2Integer(nav_stack, ns) >= insert_at)
+                        nav_stack = llListReplaceList(nav_stack, [llList2Integer(nav_stack, ns) + 1], ns, ns);
+                qs_rebuild_sidecar();   // also sets SLOTS + qs:cfg:slots
+                // POSE/SYNC (anim populated) auto-becomes the active pose.
                 if (llList2String(data, 1) != "")
                 {
                     if (FIRST_INDEX == -1) FIRST_INDEX = insert_at;
@@ -1276,12 +1382,16 @@ default
                 // position. Only fire when the saved pose is the one this
                 // sitter is currently playing; otherwise nothing visible to
                 // update right now (the new default takes effect on next sit).
-                if (index == ANIM_INDEX && llGetListLength(data) != 3)
+                // Is the saved pose the one we're currently playing? Compare by
+                // name (no MENU_LIST / index lookup) — data[0] is bare, the
+                // stored name may carry a "P:" prefix.
+                list pp = qs_pose_data(ANIM_INDEX);
+                string curnm = llList2String(pp, 0);
+                if ((curnm == llList2String(data, 0) || curnm == "P:" + llList2String(data, 0)) && llGetListLength(data) != 3)
                 {
-                    list pp = qs_pose_data(index);
                     llMessageLinked(LINK_THIS, 90055, (string)SCRIPT_CHANNEL,
                         llDumpList2String([
-                            llList2String(MENU_LIST, index),
+                            curnm,
                             llList2String(pp, 2),    // anim sequence (unchanged)
                             llList2String(data, 1),  // NEW pos from 90301 payload
                             llList2String(data, 2),  // NEW rot from 90301 payload
