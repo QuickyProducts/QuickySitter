@@ -45,18 +45,23 @@ qs:p:<ch>:<i> = name|type|anim|pos|rot      (i = flat seed index, MENU_SPEC § 1
 list once, so this is free CPU). Two discriminated key families:
 
 ```
-qs:nm:<ch>:<mi>  = childCount | parentMarkerIdx      (one per MENU marker, incl. synthetic root mi=-1)
+qs:nm:<ch>:<mi>  = childCount                         (one per MENU marker, incl. synthetic root mi=-1)
 qs:nt:<ch>:<ti>  = targetMarkerIdx                    (one per TOMENU button)
 ```
 
 - `childCount` of marker `mi` = number of contiguous non-`M:` entries after it
   (= today's § 3 count loop, computed once). Render + paging math read this
   **O(1)** instead of walking (MENU_SPEC § 9 hotspot gone).
-- `parentMarkerIdx` = the enclosing marker's index; **`[BACK]` reads it O(1)**
-  instead of the backward-scan (MENU_SPEC § 4 / § 9 hotspot gone). Root
-  (`mi=-1`) stores `parentMarkerIdx = -2` (sentinel: "[BACK] → select/none").
+- **No stored parent.** The implementation deliberately drops a tree
+  `parentMarkerIdx`: today's `[BACK]` follows the *navigation path* (`last_menu`),
+  not the tree parent — entering `T:SubB*` from `SubA` returns to `SubA` even
+  when `SubB`'s tree-parent is root. The RAM `nav_stack` reproduces that path
+  faithfully; a stored tree parent would be a **regression**. The backward-scan
+  hotspot (MENU_SPEC § 9) is still eliminated — by the stack, not a key. See § 4.
 - `targetMarkerIdx` = the `M:Foo*` index a `T:Foo*` click navigates to —
   removes the name-pair `llListFindList` in dispatch (MENU_SPEC § 5 / sitB:756).
+  Resolved at boot by adopting each pending TOMENU when its named `M:` is emitted
+  (the `M:` follows its `T:` in seed order — § 8).
 
 **NEW — count key:**
 ```
@@ -95,9 +100,10 @@ Everything sitB keeps in RAM after the rebuild. The point: it is a small,
 
 `nav_stack` top = active marker index (`-1` at root). `last_menu` is subsumed:
 `[BACK]` pops the stack; the "pop to last_menu else parent-scan" branch
-(MENU_SPEC § 4) collapses to a single `nav_stack` pop, with `parentMarkerIdx`
-as the authority when the stack was entered non-linearly (e.g. a deep-link
-`T:` from the HUD).
+(MENU_SPEC § 4) collapses to a single `nav_stack` pop. The stack records the
+exact path the user navigated, so it is strictly more faithful than today's
+one-level `last_menu` + tree-parent-scan mix. (No sitB path sets the active
+submenu without navigating into it, so no stored parent is needed.)
 
 **Heap math:** today MENU_LIST ≈ 30 KB at 570. After: `page_map` ≈ 12 ×
 (label + int + list overhead) ≈ < 1 KB, `nav_stack` ≈ depth ints. The transient
@@ -143,14 +149,15 @@ Renders are user-paced (one per click/page), so this is not a hot loop.
 | Action | Today (MENU_SPEC § 4) | Rebuild |
 |---|---|---|
 | Enter submenu (`T:Foo*` click) | findList `M:Foo*` → `current_menu` | `qs:nt:<ch>:<ti>` → push `targetMarkerIdx` to `nav_stack` |
-| `[BACK]` | pop `last_menu` else backward-scan for enclosing `M:` | pop `nav_stack`; if stack underflows, use `parentMarkerIdx(mi)` |
-| `[BACK]` at root (`mi=-1`) | 90009 → select if present | unchanged (`parentMarkerIdx=-2` sentinel) |
+| `[BACK]` | pop `last_menu` else backward-scan for enclosing `M:` | pop `nav_stack` (records the navigated path — no scan, no parent key) |
+| `[BACK]` at root (empty stack) | 90009 → select if present | unchanged (empty stack ⇒ root ⇒ select/none) |
 | Page | `menu_page` ± clamped | unchanged (clamp from `childCount`) |
 
 **Failure-case proof:** a `T:` whose `targetMarkerIdx` is stale (reseed) is
 caught by § 5 re-validate *before* the push (the `T:` label is re-checked at the
-click index). `parentMarkerIdx` is boot-derived and rewritten-before-broadcast
-(§ 1), so `[BACK]` can never climb into a freed index.
+click index). The `nav_stack` holds only indices the user navigated into this
+render generation; a reseed invalidates the view and resets the stack (§ 7), so
+`[BACK]` can never climb into a freed index.
 
 ---
 
@@ -280,9 +287,10 @@ somehow bypassed. Defense in depth: lock (drop) **and** re-validate (verify).
 ## § 8 — boot-side changes
 
 During seed (boot already parses the notecard into `qs:p:*`):
-1. Track, per entry, the enclosing marker → emit `qs:nm:<ch>:<mi>` (childCount,
-   parentMarkerIdx) and `qs:nt:<ch>:<ti>` (targetMarkerIdx via the name-pair,
-   resolved in the same single pass with a small open-marker stack).
+1. Track the open section → emit `qs:nm:<ch>:<mi>` (childCount) when the next
+   `M:` or the channel end closes it, and `qs:nt:<ch>:<ti>` (targetMarkerIdx) by
+   adopting each pending TOMENU when its named `M:` is emitted. One forward pass:
+   `open_marker` + a small `tomenu_pending` list. **Implemented (boot 0.9952).**
 2. Emit `qs:cfg:slots:<ch>`.
 3. (Conditional) emit `qs:rn:<ch>:<name>` (§ 6) — budget permitting.
 4. On reseed: wipe `qs:nm:/qs:nt:/qs:rn:` for the channel, rewrite, **then**
@@ -307,10 +315,10 @@ transient 2× of a 30 KB list → the heap crash. Rebuild:
 
 1. Shift LSD entries: for `j` from `last` downto `insert_at`,
    `qs:p:<ch>:<j+1> = qs:p:<ch>:<j>`; write the new entry at `insert_at`.
-2. Bump `qs:cfg:slots:<ch>`; update affected `qs:nm` childCounts +
-   `parentMarkerIdx`/`targetMarkerIdx` that were ≥ insert_at (the same `++` the
-   current code does to `current_menu/last_menu/FIRST_INDEX/ANIM_INDEX`,
-   MENU_SPEC § 13 — now applied to sidecar values and `nav_stack`/`ANIM_INDEX`).
+2. Bump `qs:cfg:slots:<ch>`; bump the enclosing section's `qs:nm` childCount and
+   any `qs:nt` `targetMarkerIdx` that was ≥ insert_at (the same `++` the current
+   code does to `current_menu/last_menu/FIRST_INDEX/ANIM_INDEX`, MENU_SPEC § 13 —
+   now applied to sidecar values and `nav_stack`/`ANIM_INDEX`).
 3. Live view: shift `page_map` flatIdx ≥ insert_at and `nav_stack` entries ≥
    insert_at by 1; re-render. **No RAM list to double → no 2× peak.**
 
@@ -401,7 +409,7 @@ behaviour-visible step is 3 (RAM drop) and 7-features.
 | Re-validate read on every dispatch click | low | clicks are user-paced; 1 read each; far cheaper than today's O(n) findList chain |
 | Self-echo opt changes ANIM_INDEX timing (§ 6) | medium | keep echo idempotent; assertion-oracle (§ 12.2) compares old vs new index for one release |
 | Insert O(N) LSD writes near front (§ 9) | low | editor action, rare; bulk → full reseed |
-| nav_stack vs parentMarkerIdx divergence on HUD deep-link | medium | parentMarkerIdx is the authority on stack underflow (§ 4); re-validate guards the entry |
+| nav_stack path vs tree-parent semantics | low | nav_stack is path-faithful (matches today's `last_menu`); no sitB path sets the active submenu without navigating (§ 4), so no parent key is needed — dropped in step 1 |
 | boot reseed ordering | low | wipe→rewrite→broadcast, count-key last (§ 1/§ 8 proof) — same pattern as presence migration |
 
 ---

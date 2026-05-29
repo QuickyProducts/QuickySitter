@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9951";
+string version = "0.9952";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -177,6 +177,24 @@ integer seed_count;
 // match landed = O(N) total. Reset per channel in reset_channel_locals().
 integer seed_find_hint;
 
+// Page-oriented menu sidecar (additive, dormant until the sitB page-rebuild
+// reads it; see MENU_REBUILD_PLAN.md § 1/§ 8). Computed in the same single
+// parse pass:
+//   qs:nm:<ch>:<mi>     = childCount of the section opened by marker <mi>
+//                         (mi = -1 is the root section). Lets the rebuild read
+//                         total_items in O(1) instead of walking to the next M:.
+//   qs:nt:<ch>:<ti>     = the MENU index a TOMENU at <ti> navigates to. O(1)
+//                         submenu-enter instead of a name scan.
+//   qs:cfg:slots:<ch>   = entry count (replaces llGetListLength(MENU_LIST)).
+// open_marker = index of the section currently being filled (-1 = root); its
+// childCount is written when the next M: marker or the channel end is reached.
+integer open_marker;
+// TOMENUs awaiting their matching MENU section (the M: is emitted *after* its
+// T: in seed order), strided-2 [key, tomenuIndex]; key = label minus the 2-char
+// T:/M: prefix. Sized by submenu count (dozens), not pose count — safe as RAM
+// (unlike the retired full seed_names list). Reset per channel.
+list tomenu_pending;
+
 // Last-published progress percentage from qs_loading_text. Skipping
 // llSetText calls when the integer pct hasn't moved cuts ~95% of the
 // per-line floating-text refreshes on large notecards (one update per
@@ -299,6 +317,16 @@ qs_p_write(integer ch, integer i, string name, string type, string anim, string 
     qs_lsd_write(qs_p_key(ch, i), name + "|" + type + "|" + anim + "|" + pos + "|" + rot);
 }
 
+// Write the open section's child count (qs:nm) and re-point open_marker at the
+// boundary that closed it — the new marker's index during parse, or seed_count
+// at the channel end. childCount = entries strictly between open_marker and the
+// boundary; for the root section (open_marker = -1) that is simply the boundary.
+qs_close_section(integer ch, integer end_idx)
+{
+    qs_lsd_write("qs:nm:" + (string)ch + ":" + (string)open_marker, (string)(end_idx - open_marker - 1));
+    open_marker = end_idx;
+}
+
 // Reverse-lookup a seed name to its qs:p:<ch>:<i> index. Replaces the
 // `llListFindList(seed_names, ...)` calls that the parser used for
 // {Posename}<pos><rot> default-offset resolution. Tries the bare name
@@ -380,6 +408,8 @@ reset_channel_locals()
     SITTER_INFO = [];
     seed_count = 0;
     seed_find_hint = 0;
+    open_marker = -1;
+    tomenu_pending = [];
     FIRST_POSENAME = "";
     FIRST_ANIMATION_SEQUENCE = "";
     CURRENT_POSE_NAME = "";
@@ -403,6 +433,10 @@ reset_channel_locals()
 flush_channel_sitter(integer ch)
 {
     qs_lsd_write("qs:sitter:" + (string)ch, llDumpList2String(SITTER_INFO, SEP));
+    // Close the channel's final open section (root if it had no submenus, else
+    // the last M:) and publish the entry count. Additive sidecar (see decls).
+    qs_close_section(ch, seed_count);
+    qs_lsd_write("qs:cfg:slots:" + (string)ch, (string)seed_count);
 }
 
 // Done seeding. sitA/sitB poll qs:meta:<ch> in their state_entry and pick
@@ -1151,6 +1185,9 @@ default
             reset_channel_locals();
             // Wipe any stale pose entries from a prior boot at this channel.
             llLinksetDataDeleteFound("^qs:p:" + (string)s_ch + ":[0-9]+$", "");
+            // Same for the page-oriented sidecar (qs:nm/qs:nt) — a re-seed with
+            // fewer submenus must not leave higher-index sidecar keys behind.
+            llLinksetDataDeleteFound("^qs:n[mt]:" + (string)s_ch + ":", "");
             if (llGetListLength(parts) > 1)
                 SITTER_INFO = llList2List(parts, 1, 99999);
             return;
@@ -1308,6 +1345,26 @@ default
                     integer si = seed_count;
                     ++seed_count;
                     qs_p_write(current_channel, si, part0, t, part1, "", "");
+                    // Page-oriented menu sidecar (additive; dormant until the
+                    // sitB page-rebuild reads it). MENU markers close the prior
+                    // section + adopt any TOMENU that was waiting for them;
+                    // TOMENUs register their index for the matching MENU.
+                    if (t == "M")
+                    {
+                        qs_close_section(current_channel, si);
+                        string mkey = llGetSubString(part0, 2, 99999); // "M:Foo*" -> "Foo*"
+                        integer pend = llListFindList(tomenu_pending, [mkey]);
+                        if (pend != -1)
+                        {
+                            qs_lsd_write("qs:nt:" + (string)current_channel + ":"
+                                + (string)llList2Integer(tomenu_pending, pend + 1), (string)si);
+                            tomenu_pending = llDeleteSubList(tomenu_pending, pend, pend + 1);
+                        }
+                    }
+                    else if (t == "T")
+                    {
+                        tomenu_pending += [llGetSubString(part0, 2, 99999), si];
+                    }
                 }
             }
         }
@@ -1331,7 +1388,7 @@ default
                 // the wipe (presence isn't notecard-derived; the plugins
                 // re-seed it themselves on their own state_entry).
                 llMessageLinked(LINK_SET, QS_BOOT_WIPE, "", "");
-                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|boot):", "");
+                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|nm|nt|boot):", "");
                 llResetScript();
             }
             else
