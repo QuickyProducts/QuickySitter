@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9955";
+string version = "0.9956";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -1163,6 +1163,7 @@ default
                 if (num == 90004)
                 {
                     current_menu = -1;
+                    nav_stack = [];
                     menu_page = 0;
                 }
                 else if (index != -1)
@@ -1330,6 +1331,7 @@ default
                 CONTROLLER = MY_SITTER = id;
                 menu_page = 0;
                 current_menu = -1;
+                nav_stack = [];          // fresh occupant -> clean back-path (invariant: root => empty stack)
                 menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1; // 7FFFFF80 = max float < 2^31
                 llListenRemove(menu_handle);
                 return;
