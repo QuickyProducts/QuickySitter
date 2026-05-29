@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9956";
+string version = "0.9957";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -1016,14 +1016,22 @@ default
         {
             // Notecard re-save: boot is about to wipe LSD and reseed.
             // Drop iBooted so the slot-0 pre-boot eject re-engages on
-            // any sit attempt during the re-seed window. Clear
-            // the page state so a stale menu can't be rendered between
-            // wipe and the QS_BOOT_RELOAD that wakes us up again.
+            // any sit attempt during the re-seed window. Clear the page
+            // state AND the open dialog/listen so a stale menu can't be
+            // rendered or clicked between the wipe and QS_BOOT_RELOAD
+            // (MENU_SPEC § 13 — full view-state invalidation). helper_mode
+            // is deliberately kept: the occupant is unchanged and may still
+            // be mid-adjust.
             iBooted = FALSE;
             page_map = [];
             nav_stack = [];
             current_menu = -1;
             menu_page = 0;
+            in_plugin_menu = FALSE;
+            plugin_page = 0;
+            in_adjust_menu = FALSE;
+            adjust_page = 0;
+            llListenRemove(menu_handle);
             return;
         }
         if (num == QS_BOOT_RELOAD)
