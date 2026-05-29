@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9952";
+string version = "0.9957";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -239,9 +239,11 @@ qs_load_from_lsd()
     // already-seated avatar, no dialog) and emit 90060 so
     // run_time_permissions resumes the pose and hudproxy reconnects.
     // Pose snaps to FIRST_POSENAME (RAM was wiped); personal offsets
-    // return via the 90260 push. NULL_KEY guard keeps a 90023 reload
-    // (notecard save, no reset) of an already-tracked sitter a no-op.
-    if (MY_SITTER == NULL_KEY)
+    // return via the 90260 push. Empty-key guard: MY_SITTER is "" until
+    // run_time_permissions sets it (standup/reset clear it to "", never
+    // NULL_KEY — see L1299), so == "" keeps a 90023 reload (notecard
+    // save, no reset) of an already-tracked sitter a no-op.
+    if (MY_SITTER == "")
     {
         key resume = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
         if (llGetListLength(SITTERS) == 1) resume = llAvatarOnSitTarget();
