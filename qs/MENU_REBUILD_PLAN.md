@@ -1,6 +1,7 @@
 # Page-oriented pose-menu rebuild — implementation plan
 
-**Status: WORKING DRAFT (not committed).** Built against the frozen
+**Status: SHIPPED** — boot 0.9952/0.9953 + sitB 0.9955/0.9956 (PR #50).
+As-built deviations from this plan are recorded in § 15. Built against the frozen
 [`MENU_SPEC.md`](./MENU_SPEC.md) (commit e6e62bf). The spec is *what must not
 break*; this plan is *how we get there*. Same discipline as the qs:alive
 presence migration: **every section carries a failure-case proof**, because the
@@ -424,3 +425,60 @@ behaviour-visible step is 3 (RAM drop) and 7-features.
 3. In-world stale-view-state checks inherited from MENU_SPEC § 12/§ 13
    (reseed/swap/standup with a dialog open) — now covered by § 7, to be
    confirmed by T-REVAL / T-SWAP-STALE.
+
+(All three resolved in-world — see § 15.)
+
+---
+
+## § 15 — Shipped (as-built vs this plan)
+
+Implemented and verified in-world; merged via **PR #50**.
+
+| Piece | Commit |
+|---|---|
+| boot nav sidecar (`qs:nm`/`qs:nt`/`qs:cfg:slots`), additive + dormant | `515854a` (boot 0.9952) |
+| boot skip-seed guard (require sidecar present → one-time reseed migration) | `ffcbc54` (boot 0.9953) |
+| sitB page-oriented engine (`MENU_LIST` retired) | `4af98c9` (sitB 0.9955) |
+| sitB `nav_stack` invariant on new-sit / re-menu-root | `a5dc98b` (sitB 0.9956) |
+
+(Spec `e6e62bf`, this plan `f9d6e36` landed earlier.)
+
+**Deviations from the as-written plan:**
+
+1. **§ 6 inbound name→index — no LSD reverse-map.** Per an explicit "LSD must
+   not be bloated" decision, the `qs:rn` reverse map was **not** added. Shipped
+   as tier-1 (the ANIM_INDEX "already current?" check) + a bounded `qs:p` scan
+   for non-self plays only. The scan stays cheap because high pose-count and
+   high cross-sitter-SYNC frequency are mutually exclusive (a lone heavy sitter
+   has no SYNC peers; multi-sitter has few poses/channel, capped by the LSD
+   budget). The § 14 LSD-budget `[verify]` is therefore moot — no per-pose keys.
+
+2. **§ 9 live insert (90300) — full sidecar re-derive, not an incremental
+   re-key.** The adjuster builds a SUBMENU as **two** `qs_insert_pose` (TOMENU +
+   MENU) *before* it sends either 90300, so `qs:p` is already double-shifted when
+   the first 90300 arrives — a per-insert index re-key cannot track that (it
+   corrupted the channel sidecar in testing). Shipped: 90300 re-derives the whole
+   channel sidecar from the finished `qs:p` (boot's seed derivation), which also
+   wires the new TOMENU→MENU link in the same pass. RAM indices
+   (`current_menu`/`FIRST_INDEX`/`ANIM_INDEX`/`nav_stack`) still shift +1 per 90300.
+
+3. **§ 7 invalidate-on-async-change — per-path resets, no input-lock.** No single
+   `invalidate_view()` routine and **no input-lock** were needed. Shipped as
+   per-path view-state resets (boot wipe/reload, swap 90030/31, new-sit 90070,
+   re-menu-root 90004) enforcing the invariant *`current_menu` == -1 (root) ⇒
+   empty `nav_stack`*. The planned input-lock proved redundant: the § 5 per-click
+   **re-validate** already neutralizes a stale click (read the index, compare the
+   label, re-render on mismatch), so a lock would only duplicate that guarantee.
+
+4. **§ 1/§ 4 `parentMarkerIdx` dropped** (already folded into those sections):
+   `[BACK]` is navigation-path-faithful via `nav_stack`, so a stored tree parent
+   would have been a regression.
+
+**In-world result:** free script memory is now independent of pose count
+(2-sitter furniture: 13980 → ~19830 bytes free at 251 poses, flat as poses grow
+→ the 570 crash is structurally gone); menus noticeably smoother than stock
+AVsitter. All MENU_SPEC § 7 contracts byte-identical. The § 13 test cases
+(navigation / paging / `[BACK]` / SYNC / `[SWAP]` / `[OPTIONS]` / `[ADJUST]` /
+`[NEW]` pose+button+submenu / swap-into-occupied-slot) pass. The bring-up
+`verbose ≥ 3` `[sidecar]` cross-check asserts were removed once the sidecar was
+confirmed correct.
