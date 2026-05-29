@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9957";
+string version = "0.9962";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -216,15 +216,32 @@ qs_load_from_lsd()
     DEFAULT_ROTATION = CURRENT_ROTATION = FIRST_ROTATION;
 
     llPassTouches(MTYPE > 2);
-    // Wipe sit targets (channel 0) then place them.
+    // Wipe + place sit targets. Two layered protections against force-unsitting
+    // an already-seated avatar (reseed-while-seated, script-reset-with-resume):
+    //   (a) Wipe loop skips occupied seats — clearing a sit target (ZERO)
+    //       under a seated avatar unsits them.
+    //   (b) sittargets() at its end skips the trailing set_sittarget() call
+    //       when MY's sit target is currently occupied — re-placing with a
+    //       non-zero value on a seated avatar can also unsit (observed on
+    //       reseed-while-seated in 0.9958, which only had (a)). 0.9959 tried
+    //       to gate the whole block on boot_done, but the 90024 QS_BOOT_WIPE
+    //       handler resets boot_done to FALSE in the reseed window, so that
+    //       guard never engaged on a reseed.
+    // Empty seats and the initial boot still run the full wipe+place — only
+    // occupied seats are spared. Pose-play / swap / reset paths call
+    // set_sittarget() directly (not via sittargets()), so their explicit
+    // refresh on the occupied seat still works.
     if (!SCRIPT_CHANNEL)
     {
         integer k;
         for (k = 0; k <= llGetNumberOfPrims(); k++)
         {
-            string desc = (string)llGetLinkPrimitiveParams(k, [PRIM_DESC]);
-            if (desc != "-1" && "#-1" != llGetSubString(desc, -3, -1))
-                llLinkSitTarget(k, ZERO_VECTOR, ZERO_ROTATION);
+            if (llAvatarOnLinkSitTarget(k) == NULL_KEY)
+            {
+                string desc = (string)llGetLinkPrimitiveParams(k, [PRIM_DESC]);
+                if (desc != "-1" && "#-1" != llGetSubString(desc, -3, -1))
+                    llLinkSitTarget(k, ZERO_VECTOR, ZERO_ROTATION);
+            }
         }
     }
     sittargets();
@@ -367,7 +384,15 @@ sittargets()
         llMessageLinked(LINK_SET, 90201, "", ""); // 90201=Ask for info about plugins
     }
 
-    set_sittarget();
+    // Skip the trailing set_sittarget() when MY sit target is currently
+    // occupied — re-placing a non-zero sit target on a seated avatar can
+    // force-unsit them (reseed-while-seated, script-reset-with-resume,
+    // 90150 cross-channel re-place). Pose-play / swap / reset call
+    // set_sittarget() directly for their explicit refresh; this guard only
+    // affects the sittargets()-driven refresh, which is non-essential for
+    // an already-seated occupant (their existing target stays valid).
+    if (llAvatarOnLinkSitTarget(my_sittarget) == NULL_KEY)
+        set_sittarget();
 }
 
 release_sitter(integer i)
@@ -1199,7 +1224,20 @@ default
             // SET etc. are still default-zeroed; running the assignment
             // logic below would mis-route avatars. sitB slot-0 handles
             // pre-boot sit attempts by ejecting + chat-hinting the user.
-            if (!boot_done) return;
+            //
+            // 0.9961: gate on `prims` instead of `boot_done`. boot_done is
+            // RESET to FALSE on 90024 QS_BOOT_WIPE, so during the reseed
+            // window a force-unsit's CHANGED_LINK was swallowed silently —
+            // SITTERS / MY_SITTER stayed stale, the changed handler never
+            // ran release_sitter, and on re-sit the SET-branch saw the slot
+            // as still-occupied (same UUID), skipped the new-sitter path,
+            // never emitted 90070, sitB's MY_SITTER stayed "", and touch
+            // was silently dropped by the data[-1]==MY_SITTER check.
+            // `prims` is set once in sittargets() (Z.324) on the FIRST load
+            // and never reset — exactly the "truly pre-initial-boot" marker
+            // we need. boot_done's Z.909 link_message gate stays unchanged:
+            // there it correctly means "LSD is currently invalid".
+            if (!prims) return;
             SWAPPED = FALSE;
             integer stood;
             if (SET == -1 && llGetListLength(SITTERS) > 1)
@@ -1259,8 +1297,22 @@ default
                                     }
                                 }
                             }
-                            llRequestPermissions(llGetLinkKey(i), PERMISSION_TRIGGER_ANIMATION);
-                            llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, llGetLinkKey(i)); // 90060=new sitter
+                            // 0.9962: gate on boot_done. The 0.9961 prims-gate
+                            // above re-enabled the changed handler during the
+                            // seed phase (so a force-unsit's CHANGED_LINK can
+                            // clear stale SITTERS) — but we MUST NOT trigger
+                            // run_time_permissions while LSD is still seeding:
+                            // sitB's 90005 auto-open would render animation_menu
+                            // against an empty sidecar (qs:nm:0:-1 == "" →
+                            // total_items=0 → only [Adjust] visible). sitB:947
+                            // still ejects the pre-boot sit-attempt. The release
+                            // path above stays ungated so 0.9961's stale-cleanup
+                            // keeps working.
+                            if (boot_done)
+                            {
+                                llRequestPermissions(llGetLinkKey(i), PERMISSION_TRIGGER_ANIMATION);
+                                llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, llGetLinkKey(i)); // 90060=new sitter
+                            }
                         }
                         else
                         {
@@ -1348,8 +1400,15 @@ default
                                     }
                                 }
                             }
-                            llRequestPermissions(actual_sitter, PERMISSION_TRIGGER_ANIMATION);
-                            llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, actual_sitter); // 90060=new sitter
+                            // 0.9962: see auto-assign branch comment above —
+                            // gate new-sitter perm-request on boot_done so the
+                            // seed-phase sit-attempt doesn't trigger an empty
+                            // animation_menu via 90005 auto-open.
+                            if (boot_done)
+                            {
+                                llRequestPermissions(actual_sitter, PERMISSION_TRIGGER_ANIMATION);
+                                llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, actual_sitter); // 90060=new sitter
+                            }
                         }
                         else
                         {
