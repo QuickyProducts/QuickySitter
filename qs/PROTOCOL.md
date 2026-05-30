@@ -206,6 +206,7 @@ gone, and the flags live in linkset storage rather than script heap.
 | `qs:alive:faces` | `[QS]faces` | `[QS]sitB` (`[FACES]`), `[QS]adjuster` (`[FACE]`) |
 | `qs:alive:prop` | `[QS]prop` | `[QS]adjuster` (`[PROP]`), `[QS]boot` (self-check) |
 | `qs:alive:select` | `[QS]select` | `[QS]sitB` (`select_present()`) |
+| `qs:alive:rlv` | `[QS]root-RLV` | `[QS]sitB` (`rlv_present()` → `Control...` gate) |
 | `qs:alive:adjuster` | `[QS]adjuster` | `[QS]sitB` (`[HELPER]`/`[QUICKYHUD]`) |
 | `qs:offset:alive` | `[QS]offset` | `[QS]sitA`, hudproxy (cross-repo) |
 
