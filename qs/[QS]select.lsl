@@ -1,7 +1,7 @@
 /*
  * [QS]select - QuickySitter seat-select menu
  *
- * Fork of [AV]select from AVsitter2 (MPL 2.0). Three functional changes
+ * Fork of [AV]select from AVsitter2 (MPL 2.0). Four functional changes
  * vs stock:
  *   1. Sitter count comes from the QSALIVE handshake (90096/90097)
  *      instead of llGetInventoryType("[AV]sitA <n>") probes; stock
@@ -18,6 +18,9 @@
  *   3. Empty/duplicate seat labels keep the "Sitter N" default (0.9953);
  *      stock overwrites it with the first pose name. Pose names as
  *      seat-picker buttons are confusing, so the fallback was dropped.
+ *   4. menu() self-heals stale SITTERS occupants (0.9954): an occupant who
+ *      is no longer seated on this linkset (missed 90065 standup) is cleared
+ *      before render, so a vacated avatar never shows as a ghost name.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -29,7 +32,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9953";
+string version = "0.9954";
 integer select_type;
 list BUTTONS;
 
@@ -98,6 +101,28 @@ menu(key av)
     integer sitter_index = llListFindList(SITTERS, [av]);
     if (sitter_index != -1)
     {
+        // 0.9954: self-heal stale occupants before rendering. SL drops
+        // link/standup events on region crossings, TP-outs and script-time
+        // throttling, so a missed 90065 can leave a vacated avatar in SITTERS
+        // — a ghost name in the picker even after a plain stand-up. The viewer
+        // (av) is seated here, so its OBJECT_ROOT is this furniture's root;
+        // clear any occupant whose root differs (gone, or seated elsewhere).
+        // key("")/NULL_KEY empties are skipped via the string guard — see
+        // feedback_lsl_list_empty_slot_polymorphism.
+        key this_root = llList2Key(llGetObjectDetails(av, [OBJECT_ROOT]), 0);
+        if (this_root != av)   // av genuinely seated on a linkset (root != self)
+        {
+            integer sj;
+            for (sj = 0; sj < llGetListLength(SITTERS); ++sj)
+            {
+                string occ = llList2String(SITTERS, sj);
+                if (occ != "" && occ != (string)NULL_KEY
+                    && llList2Key(llGetObjectDetails((key)occ, [OBJECT_ROOT]), 0) != this_root)
+                {
+                    SITTERS = llListReplaceList(SITTERS, [NULL_KEY], sj, sj);
+                }
+            }
+        }
         list menu_buttons;
         integer i;
         for (i = 0; i < llGetListLength(BUTTONS); i++)
