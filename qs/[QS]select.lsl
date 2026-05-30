@@ -26,7 +26,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9951";
+string version = "0.9952";
 integer select_type;
 list BUTTONS;
 
@@ -287,7 +287,20 @@ default
                 // [ADJUST OFF] / [BACK] from there.
                 llMessageLinked(LINK_SET, 90101, llDumpList2String(["X", message, id], "|"), id);
             }
-            else if (llGetSubString(message, 0, 0) == "⊘" || (select_type == 0 && llList2Integer(SYNCS, button_index) == FALSE && llList2Key(SITTERS, button_index) != NULL_KEY && llList2Key(SITTERS, button_index) != id))
+            // 0.9952: empty-slot detection via llList2String != "" (string).
+            // Stock pattern `llList2Key(SITTERS, idx) != NULL_KEY` falsely
+            // treats empty slots as occupied because LSL Mono returns key("")
+            // (empty key, empty UUID value) for both `(key)""` casts and
+            // `llList2Key` on a "" string element — and `key("") != NULL_KEY`
+            // is TRUE (their UUID values differ: "" vs "00000000-..."). Same
+            // applies after a SWAP where SITTERS[empty_slot] becomes key("")
+            // via llListReplaceList. Symptom: clicking an empty seat-picker
+            // button showed the "seat taken" sub-menu instead of triggering
+            // the 90030 swap. llList2String catches both "" string and key("")
+            // because (string)key("") = "" via the key's value. (string)id is
+            // a real UUID, so the != self-check still works string-vs-string.
+            // See feedback_lsl_list_empty_slot_polymorphism.
+            else if (llGetSubString(message, 0, 0) == "⊘" || (select_type == 0 && llList2Integer(SYNCS, button_index) == FALSE && llList2String(SITTERS, button_index) != "" && llList2String(SITTERS, button_index) != (string)id))
             {
                 menu(id);
             }
