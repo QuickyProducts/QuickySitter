@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9958";
+string version = "0.9959";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -957,7 +957,24 @@ default
             // to sit with a chat hint so they retry once we're ready.
             // Only slot-0 sitB runs the eject loop; otherwise every sitB
             // would call llUnSit / llRegionSayTo N times for one sit attempt.
-            if (!iBooted && !SCRIPT_CHANNEL)
+            //
+            // 0.9959: eject also fires when qs:meta:0 is wiped, not just
+            // when iBooted=FALSE. boot.lsl's reseed path is:
+            //   1) llMessageLinked(LINK_SET, QS_BOOT_WIPE, "", "");
+            //   2) llLinksetDataDeleteFound("^qs:(meta|cfg|...):", "");
+            //   3) llResetScript();
+            // 90024 is queued first, but sitB[0] may be busy with another
+            // event (90023 of a previous boot, 90060, etc.) and process
+            // 90024 later. In that gap LSD is already wiped (qs:meta:0 = "")
+            // but iBooted is still TRUE from the previous QS_BOOT_RELOAD.
+            // A sit-attempt's CHANGED_LINK that lands in this gap would
+            // skip the eject and leave the avatar zombie-seated (sitA can't
+            // adopt during pre-boot either — boot_done=FALSE gates the
+            // llRequestPermissions in its auto-assign / SET branches).
+            // qs:meta:0 is wiped synchronously by boot.lsl AND written
+            // before QS_BOOT_RELOAD by finalize_boot, so it's a reliable
+            // "seed window" indicator independent of message ordering.
+            if ((!iBooted || llLinksetDataRead("qs:meta:0") == "") && !SCRIPT_CHANNEL)
             {
                 integer p = llGetNumberOfPrims();
                 while (p > 0)
