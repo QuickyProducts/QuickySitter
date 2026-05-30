@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9973";
+string version = "0.9974";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -1284,6 +1284,26 @@ default
                 {
                     if (llListFindList(SITTERS, [llGetLinkKey(i)]) == -1)
                     {
+                        // 0.9974: pre-boot eject. New sit-attempts during the
+                        // seed window (boot_done=FALSE, either initial boot or
+                        // mid-runtime reseed after 90024) must be bounced or
+                        // they end up in a zombie state: sitA can't adopt
+                        // (llRequestPermissions gated on boot_done below), but
+                        // the avatar stays physically seated, blocking the
+                        // slot and giving them no menu/animation. sitB[0]'s
+                        // changed handler (sitB:960) is the primary ejector;
+                        // this is defense in depth for cases where sitB[0]'s
+                        // 90024 timing misses the CHANGED_LINK or sitB is
+                        // missing entirely. Silent here — sitB[0] does the
+                        // "still loading" chat hint to avoid duplicate
+                        // llRegionSayTo. Existing sitters (in SITTERS) are
+                        // skipped above; only NEW arrivals reach this block.
+                        if (!boot_done)
+                        {
+                            llUnSit(llGetLinkKey(i));
+                            AVPRIMS += llGetLinkKey(i);
+                            jump avloop_skip_assign;
+                        }
                         integer sitterGender = llList2Integer(llGetObjectDetails(llGetLinkKey(i), [OBJECT_BODY_SHAPE_TYPE]), 0);
                         // Empty-slot detection via manual scan with llList2String:
                         // stock's `llListFindList(SITTERS, [""])` is type-strict
@@ -1372,6 +1392,7 @@ default
                         }
                     }
                     AVPRIMS += llGetLinkKey(i);
+                    @avloop_skip_assign; // 0.9974: pre-boot eject lands here
                     i--;
                 }
                 for (i = 0; i < llGetListLength(SITTERS); i++)
@@ -1430,6 +1451,15 @@ default
                     {
                         if (i == SCRIPT_CHANNEL)
                         {
+                            // 0.9974: pre-boot eject (SET-branch counterpart).
+                            // See auto-assign branch comment above for rationale.
+                            // Each sitA processes only its own SCRIPT_CHANNEL
+                            // slot here, so no duplicate llUnSit concern.
+                            if (!boot_done)
+                            {
+                                llUnSit(actual_sitter);
+                                jump setbr_skip_assign;
+                            }
                             if (llList2Integer(llGetObjectDetails(actual_sitter, [OBJECT_BODY_SHAPE_TYPE]), 0))
                             {
                                 if (MALE_POSENAME != "")
@@ -1461,6 +1491,7 @@ default
                                 llRequestPermissions(actual_sitter, PERMISSION_TRIGGER_ANIMATION);
                                 llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, actual_sitter); // 90060=new sitter
                             }
+                            @setbr_skip_assign; // 0.9974: pre-boot eject lands here
                         }
                         else
                         {
