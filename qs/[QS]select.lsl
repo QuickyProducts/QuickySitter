@@ -1,7 +1,7 @@
 /*
  * [QS]select - QuickySitter seat-select menu
  *
- * Fork of [AV]select from AVsitter2 (MPL 2.0). Two functional changes
+ * Fork of [AV]select from AVsitter2 (MPL 2.0). Three functional changes
  * vs stock:
  *   1. Sitter count comes from the QSALIVE handshake (90096/90097)
  *      instead of llGetInventoryType("[AV]sitA <n>") probes; stock
@@ -15,6 +15,9 @@
  *      otherwise the QS_BOOT_RELOAD (90023) link_message dispatches it
  *      once boot finishes. Same event-driven pattern as sitA 0.904 /
  *      sitB 0.905 — no sleep-poll.
+ *   3. Empty/duplicate seat labels keep the "Sitter N" default (0.9953);
+ *      stock overwrites it with the first pose name. Pose names as
+ *      seat-picker buttons are confusing, so the fallback was dropped.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,7 +29,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9952";
+string version = "0.9953";
 integer select_type;
 list BUTTONS;
 
@@ -154,29 +157,8 @@ init_lists()
     }
 }
 
-// Scan qs:p:<ch>:0..N for the first POSE/SYNC entry. Returns the
-// display name with leading "P:" stripped and clamped to 23 chars
-// (matches the stock parser's part0 truncation). Empty string on
-// no-pose sitter (shouldn't happen for valid notecards).
-string first_pose_name(integer ch)
-{
-    integer i = 0;
-    string v;
-    while ((v = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i)) != "")
-    {
-        list pp = llParseStringKeepNulls(v, ["|"], []);
-        string type = llList2String(pp, 1);
-        if (type == "P" || type == "S")
-        {
-            string name = llList2String(pp, 0);
-            if (llGetSubString(name, 0, 1) == "P:")
-                name = llGetSubString(name, 2, 99999);
-            return llGetSubString(name, 0, 22);
-        }
-        ++i;
-    }
-    return "";
-}
+// first_pose_name() removed in 0.9953 — the seat-picker no longer falls back
+// to a pose name for empty/duplicate seat labels (see load_from_lsd).
 
 // Populate menu_type / select_type / CUSTOM_TEXT / BUTTONS from LSD
 // keys that [QS]boot wrote during its seed cascade. Replaces the
@@ -209,20 +191,10 @@ load_from_lsd()
         {
             BUTTONS = llListReplaceList(BUTTONS, [button_text], ch, ch);
         }
-        else
-        {
-            // Fallback when SITTER_INFO field 0 is empty or duplicate:
-            // use the first POSE name (with "P:" prefix stripped and
-            // 23-char clamp) as the slot button. Same behavior as the
-            // old dataserver pass.
-            string first = first_pose_name(ch);
-            if (first != "" && llListFindList(BUTTONS, [first]) == -1)
-            {
-                BUTTONS = llListReplaceList(BUTTONS, [first], ch, ch);
-            }
-            // Otherwise BUTTONS[ch] stays at the init_lists default
-            // ("Sitter N").
-        }
+        // 0.9953: empty or duplicate seat label keeps the init_lists
+        // "Sitter N" default. Deliberate divergence from stock [AV]select,
+        // which overwrites it with the first pose name here — pose names as
+        // seat-picker buttons are confusing.
     }
 
     // Publish BUTTONS to LSD so [QS]hudproxy can use the notecard-
