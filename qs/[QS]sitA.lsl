@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9962";
+string version = "0.9973";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -266,6 +266,13 @@ qs_load_from_lsd()
         if (llGetListLength(SITTERS) == 1) resume = llAvatarOnSitTarget();
         if (resume) // OSS::if (osIsUUID(resume) && resume != NULL_KEY)
         {
+            // Resume guard: adopt the physically-seated avatar on this slot
+            // regardless of gender. A pre-reseed-seated avatar on a slot whose
+            // GENDERS doesn't match their body-shape-type would otherwise stay
+            // orphaned (no menu, no animation, no HUD) because no new
+            // CHANGED_LINK fires for an already-seated avatar on a reseed
+            // (qs_load is event-driven, not sit-driven), and auto-assign in
+            // changed() only fires on actual sit-events.
             llRequestPermissions(resume, PERMISSION_TRIGGER_ANIMATION);
             llMessageLinked(LINK_SET, 90060, (string)SCRIPT_CHANNEL, resume); // 90060=new sitter
         }
@@ -1054,9 +1061,38 @@ default
                 // seat picker.
                 MY_SITTER = "";
             }
-            SITTERS_SITTARGETS = llListReplaceList(llListReplaceList(SITTERS_SITTARGETS, [llList2Integer(SITTERS_SITTARGETS, two)], one, one), [llList2Integer(SITTERS_SITTARGETS, one)], two, two);
-            my_sittarget = llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL);
-            set_sittarget();
+            // 0.9968: gate physical re-mapping on REAL 2-sitter swap.
+            // For 1-sitter swap (the typical "manual SWAP to put one sitter
+            // on the other slot's pose", e.g. user clicks SWAP while alone
+            // on a couple to land on the opposite-gender slot), the physical
+            // SITTERS_SITTARGETS swap + set_sittarget cause:
+            //   1) sitA[other_slot]'s new my_sittarget points to the OCCUPIED
+            //      prim; set_sittarget overwrites that prim's sit-target
+            //      with wrong-slot pose-offsets (slot-1's M-offsets on the
+            //      slot-0 prim, etc.).
+            //   2) sitA[swap_initiator]'s new my_sittarget points to the
+            //      EMPTY prim; set_sittarget there places wrong-slot offsets
+            //      on it — when a 2nd sitter clicks, SL seats them with
+            //      mis-aligned pose-offsets, or refuses the sit-target
+            //      entirely if the computed position is invalid.
+            //   3) Net: 2nd sitter can't physically sit on the empty prim
+            //      → no CHANGED_LINK → no auto-assign → no adoption → no menu.
+            // The logical SITTERS swap below is sufficient to move ownership
+            // from sitA[N] to sitA[M] for the 1-sitter case. Sit-targets
+            // stay at their natural per-slot offsets; the new prim's sitter
+            // physics work normally.
+            // For TRUE 2-sitter swap (both slots occupied, mutual exchange),
+            // physical re-mapping IS intended (stock-AVsitter semantics)
+            // since each sitter needs to "trade places" — keep the original
+            // logic for that case.
+            key bothA = llList2Key(SITTERS, one);
+            key bothB = llList2Key(SITTERS, two);
+            if (bothA != NULL_KEY && bothB != NULL_KEY)
+            {
+                SITTERS_SITTARGETS = llListReplaceList(llListReplaceList(SITTERS_SITTARGETS, [llList2Integer(SITTERS_SITTARGETS, two)], one, one), [llList2Integer(SITTERS_SITTARGETS, one)], two, two);
+                my_sittarget = llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL);
+                set_sittarget();
+            }
             // Swap SITTERS instead of clearing both slots. The original
             // stock code sets [empty, empty] and lets run_time_permissions
             // re-register each occupant; CHANGED_LINK fires in between
@@ -1249,7 +1285,23 @@ default
                     if (llListFindList(SITTERS, [llGetLinkKey(i)]) == -1)
                     {
                         integer sitterGender = llList2Integer(llGetObjectDetails(llGetLinkKey(i), [OBJECT_BODY_SHAPE_TYPE]), 0);
-                        integer first_available = llListFindList(SITTERS, [""]);
+                        // Empty-slot detection via manual scan with llList2String:
+                        // stock's `llListFindList(SITTERS, [""])` is type-strict
+                        // and only matches "" (string) elements. After a SWAP,
+                        // llListReplaceList with [swapB=llList2Key(empty)] inserts
+                        // key("") (empty key, NOT NULL_KEY which has the
+                        // "00000000-..." UUID), so subsequent llListFindList for
+                        // [""] returns -1 and the 2nd sitter never gets adopted
+                        // (fa stays -1, no SCRIPT_CHANNEL match). llList2String
+                        // catches both representations because (string)key("") = ""
+                        // via the key's value.
+                        integer first_available = -1;
+                        integer k;
+                        for (k = 0; k < llGetListLength(SITTERS) && first_available == -1; k++)
+                        {
+                            if (llList2String(SITTERS, k) == "")
+                                first_available = k;
+                        }
                         integer first_unassigned = -1;
                         integer j;
                         while (j < llGetListLength(SITTERS))
