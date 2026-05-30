@@ -1,7 +1,7 @@
 /*
  * [QS]select - QuickySitter seat-select menu
  *
- * Fork of [AV]select from AVsitter2 (MPL 2.0). Two functional changes
+ * Fork of [AV]select from AVsitter2 (MPL 2.0). Four functional changes
  * vs stock:
  *   1. Sitter count comes from the QSALIVE handshake (90096/90097)
  *      instead of llGetInventoryType("[AV]sitA <n>") probes; stock
@@ -15,6 +15,13 @@
  *      otherwise the QS_BOOT_RELOAD (90023) link_message dispatches it
  *      once boot finishes. Same event-driven pattern as sitA 0.904 /
  *      sitB 0.905 — no sleep-poll.
+ *   3. Empty/duplicate seat labels keep the "Sitter N" default (0.9953);
+ *      stock overwrites it with the first pose name. Pose names as
+ *      seat-picker buttons are confusing, so the fallback was dropped.
+ *   4. menu() self-heals SITTERS (0.9954/0.9955): occupants no longer seated
+ *      on this linkset (missed 90065) AND duplicate listings of one avatar
+ *      across seats (missed clear on a seat-move) are dropped before render;
+ *      90070 also dedupes on claim. Every avatar shows in exactly one seat.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9952";
+string version = "0.9955";
 integer select_type;
 list BUTTONS;
 
@@ -95,6 +102,33 @@ menu(key av)
     integer sitter_index = llListFindList(SITTERS, [av]);
     if (sitter_index != -1)
     {
+        // 0.9954/0.9955: self-heal SITTERS before rendering. SL drops
+        // link/standup events (region crossings, TP-outs, script-time
+        // throttling), so a missed 90065/90030 can (a) leave a vacated avatar
+        // in SITTERS — a ghost name — or (b) leave an avatar double-listed
+        // across seats after a seat-move. The viewer (av) is seated here, so
+        // its OBJECT_ROOT is this furniture's root; clear any occupant whose
+        // root differs (gone/elsewhere) OR who already appeared in an earlier
+        // slot, so every avatar shows in exactly one seat. key("")/NULL_KEY
+        // empties skipped via the string guard (feedback_lsl_list_empty_slot_polymorphism).
+        key this_root = llList2Key(llGetObjectDetails(av, [OBJECT_ROOT]), 0);
+        if (this_root != av)   // av genuinely seated on a linkset (root != self)
+        {
+            list seen;
+            integer sj;
+            for (sj = 0; sj < llGetListLength(SITTERS); ++sj)
+            {
+                string occ = llList2String(SITTERS, sj);
+                if (occ != "" && occ != (string)NULL_KEY)
+                {
+                    if (llList2Key(llGetObjectDetails((key)occ, [OBJECT_ROOT]), 0) != this_root
+                        || llListFindList(seen, [occ]) != -1)
+                        SITTERS = llListReplaceList(SITTERS, [NULL_KEY], sj, sj);
+                    else
+                        seen += occ;
+                }
+            }
+        }
         list menu_buttons;
         integer i;
         for (i = 0; i < llGetListLength(BUTTONS); i++)
@@ -154,29 +188,8 @@ init_lists()
     }
 }
 
-// Scan qs:p:<ch>:0..N for the first POSE/SYNC entry. Returns the
-// display name with leading "P:" stripped and clamped to 23 chars
-// (matches the stock parser's part0 truncation). Empty string on
-// no-pose sitter (shouldn't happen for valid notecards).
-string first_pose_name(integer ch)
-{
-    integer i = 0;
-    string v;
-    while ((v = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i)) != "")
-    {
-        list pp = llParseStringKeepNulls(v, ["|"], []);
-        string type = llList2String(pp, 1);
-        if (type == "P" || type == "S")
-        {
-            string name = llList2String(pp, 0);
-            if (llGetSubString(name, 0, 1) == "P:")
-                name = llGetSubString(name, 2, 99999);
-            return llGetSubString(name, 0, 22);
-        }
-        ++i;
-    }
-    return "";
-}
+// first_pose_name() removed in 0.9953 — the seat-picker no longer falls back
+// to a pose name for empty/duplicate seat labels (see load_from_lsd).
 
 // Populate menu_type / select_type / CUSTOM_TEXT / BUTTONS from LSD
 // keys that [QS]boot wrote during its seed cascade. Replaces the
@@ -209,20 +222,10 @@ load_from_lsd()
         {
             BUTTONS = llListReplaceList(BUTTONS, [button_text], ch, ch);
         }
-        else
-        {
-            // Fallback when SITTER_INFO field 0 is empty or duplicate:
-            // use the first POSE name (with "P:" prefix stripped and
-            // 23-char clamp) as the slot button. Same behavior as the
-            // old dataserver pass.
-            string first = first_pose_name(ch);
-            if (first != "" && llListFindList(BUTTONS, [first]) == -1)
-            {
-                BUTTONS = llListReplaceList(BUTTONS, [first], ch, ch);
-            }
-            // Otherwise BUTTONS[ch] stays at the init_lists default
-            // ("Sitter N").
-        }
+        // 0.9953: empty or duplicate seat label keeps the init_lists
+        // "Sitter N" default. Deliberate divergence from stock [AV]select,
+        // which overwrites it with the first pose name here — pose names as
+        // seat-picker buttons are confusing.
     }
 
     // Publish BUTTONS to LSD so [QS]hudproxy can use the notecard-
@@ -389,6 +392,16 @@ default
             }
             else if (num == 90070)
             {
+                // 0.9955: dedupe on claim. A missed 90065/90030 on a prior
+                // seat can leave this avatar in an old slot; clear every slot
+                // still holding them before claiming msg, so they never show
+                // in two seats at once. Read-before-check (no assign-in-cond).
+                integer dupe = llListFindList(SITTERS, [id]);
+                while (dupe != -1)
+                {
+                    SITTERS = llListReplaceList(SITTERS, [NULL_KEY], dupe, dupe);
+                    dupe = llListFindList(SITTERS, [id]);
+                }
                 SITTERS = llListReplaceList(SITTERS, [id], (integer)msg, (integer)msg);
             }
             else if (num == 90009)
