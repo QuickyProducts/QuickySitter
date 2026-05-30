@@ -1,22 +1,38 @@
 /*
- * [AV]root-RLV - RLV plugin for AVsitter
+ * [QS]root-RLV - RLV capture/control plugin (QuickySitter fork of [AV]root-RLV)
+ *
+ * Minimally-invasive fork of avstock/Plugins/AVcontrol/[AV]root-RLV.lsl (2.2p04).
+ * Diff against stock:
+ *   1. Multi-sitter detection is name-agnostic: where stock probed the sitter
+ *      script name ("[AV]sitA 1"), this fork tests the ROLES count
+ *      (llGetListLength(SITTER_DESIGNATIONS_MASTER) >= 2). No sitA name is
+ *      hardcoded — the sitter script can be renamed freely. Drives the role-seat
+ *      relocation swap (find_seat -> 90030) and the capture pose-target.
+ *   2. Presence published via the QS-native qs:alive:rlv LSD flag (written early
+ *      in state_entry, re-stamped on QS_ALIVE_CENSUS 90079), replacing the stock
+ *      reliance on [AV]root-security probing the script name "[AV]root-RLV".
+ *      [QS]sitB reads qs:alive:rlv (rlv_present()) to gate the "Control..."
+ *      button. See qs/PROTOCOL.md § qs:alive.
+ *   3. Product string rebranded to "QuickySitter(TM) RLV" (the BRAND notecard
+ *      token still overrides it, exactly as in stock).
+ *   4. Joins the project verbose ladder: reads qs:cfg:verbose in state_entry
+ *      (AVpos VERBOSE token); the "Loaded, Memory" diagnostic moved from Out(0)
+ *      to Out(1), so it is silent unless VERBOSE >= 1.
+ * The external interface (RLV relay protocol, 900xx link-messages) is otherwise
+ * byte-identical to stock. unDressScript still points at "[AV]root-RLV-extra".
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * Copyright © the AVsitter Contributors (http://avsitter.github.io)
+ * Original work: Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
-string product = "AVsitter™ RLV";
-string version = "2.2p04";
-string main_script = "[AV]sitA";
+string product = "QuickySitter™ RLV";
+string version = "0.9953";
+integer QS_ALIVE_CENSUS = 90079;   // [QS] fork: boot presence re-census broadcast
 integer ignorenextswap;
 string notecard_name = "AVpos";
 string unDressScript = "[AV]root-RLV-extra";
@@ -77,6 +93,8 @@ integer menuPage;
 integer subControl;
 string ping;
 integer captureOnAsk = TRUE;
+// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
+// state_entry). [QS] fork: stock kept verbose hardcoded to 0.
 integer verbose = 0;
 
 Out(integer level, string out)
@@ -265,7 +283,10 @@ capture_attempt(key id, string target_sitter)
         GETCAPTURESTATUShandle = llListen(RELAY_GETCAPTURESTATUSchannel, "", "", "");
         relay(id, "@getstatus=" + (string)RELAY_GETCAPTURESTATUSchannel);
     }
-    if (llGetInventoryType(main_script + " 1") == INVENTORY_SCRIPT)
+    // [QS] fork: multi-sitter = 2+ ROLES (was a stock probe of "[AV]sitA 1").
+    // Length-stable, == seat count on a well-formed rig; both pose paths work
+    // anyway since QS sitB plays 90000 by-key and by-index.
+    if (llGetListLength(SITTER_DESIGNATIONS_MASTER) >= 2)
     {
         playpose(SUBPOSE, target_sitter);
     }
@@ -465,7 +486,10 @@ find_seat(key id, integer index, string msg, integer captureSub)
             }
             if (first_available != index)
             {
-                if (llGetInventoryType(main_script + " 1") == INVENTORY_SCRIPT)
+                // [QS] fork: multi-sitter = 2+ ROLES (was "[AV]sitA 1" probe).
+                // Only reached when first_available != index, which already
+                // requires 2+ distinct roles — so this is always true here.
+                if (llGetListLength(SITTER_DESIGNATIONS_MASTER) >= 2)
                 {
                     llSleep(1);
                     llMessageLinked(LINK_SET, 90030, (string)index, (string)first_available);
@@ -624,6 +648,13 @@ state running
     state_entry()
     {
         llSetTimerEvent(0);
+        // [QS] fork: publish presence early (before notecard load) so
+        // [QS]sitB's rlv_present() gate is up long before any menu build.
+        llLinksetDataWrite("qs:alive:rlv", "1");
+        // [QS] fork: join the project verbose ladder (AVpos VERBOSE token →
+        // qs:cfg:verbose LSD); stock had verbose hardcoded to 0.
+        string vstr = llLinksetDataRead("qs:cfg:verbose");
+        if (vstr != "") verbose = (integer)vstr;
         hovertext();
         get_unique_channels();
         notecard_key = llGetInventoryKey(notecard_name);
@@ -637,6 +668,11 @@ state running
     {
         integer one = (integer)msg;
         integer two;
+        if (num == QS_ALIVE_CENSUS)   // [QS] fork: re-stamp presence after a boot re-census
+        {
+            llLinksetDataWrite("qs:alive:rlv", "1");
+            return;
+        }
         if (num == 90030)
         {
             if (!ignorenextswap)
@@ -1222,7 +1258,7 @@ state running
         {
             if (data == EOF)
             {
-                Out(0, "Loaded, Memory: " + (string)llGetFreeMemory());
+                Out(1, "Loaded, Memory: " + (string)llGetFreeMemory());
             }
             else
             {

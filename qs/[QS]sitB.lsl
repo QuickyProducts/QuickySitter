@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9957";
+string version = "0.9958";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -126,7 +126,8 @@ list page_map;
 list nav_stack;
 integer SLOTS;
 integer helper_mode;
-integer has_RLV;
+// has_RLV (0.9958) retired: RLV-plugin presence is now read on demand from the
+// qs:alive:rlv LSD flag via rlv_present(), not the 90202 payload (see below).
 integer ANIM_INDEX;
 integer FIRST_INDEX = -1;
 integer menu_handle;
@@ -203,6 +204,18 @@ integer select_present()
         || llGetInventoryType("[AV]select") == INVENTORY_SCRIPT;
 }
 
+// RLV-plugin presence: the qs:alive:rlv flag published by [QS]root-RLV, read
+// on-demand. Falls back to the stock "[AV]root-RLV" inventory probe so a
+// stock-AVsitter furniture (no QS broadcaster) is still detected. Replaces the
+// old has_RLV variable, which depended on [AV]root-security's 90202 probe of
+// the script name "[AV]root-RLV" — that name-probe fails once RLV is the
+// QS-renamed fork, so the Control... gate would never fire on a QS rig.
+integer rlv_present()
+{
+    return llLinksetDataRead("qs:alive:rlv") != ""
+        || llGetInventoryType("[AV]root-RLV") == INVENTORY_SCRIPT;
+}
+
 integer animation_menu(integer animation_menu_function)
 {
     if ((animation_menu_function == -1 || SLOTS < 2) && (!helper_mode) && select_present())
@@ -214,7 +227,7 @@ integer animation_menu(integer animation_menu_function)
         string menu = product + version;
         if (BRAND != "")
             menu = BRAND;
-        if (CONTROLLER != MY_SITTER || has_RLV)
+        if (CONTROLLER != MY_SITTER || rlv_present())
         {
             menu += "\n\nMenu for " + llKey2Name(MY_SITTER);
         }
@@ -331,7 +344,7 @@ integer animation_menu(integer animation_menu_function)
         }
         if (current_menu == -1)
         {
-            if (has_RLV && (llGetSubString(RLVDesignations, SCRIPT_CHANNEL, SCRIPT_CHANNEL) == "D" || CONTROLLER != MY_SITTER))
+            if (rlv_present() && (llGetSubString(RLVDesignations, SCRIPT_CHANNEL, SCRIPT_CHANNEL) == "D" || CONTROLLER != MY_SITTER))
             {
                 menu_items2 += "[STOP]";
                 if (!helper_mode)
@@ -1299,19 +1312,19 @@ default
             // Plugin-discovery probe from sitA. Reset everything that's
             // set by the matching reply channels so a removed plugin
             // doesn't leave its capability flag latched TRUE forever.
-            has_RLV = FALSE;
             has_security = FALSE;
             has_texture = FALSE;
             return;
         }
         if (num == 90202)
         {
-            // 90202 carries the RLV state in msg (legacy stock-AVsitter
-            // convention) AND signals "[AV]root-security exists in this
-            // linkset" by virtue of being sent. Both interpretations
-            // stack — has_security is bound to the channel's existence,
-            // not the payload value (mirrors sitA's pre-0.910 handler).
-            has_RLV = (integer)msg;
+            // 90202 signals "[AV]root-security exists in this linkset" by
+            // virtue of being sent; has_security is bound to that existence,
+            // not the payload value (mirrors sitA's pre-0.910 handler). The
+            // msg payload (stock RLV on/off) is no longer consumed: RLV-plugin
+            // presence is read on demand from qs:alive:rlv (rlv_present()),
+            // since a stock root-security probing the old "[AV]root-RLV" name
+            // would broadcast 0 here and wrongly hide Control... on a QS rig.
             has_security = TRUE;
             return;
         }

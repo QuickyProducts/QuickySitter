@@ -1,23 +1,29 @@
 /*
- * [AV]root-control - Allow others to control the menu
+ * [QS]root-control - Allow others to control the menu (QuickySitter fork of [AV]root-control)
+ *
+ * Minimally-invasive fork of avstock/Plugins/AVcontrol/[AV]root-control.lsl (2.2p04).
+ * Diff against stock:
+ *   1. Inter-plugin name couplings retargeted to the QS-renamed control suite:
+ *      security_script -> "[QS]root-security", RLV_script -> "[QS]root-RLV".
+ *   2. The AVsitter `#version` preprocessor marker de-sugared to a plain
+ *      `version` string — QS ships plain LSL (no preprocessor), like every
+ *      other QS script; raw `#version` is not valid stand-alone LSL.
+ *   3. Product string rebranded to "QuickySitter(TM) Menu Control".
+ * Menu/control logic otherwise byte-identical to stock.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * Copyright © the AVsitter Contributors (http://avsitter.github.io)
+ * Original work: Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
-string product = "AVsitter™ Menu Control";
-string #version = "2.2p04";
-string security_script = "[AV]root-security";
-string RLV_script = "[AV]root-RLV";
+string product = "QuickySitter™ Menu Control";
+string version = "0.9951";
+string security_script = "[QS]root-security";
+string RLV_script = "[QS]root-RLV";
 list DESIGNATIONS_NOW;
 key CONTROLLER = NULL_KEY;
 integer KEY_TAKEN;

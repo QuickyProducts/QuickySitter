@@ -1,24 +1,31 @@
 /*
- * [AV]root-security - Specify who can sit and/or use the menu
+ * [QS]root-security - Specify who can sit and/or use the menu (QuickySitter fork of [AV]root-security)
+ *
+ * Minimally-invasive fork of avstock/[AV]root-security.lsl (2.2p04).
+ * Diff against stock:
+ *   1. Inter-plugin name couplings retargeted to the QS-renamed suite:
+ *      menucontrol_script -> "[QS]root-control", RLV_script -> "[QS]root-RLV".
+ *      The unused script_basename ("[AV]sitA") declaration was dropped — it
+ *      hardcoded a sitter name and would have constrained QS's freedom to
+ *      rename sitA; nothing reads it.
+ *   2. The AVsitter `#version` preprocessor marker de-sugared to a plain
+ *      `version` string — QS ships plain LSL; raw `#version` is not valid LSL.
+ *   3. Product string rebranded to "QuickySitter(TM) Security".
+ * Sit/menu access logic otherwise byte-identical to stock.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * Copyright © the AVsitter Contributors (http://avsitter.github.io)
+ * Original work: Copyright © the AVsitter Contributors (http://avsitter.github.io)
  * AVsitter™ is a trademark. For trademark use policy see:
  * https://avsitter.github.io/TRADEMARK.mediawiki
- *
- * Please consider supporting continued development of AVsitter and
- * receive automatic updates and other benefits! All details and user
- * instructions can be found at http://avsitter.github.io
  */
 
-string product = "AVsitter™ Security";
-string #version = "2.2p04";
-string script_basename = "[AV]sitA";
-string menucontrol_script = "[AV]root-control";
-string RLV_script = "[AV]root-RLV";
+string product = "QuickySitter™ Security";
+string version = "0.9952";
+string menucontrol_script = "[QS]root-control";
+string RLV_script = "[QS]root-RLV";
 key active_sitter;
 integer active_prim;
 integer active_script_channel;
