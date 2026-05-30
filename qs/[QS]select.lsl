@@ -18,9 +18,10 @@
  *   3. Empty/duplicate seat labels keep the "Sitter N" default (0.9953);
  *      stock overwrites it with the first pose name. Pose names as
  *      seat-picker buttons are confusing, so the fallback was dropped.
- *   4. menu() self-heals stale SITTERS occupants (0.9954): an occupant who
- *      is no longer seated on this linkset (missed 90065 standup) is cleared
- *      before render, so a vacated avatar never shows as a ghost name.
+ *   4. menu() self-heals SITTERS (0.9954/0.9955): occupants no longer seated
+ *      on this linkset (missed 90065) AND duplicate listings of one avatar
+ *      across seats (missed clear on a seat-move) are dropped before render;
+ *      90070 also dedupes on claim. Every avatar shows in exactly one seat.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -32,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9954";
+string version = "0.9955";
 integer select_type;
 list BUTTONS;
 
@@ -101,25 +102,30 @@ menu(key av)
     integer sitter_index = llListFindList(SITTERS, [av]);
     if (sitter_index != -1)
     {
-        // 0.9954: self-heal stale occupants before rendering. SL drops
-        // link/standup events on region crossings, TP-outs and script-time
-        // throttling, so a missed 90065 can leave a vacated avatar in SITTERS
-        // — a ghost name in the picker even after a plain stand-up. The viewer
-        // (av) is seated here, so its OBJECT_ROOT is this furniture's root;
-        // clear any occupant whose root differs (gone, or seated elsewhere).
-        // key("")/NULL_KEY empties are skipped via the string guard — see
-        // feedback_lsl_list_empty_slot_polymorphism.
+        // 0.9954/0.9955: self-heal SITTERS before rendering. SL drops
+        // link/standup events (region crossings, TP-outs, script-time
+        // throttling), so a missed 90065/90030 can (a) leave a vacated avatar
+        // in SITTERS — a ghost name — or (b) leave an avatar double-listed
+        // across seats after a seat-move. The viewer (av) is seated here, so
+        // its OBJECT_ROOT is this furniture's root; clear any occupant whose
+        // root differs (gone/elsewhere) OR who already appeared in an earlier
+        // slot, so every avatar shows in exactly one seat. key("")/NULL_KEY
+        // empties skipped via the string guard (feedback_lsl_list_empty_slot_polymorphism).
         key this_root = llList2Key(llGetObjectDetails(av, [OBJECT_ROOT]), 0);
         if (this_root != av)   // av genuinely seated on a linkset (root != self)
         {
+            list seen;
             integer sj;
             for (sj = 0; sj < llGetListLength(SITTERS); ++sj)
             {
                 string occ = llList2String(SITTERS, sj);
-                if (occ != "" && occ != (string)NULL_KEY
-                    && llList2Key(llGetObjectDetails((key)occ, [OBJECT_ROOT]), 0) != this_root)
+                if (occ != "" && occ != (string)NULL_KEY)
                 {
-                    SITTERS = llListReplaceList(SITTERS, [NULL_KEY], sj, sj);
+                    if (llList2Key(llGetObjectDetails((key)occ, [OBJECT_ROOT]), 0) != this_root
+                        || llListFindList(seen, [occ]) != -1)
+                        SITTERS = llListReplaceList(SITTERS, [NULL_KEY], sj, sj);
+                    else
+                        seen += occ;
                 }
             }
         }
@@ -386,6 +392,16 @@ default
             }
             else if (num == 90070)
             {
+                // 0.9955: dedupe on claim. A missed 90065/90030 on a prior
+                // seat can leave this avatar in an old slot; clear every slot
+                // still holding them before claiming msg, so they never show
+                // in two seats at once. Read-before-check (no assign-in-cond).
+                integer dupe = llListFindList(SITTERS, [id]);
+                while (dupe != -1)
+                {
+                    SITTERS = llListReplaceList(SITTERS, [NULL_KEY], dupe, dupe);
+                    dupe = llListFindList(SITTERS, [id]);
+                }
                 SITTERS = llListReplaceList(SITTERS, [id], (integer)msg, (integer)msg);
             }
             else if (num == 90009)
