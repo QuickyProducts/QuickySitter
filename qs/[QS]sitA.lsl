@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9976";
+string version = "0.9975";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -60,17 +60,6 @@ integer SWAPPED;
 // FALSE for stock 90030 senders (pose-menu [SWAP], [QS]select seat
 // picker) so they keep the stock-AVsitter reopen behavior.
 integer bSilentSwap;
-// 0.9976: HUD-swap dialog-reopen override. When a 90031 quiet swap moves
-// a sitter who had a pose dialog open, sitB sends 90034 carrying that
-// sitter's key; this stores it. run_time_permissions then reopens the
-// menu (despite bSilentSwap) for the matching PermissionsKey, so the
-// stale dialog on the user's screen is replaced by a fresh, working one
-// on the destination slot. Keyed (not boolean) so a 2-sitter swap where
-// only one partner had a dialog reopens for that partner only. Reset at
-// the top of every swap handler (90034 is causally later than the swap
-// broadcast, so the reset always precedes the set) and consumed in
-// run_time_permissions. "" = no forced reopen.
-key forceReopenKey;
 key MY_SITTER;
 key CONTROLLER;
 // ADJUST_MENU global removed in 0.910 — sitB now loads qs:cfg slot 14
@@ -1044,14 +1033,6 @@ default
         }
         if (num == 90030 || num == 90031) // 90030=swap (stock+select, with reopen); 90031=quiet swap (HUD+debug, no reopen)
         {
-            // 0.9976: clear any prior force-reopen request on EVERY sitA
-            // instance (including slots not in this swap) before the matching
-            // 90034 — if any — re-sets it. 90034 is sent by sitB while
-            // handling this same broadcast, so it is queued strictly after
-            // this handler on every recipient; the reset here always wins
-            // the ordering, preventing a stale key from leaking into a later
-            // silent swap.
-            forceReopenKey = "";
             if (one == SCRIPT_CHANNEL || two == SCRIPT_CHANNEL)
             {
                 end_sitter();
@@ -1130,16 +1111,6 @@ default
             key swapA = llList2Key(SITTERS, one);
             key swapB = llList2Key(SITTERS, two);
             SITTERS = llListReplaceList(llListReplaceList(SITTERS, [swapB], one, one), [swapA], two, two);
-            return;
-        }
-        if (num == 90034) // 90034=sitB requests post-swap menu reopen for id (had a dialog open)
-        {
-            // Sent by sitB's 90031 swap handler when the swapped-out occupant
-            // had a pose dialog open. Stored keyed by the user; consumed in
-            // run_time_permissions on the sitA that adopts that exact user.
-            // Broadcast — every sitA stores it, but only the adopting one
-            // (PermissionsKey == id) acts. See forceReopenKey declaration.
-            forceReopenKey = id;
             return;
         }
         if (num == 90070) // 90070=update SITTERS after permission granted
@@ -1603,7 +1574,7 @@ default
                 // primcount_error() inlined here:
                 llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
             }
-            else if (!MTYPE && (!bSilentSwap || forceReopenKey == MY_SITTER))
+            else if (!MTYPE && !bSilentSwap)
             {
                 // Stock-AVsitter reopen path (since 0.9912 gated on
                 // bSilentSwap): close + reopen the pose menu after the
@@ -1615,13 +1586,6 @@ default
                 // the user feedback on their action; thrusting a fresh
                 // pose menu on top would stack windows in viewers that
                 // don't auto-replace cross-script dialogs.
-                //
-                // 0.9976: exception — if sitB flagged (via 90034) that this
-                // exact sitter had a pose dialog open when the quiet swap
-                // fired, reopen anyway. The user already had a menu on
-                // screen, so replacing it with a fresh working one (rather
-                // than leaving a dead-listener dialog) is the desired UX —
-                // no NEW window appears for users who had none open.
                 if (has_security)
                 {
                     llMessageLinked(LINK_SET, 90006, (string)animation_menu_function, MY_SITTER);
@@ -1633,10 +1597,8 @@ default
                     llMessageLinked(LINK_SET, 90005, (string)animation_menu_function, llDumpList2String([CONTROLLER, MY_SITTER], "|")); // 90005=send menu to user
                 }
             }
-            // Consume the silent-swap + force-reopen flags whether we
-            // reopened or not.
+            // Consume the silent-swap flag whether we reopened or not.
             bSilentSwap = FALSE;
-            forceReopenKey = "";
         }
     }
 

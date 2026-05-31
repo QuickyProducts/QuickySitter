@@ -141,11 +141,11 @@ integer menu_page;
 key MY_SITTER;
 key CONTROLLER;
 // 0.9960: tracks whether a dialog is currently open for this slot's
-// occupant, so the HUD quiet-swap (90031) can decide whether to re-render
-// the pose menu on the destination slot (only if the user had one open —
-// no surprise dialogs otherwise). Set after each llDialog(); cleared on
-// the listen hit (user clicked), on reseed (90024), and on occupant change.
-// "" = no open dialog. See feedback / hud-swap-dialog-reopen branch.
+// occupant, so the HUD quiet-swap (90031) handler knows whether to replace
+// it with a "pose menu closed" notice (same-script llDialog — reliable) vs
+// do nothing (no dialog was open → no surprise window). Set after each
+// llDialog(); cleared on the listen hit (user clicked), on reseed (90024),
+// and on occupant change. "" = no open dialog.
 key dialog_open_for;
 string RLVDesignations;
 string onSit;
@@ -416,7 +416,7 @@ integer animation_menu(integer animation_menu_function)
         menu_handle = llListen(menu_channel, "", CONTROLLER, "");
         menu_items0 = menu_items0 + menu_items1 + menu_items2;
         llDialog(CONTROLLER, menu, reorder_dialog_buttons(menu_items0), menu_channel);
-        dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
+        dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap notice
     }
     return 0;
 }
@@ -569,7 +569,7 @@ plugin_dialog()
     string text = product + " " + version + "\n\nOptions:";
     if (pages > 1) text += " (" + (string)(plugin_page + 1) + "/" + (string)pages + ")";
     llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
-    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
+    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap notice
 }
 
 // ADJUST submenu — migrated from sitA's inlined options_menu() in 0.909
@@ -650,7 +650,7 @@ adjust_dialog()
     string text = product + " " + version + "\n\nAdjust:";
     if (pages > 1) text += " (" + (string)(adjust_page + 1) + "/" + (string)pages + ")";
     llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
-    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
+    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap notice
 }
 
 default
@@ -1246,16 +1246,21 @@ default
             if (num == 90031)
             {
                 // 0.9960: if this slot's occupant had a pose dialog open when
-                // the quiet swap fired, ask sitA (90034) to reopen the menu
-                // for them on the destination slot once perms re-grant. This
-                // replaces the now-dead dialog with a fresh working one
-                // instead of leaving a stale, listener-removed window on
-                // their screen. Only fires when a dialog was actually open
-                // (dialog_open_for == MY_SITTER) — users with no menu open
-                // get no surprise dialog. Sent BEFORE llListenRemove so the
-                // intent is captured before we tear our own state down.
+                // the quiet swap fired, REPLACE it with a short notice so they
+                // don't keep staring at a dead pose menu whose buttons no
+                // longer work (the llListenRemove below kills the listener but
+                // LSL can't close the window). The replacement is sent from
+                // THIS script to the same avatar, so the viewer reliably swaps
+                // it for the old pose menu (same-script replacement; cross-
+                // script does not reliably replace, which is why a fresh menu
+                // from the destination slot would only stack). The notice is
+                // dismiss-only ([OK]) — no listener needed, so we send it just
+                // before tearing the listener down. Only fires when a dialog
+                // was actually open (dialog_open_for == MY_SITTER); users with
+                // no menu open get nothing. To pose again the user re-clicks
+                // the furniture or uses the HUD.
                 if (MY_SITTER != "" && dialog_open_for == MY_SITTER)
-                    llMessageLinked(LINK_SET, 90034, "", MY_SITTER); // 90034=reopen menu after quiet swap
+                    llDialog(MY_SITTER, "\n" + product + " — pose menu closed (seat swapped via HUD).\n\nTouch the furniture or use the HUD to open it again.", ["OK"], menu_channel);
                 llListenRemove(menu_handle);
             }
             // View-state reset (MENU_SPEC § 12/§ 13): the occupant just changed,
