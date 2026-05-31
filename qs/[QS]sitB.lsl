@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "0.9959";
+string version = "0.9960";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -140,6 +140,13 @@ integer current_menu = -1;
 integer menu_page;
 key MY_SITTER;
 key CONTROLLER;
+// 0.9960: tracks whether a dialog is currently open for this slot's
+// occupant, so the HUD quiet-swap (90031) can decide whether to re-render
+// the pose menu on the destination slot (only if the user had one open —
+// no surprise dialogs otherwise). Set after each llDialog(); cleared on
+// the listen hit (user clicked), on reseed (90024), and on occupant change.
+// "" = no open dialog. See feedback / hud-swap-dialog-reopen branch.
+key dialog_open_for;
 string RLVDesignations;
 string onSit;
 integer speed_index;
@@ -409,6 +416,7 @@ integer animation_menu(integer animation_menu_function)
         menu_handle = llListen(menu_channel, "", CONTROLLER, "");
         menu_items0 = menu_items0 + menu_items1 + menu_items2;
         llDialog(CONTROLLER, menu, reorder_dialog_buttons(menu_items0), menu_channel);
+        dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
     }
     return 0;
 }
@@ -561,6 +569,7 @@ plugin_dialog()
     string text = product + " " + version + "\n\nOptions:";
     if (pages > 1) text += " (" + (string)(plugin_page + 1) + "/" + (string)pages + ")";
     llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
+    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
 }
 
 // ADJUST submenu — migrated from sitA's inlined options_menu() in 0.909
@@ -641,6 +650,7 @@ adjust_dialog()
     string text = product + " " + version + "\n\nAdjust:";
     if (pages > 1) text += " (" + (string)(adjust_page + 1) + "/" + (string)pages + ")";
     llDialog(CONTROLLER, text, reorder_dialog_buttons(buttons), menu_channel);
+    dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap reopen
 }
 
 default
@@ -674,6 +684,10 @@ default
 
     listen(integer listen_channel, string name, key id, string msg)
     {
+        // 0.9960: the user just clicked, so any dialog we were tracking is
+        // consumed. Cleared up front — a click that re-renders a submenu
+        // sets dialog_open_for again via the menu helpers below.
+        dialog_open_for = "";
         string channel;
         // While the [OPTIONS] dialog is open, route clicks via the plugin
         // registry. Checked first so a page-item collision (e.g. a pose
@@ -1061,6 +1075,7 @@ default
             plugin_page = 0;
             in_adjust_menu = FALSE;
             adjust_page = 0;
+            dialog_open_for = ""; // 0.9960: dialog invalidated by reseed
             llListenRemove(menu_handle);
             return;
         }
@@ -1229,7 +1244,20 @@ default
             // out — but removing the listen prevents wrong-controller
             // actions if the user clicks it.
             if (num == 90031)
+            {
+                // 0.9960: if this slot's occupant had a pose dialog open when
+                // the quiet swap fired, ask sitA (90034) to reopen the menu
+                // for them on the destination slot once perms re-grant. This
+                // replaces the now-dead dialog with a fresh working one
+                // instead of leaving a stale, listener-removed window on
+                // their screen. Only fires when a dialog was actually open
+                // (dialog_open_for == MY_SITTER) — users with no menu open
+                // get no surprise dialog. Sent BEFORE llListenRemove so the
+                // intent is captured before we tear our own state down.
+                if (MY_SITTER != "" && dialog_open_for == MY_SITTER)
+                    llMessageLinked(LINK_SET, 90034, "", MY_SITTER); // 90034=reopen menu after quiet swap
                 llListenRemove(menu_handle);
+            }
             // View-state reset (MENU_SPEC § 12/§ 13): the occupant just changed,
             // so the previous occupant's submenu / paging / mode must not carry
             // over to whoever opens this slot next. Without this a swap-in user
@@ -1242,6 +1270,7 @@ default
             helper_mode = FALSE;
             in_plugin_menu = FALSE;
             in_adjust_menu = FALSE;
+            dialog_open_for = ""; // 0.9960: occupant leaving — drop dialog-open tracking
             CONTROLLER = MY_SITTER = "";
             return;
         }
@@ -1371,12 +1400,14 @@ default
                 current_menu = -1;
                 nav_stack = [];          // fresh occupant -> clean back-path (invariant: root => empty stack)
                 menu_channel = ((integer)llFrand(0x7FFFFF80) + 1) * -1; // 7FFFFF80 = max float < 2^31
+                dialog_open_for = ""; // 0.9960: fresh occupant, no dialog open yet (a 90005 reopen sets it again)
                 llListenRemove(menu_handle);
                 return;
             }
             if (num == 90065 && sender == llGetLinkNumber())
             {
                 CONTROLLER = MY_SITTER = "";
+                dialog_open_for = ""; // 0.9960: occupant gone
                 llListenRemove(menu_handle);
                 return;
             }
