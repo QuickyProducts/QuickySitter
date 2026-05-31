@@ -33,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "0.9955";
+string version = "0.9956";
 integer select_type;
 list BUTTONS;
 
@@ -290,20 +290,20 @@ default
                 // [ADJUST OFF] / [BACK] from there.
                 llMessageLinked(LINK_SET, 90101, llDumpList2String(["X", message, id], "|"), id);
             }
-            // 0.9952: empty-slot detection via llList2String != "" (string).
-            // Stock pattern `llList2Key(SITTERS, idx) != NULL_KEY` falsely
-            // treats empty slots as occupied because LSL Mono returns key("")
-            // (empty key, empty UUID value) for both `(key)""` casts and
-            // `llList2Key` on a "" string element — and `key("") != NULL_KEY`
-            // is TRUE (their UUID values differ: "" vs "00000000-..."). Same
-            // applies after a SWAP where SITTERS[empty_slot] becomes key("")
-            // via llListReplaceList. Symptom: clicking an empty seat-picker
-            // button showed the "seat taken" sub-menu instead of triggering
-            // the 90030 swap. llList2String catches both "" string and key("")
-            // because (string)key("") = "" via the key's value. (string)id is
-            // a real UUID, so the != self-check still works string-vs-string.
-            // See feedback_lsl_list_empty_slot_polymorphism.
-            else if (llGetSubString(message, 0, 0) == "⊘" || (select_type == 0 && llList2Integer(SYNCS, button_index) == FALSE && llList2String(SITTERS, button_index) != "" && llList2String(SITTERS, button_index) != (string)id))
+            // 0.9956: revert the 0.9952 llList2String change — it was wrong
+            // for [QS]select and broke swapping onto empty slots. Unlike
+            // [QS]sitA (where empty slots are "" string or key("") after a
+            // llListReplaceList swap), [QS]select stores empty slots as
+            // NULL_KEY EVERYWHERE: init_lists pads with NULL_KEY, and the
+            // 90030/90065/security/dedup handlers all clear to NULL_KEY (never
+            // "" or key("")). So the original `llList2Key(...) != NULL_KEY`
+            // correctly identifies an empty slot here, while llList2String !=
+            // "" reads NULL_KEY's "00000000-..." form as non-empty → every
+            // empty slot looked occupied → the picker re-rendered instead of
+            // dispatching the 90030 swap (the "pick a seat, avatar doesn't
+            // move" bug). The polymorphism caveat applies to sitA's mixed
+            // ""/key("") lists, NOT to select's uniformly-NULL_KEY list.
+            else if (llGetSubString(message, 0, 0) == "⊘" || (select_type == 0 && llList2Integer(SYNCS, button_index) == FALSE && llList2Key(SITTERS, button_index) != NULL_KEY && llList2Key(SITTERS, button_index) != id))
             {
                 menu(id);
             }
