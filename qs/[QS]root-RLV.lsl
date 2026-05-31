@@ -31,7 +31,7 @@
  */
 
 string product = "QuickySitter™ RLV";
-string version = "0.9953";
+string version = "0.999";
 integer QS_ALIVE_CENSUS = 90079;   // [QS] fork: boot presence re-census broadcast
 integer ignorenextswap;
 string notecard_name = "AVpos";

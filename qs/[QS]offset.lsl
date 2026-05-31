@@ -61,7 +61,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.9951";
+string version = "0.999";
 
 // Presence: [QS]offset owns the qs:offset:alive LSD flag directly (written
 // in state_entry, re-written on QS_ALIVE_CENSUS). [QS]sitA reads it to gate
