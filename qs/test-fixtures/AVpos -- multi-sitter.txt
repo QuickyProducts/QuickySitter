@@ -1,0 +1,9 @@
+SITTER 0|Male|M
+
+POSE Anim1|Anim1
+POSE Anim2|Anim2
+
+SITTER 1|Female|F
+
+POSE Anim1|Anim1
+POSE Anim2|Anim2
