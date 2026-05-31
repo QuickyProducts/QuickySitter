@@ -1,0 +1,21 @@
+QUICKYSITTER -- BRANDED AVPOS: EXPECTED IN-WORLD STRINGS
+=========================================================
+
+When the "AVpos -- branded" notecard is loaded in the test
+furniture, you should see these exact values in-world:
+
+  BRAND value:  "Demo Brand"
+    Where:      Menu header (top line of the touch dialog)
+
+  ONSIT value:  "Take a seat"
+    Where:      Sit prompt / hover text shown when you sit
+
+  TEXT value:   "Custom menu text"
+    Where:      Menu body text (below the header)
+
+  ROLES values: "Owner" and "Guest"
+    Where:      RLV permission designation dialog (if your
+                viewer prompts for RLV permissions)
+
+If you see different values (or generic defaults), TEST 7
+fails -- record what you saw on the checklist.

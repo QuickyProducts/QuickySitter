@@ -1,0 +1,9 @@
+BRAND Demo Brand
+ONSIT Take a seat
+TEXT Custom menu text
+ROLES Owner|Guest
+
+SITTER 0|Sitter|M
+
+POSE Anim1|Anim1
+POSE Anim2|Anim2

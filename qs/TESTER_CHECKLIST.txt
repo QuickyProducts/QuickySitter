@@ -1,0 +1,365 @@
+QUICKYSITTER -- TESTER CHECKLIST
+================================
+
+Thanks for helping verify a QuickySitter release! This notecard lists
+the in-world tests you can run. Do them in order. Tick a box if the
+result matches. If something looks different, write down what you saw
+and which step it happened on, then return this notecard to whoever
+shared the test folder with you.
+
+Everything you need is in the test folder you received.
+
+Tester name: _________________________________
+Region:      _________________________________
+Date:        _________________________________
+Viewer/FPS:  _________________________________
+
+
+--------------------------------
+WHAT IS IN THE TEST FOLDER
+--------------------------------
+
+Open the test folder in your inventory. It should contain:
+
+  - One "Test furniture" item (the same one is used for every
+    test; you swap notecards and edit Contents between tests).
+  - Three AVpos notecards:
+      * AVpos                  (default, used by most tests)
+      * AVpos -- multi-sitter  (used in TEST 2)
+      * AVpos -- branded       (used in TEST 7)
+  - A "Branded -- expected strings" notecard (used in TEST 7).
+  - A "Dummy script" item (used in TEST 3).
+  - This checklist notecard.
+
+The QuickyHUD is NOT in the folder -- it auto-attaches from the
+test furniture the first time you sit. Accept any "Allow this
+object to attach to your avatar?" prompt your viewer shows.
+
+Before starting:
+
+  - Go to a sandbox region where you can rezz objects.
+  - If anything in the list above is missing, message whoever
+    shared the folder before starting.
+
+
+--------------------------------
+HOW EACH TEST WORKS
+--------------------------------
+
+Each test starts the SAME way: rezz a fresh copy of the test
+furniture from inventory, drop in the AVpos notecard the test
+asks for (and remove any old ones), and wait until chat shows
+"Load complete; N sitter(s) ready".
+
+When a test needs you to edit, rename, or delete a script inside
+the furniture's Contents, the steps will say so explicitly. After
+such an edit-heavy test, throw the modified copy away and rezz a
+fresh one for the next test.
+
+
+================================
+TEST 1 -- Renamed sitter packs work
+================================
+
+What this tests:
+  Furniture that uses non-standard sitter-script names should still
+  work normally.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the default "AVpos" notecard into its Contents.
+  - Edit -> Contents -> rename "[QS]sitA" to "[FOO]sitA".
+  - Same -> rename "[QS]sitB" to "[FOO]sitB".
+
+Steps:
+  1. Wait until chat shows "Load complete; N sitter(s) ready".
+  2. Touch the furniture and click "Sit".
+
+Pass:
+  [ ] Step 1: "Load complete" appears within 30 seconds.
+  [ ] Step 2: a pose plays within 2 seconds.
+  [ ] No red ERROR lines in chat.
+
+Fail signs:
+  - "Load complete" never appears.
+  - You sit but stay in T-pose for more than 2 seconds.
+  - The furniture ejects you immediately.
+
+
+================================
+TEST 2 -- SWAP dialog shows real names
+================================
+
+What this tests:
+  When several people can sit on the same piece of furniture, the
+  HUD's SWAP dialog should show the names defined in the notecard,
+  not generic "Sitter 1", "Sitter 2".
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the "AVpos -- multi-sitter" notecard into its Contents.
+  - Make sure no other AVpos notecards are present.
+
+Steps:
+  1. Wait for "Load complete".
+  2. Sit on the furniture. The QuickyHUD auto-attaches if it is not
+     already on -- accept the permission prompt if your viewer
+     shows one.
+  3. On the HUD, click the SWAP button.
+
+Pass:
+  [ ] Step 3: the dialog lists "Male" and "Female".
+  [ ] Clicking each name moves you into the matching slot.
+
+Fail signs:
+  - Dialog shows "Sitter 1", "Sitter 2" instead.
+  - Clicking a name puts you in the wrong slot.
+
+
+================================
+TEST 3 -- Mixed-prefix packs survive inventory wiggle
+================================
+
+What this tests:
+  Furniture that mixes naming conventions for its two seat-scripts
+  should work, AND it should not restart in a loop when scripts are
+  added or removed from contents.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the default "AVpos" notecard into its Contents.
+  - Edit -> Contents -> rename "[QS]sitA" to "[AV]sitA".
+  - Leave "[QS]sitB" as it is (do NOT rename it).
+
+Steps:
+  1. Wait for "Load complete".
+  2. Sit on the furniture. A pose should play.
+  3. Stay seated. Edit -> Contents -> drop the Dummy script in.
+  4. Watch chat and your seated state for 10 seconds.
+  5. Edit -> Contents -> remove the Dummy script.
+  6. Watch for another 10 seconds.
+  7. Touch the furniture to open the menu.
+
+Pass:
+  [ ] Step 2: pose plays.
+  [ ] Step 4: no restart loop (no repeated "Loading from..." or
+      "Load complete" lines).
+  [ ] Step 6: no restart loop.
+  [ ] Step 7: the menu opens normally.
+
+Fail signs:
+  - "Loading from..." and "Load complete" repeat every few seconds.
+  - You get ejected when adding or removing the Dummy script.
+  - Menu stops responding.
+
+
+================================
+TEST 4 -- Missing notecard handled gracefully
+================================
+
+What this tests:
+  Furniture without a pose notecard should not freeze or restart
+  forever. It should also recover automatically when the notecard
+  is dropped in later.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Edit -> Contents -> remove every AVpos notecard so the
+    furniture has no pose notecard inside.
+
+Steps:
+  1. Try to sit within 2 seconds of removing the notecard.
+  2. Wait 30 seconds, watching chat.
+  3. Drop the default "AVpos" notecard into the furniture's
+     Contents.
+  4. Wait for "Load complete" in chat.
+  5. Sit again.
+
+Pass:
+  [ ] Step 1: either you sit and get a polite chat hint and are
+      unsat, or the menu shows a loading message. You are NOT
+      frozen.
+  [ ] Step 2: chat shows at most one or two messages about a
+      missing notecard, then stays quiet. No restart loop.
+  [ ] Step 4: "Load complete" appears without re-rezzing the
+      furniture.
+  [ ] Step 5: a pose plays normally.
+
+Fail signs:
+  - The furniture restarts repeatedly.
+  - You sit but never get a pose and never get a message.
+  - The furniture never recovers after the notecard is dropped in
+    (still no "Load complete" after 30 seconds).
+
+
+================================
+TEST 5 -- Helper buttons hidden when helper script absent
+================================
+
+What this tests:
+  The [HELPER] and [QUICKYHUD] menu buttons should appear only
+  when the helper script is actually inside the furniture's
+  Contents.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the default "AVpos" notecard into its Contents.
+
+Steps:
+  1. Wait for "Load complete".
+  2. Touch the furniture -> open the menu.
+  3. Edit -> Contents -> remove the script whose name contains
+     "adjuster".
+  4. Touch the furniture -> re-open the menu.
+  5. Re-rezz a fresh test furniture copy (the easiest way to put
+     the adjuster back), drop the default AVpos in.
+  6. Wait for "Load complete" again.
+  7. Touch the furniture -> re-open the menu.
+
+Pass:
+  [ ] Step 2: menu shows both [HELPER] and [QUICKYHUD] buttons.
+  [ ] Step 4: menu does NOT show [HELPER] or [QUICKYHUD].
+  [ ] Step 7: both buttons are back.
+
+Fail signs:
+  - Buttons stay visible in step 4 (and clicking them does
+    nothing).
+  - Buttons never come back in step 7.
+
+
+================================
+TEST 6 -- Self-check warns when pieces are missing
+================================
+
+What this tests:
+  When the furniture is missing a required script, it should warn
+  in chat within about 5 seconds -- not stay silent and broken.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the default "AVpos" notecard into its Contents.
+
+Steps:
+  1. Wait for "Load complete".
+  2. Watch chat for 10 seconds.
+  3. Edit -> Contents -> delete the script called "[QS]sitA".
+  4. Watch chat for 10 seconds.
+  5. Throw this furniture away. Re-rezz a fresh copy and drop the
+     default AVpos in.
+  6. Wait for "Load complete".
+  7. Edit -> Contents -> delete the script called "[QS]sitB".
+  8. Watch chat for 10 seconds.
+
+Pass:
+  [ ] Step 2: chat is quiet, no red ERROR lines.
+  [ ] Step 4: chat shows
+      "ERROR: [QS]sitA missing -- no sit animation will play."
+      within 5 seconds.
+  [ ] Step 8: chat shows
+      "ERROR: [QS]sitB missing -- no menu will appear."
+      within 5 seconds.
+
+Fail signs:
+  - Step 2 shows ERROR lines even with everything present.
+  - Step 4 or 8 stays silent -- furniture broken but says nothing.
+
+
+================================
+TEST 7 -- Configured text appears in menu and prompts
+================================
+
+What this tests:
+  The notecard's customized brand name, sit prompt, custom menu
+  text, and RLV permission wording should all show up in the
+  right places.
+
+Setup:
+  - Read the "Branded -- expected strings" notecard so you know
+    what values to look for.
+  - Rezz a fresh copy of the test furniture.
+  - Drop the "AVpos -- branded" notecard into its Contents.
+  - Make sure no other AVpos notecards are present.
+
+Steps:
+  1. Wait for "Load complete".
+  2. Touch the furniture without sitting. Note the top line
+     ("header") of the menu dialog and any custom body text.
+  3. Right-click and Sit. Note any text that appears above the
+     furniture (hover text) or in chat as you sit.
+  4. If your viewer prompts you about RLV permissions, read the
+     dialog wording.
+
+Pass:
+  [ ] Step 2: menu header matches the expected BRAND value
+      ("Demo Brand").
+  [ ] Step 2: menu body text contains the expected TEXT value
+      ("Custom menu text").
+  [ ] Step 3: sit prompt / hover text matches the expected ONSIT
+      value ("Take a seat").
+  [ ] Step 4: RLV permission wording matches the expected ROLES
+      values ("Owner", "Guest").
+
+Fail signs:
+  - Generic default text appears where custom text was configured.
+  - One of the four fields is empty or shows the wrong string.
+
+
+================================
+TEST 8 -- SAVE ALL overrides per-pose adjustments
+================================
+
+What this tests:
+  When you adjust ONE pose and save it, then later move yourself
+  and use [SAVE ALL], the new global position should win over the
+  older per-pose tweak.
+
+Setup:
+  - Rezz a fresh copy of the test furniture.
+  - Drop the default "AVpos" notecard into its Contents.
+
+Steps:
+  1. Wait for "Load complete".
+  2. Sit on the furniture. The QuickyHUD auto-attaches if it is
+     not already on -- accept the permission prompt if your
+     viewer shows one.
+  3. From the menu, pick Anim1 (or whichever pose is first).
+     Remember its name -- we will call it Pose1.
+  4. Use the HUD arrows to move yourself slightly up (about
+     10 cm).
+  5. Use the per-pose save: HUD button labelled [SAVE] (NOT
+     [SAVE ALL]). This stores the +10 cm offset for Pose1 only.
+  6. Switch to the other pose, then back to Pose1.
+     -- You should snap to the +10 cm position again.
+  7. While in Pose1, move yourself slightly sideways (about
+     10 cm left or right).
+  8. Use [SAVE ALL] on the HUD.
+  9. Switch to the other pose, then back to Pose1.
+
+Pass:
+  [ ] Step 6: Pose1 remembers the +10 cm up adjustment.
+  [ ] Step 9: Pose1 now uses the new (sideways) position from
+      [SAVE ALL] -- NOT the old +10 cm.
+  [ ] The other pose ALSO uses the [SAVE ALL] position (the
+      global offset applies to all poses that have no per-pose
+      tweak).
+
+Fail signs:
+  - Step 9: Pose1 still uses the +10 cm up position. This means
+    the per-pose entry was not wiped by [SAVE ALL]. (This is the
+    bug that the release was supposed to fix.)
+  - The other pose does not pick up the [SAVE ALL] offset.
+
+
+================================
+WHEN YOU ARE DONE
+================================
+
+Return this notecard to whoever shared the test folder, with:
+
+  - Each [ ] either ticked (passed) or annotated (failed --
+    briefly describe what you saw).
+  - Your viewer name and FPS, if you can.
+  - The region where you tested.
+  - Any extra observations the tests did not cover.
+
+Thanks for testing!
