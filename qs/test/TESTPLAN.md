@@ -63,7 +63,7 @@ older sections stay German until they're separately migrated.
 ## I. Regressions-Smoke-Tests
 
 Tests derived from recurring bug classes documented in MEMORY
-conventions and the TODOLIST "Recently retired" log. Orthogonal to
+conventions and the DECISIONS.md "Recently retired" log. Orthogonal to
 F-H: each one covers a class of failure that has actually shipped to
 users in past versions, not a coverage gap in plugin removal or sync
 drift.
@@ -106,7 +106,7 @@ parse site.
 
 ### I.2 — TC-057 detail (creator-rename pack)
 
-Verifies the script-name probe migration (TODOLIST § "Recently
+Verifies the script-name probe migration (DECISIONS.md § "Recently
 retired", spanning sitA 0.283-0.285, sitB 0.032-0.035, adjuster
 0.043-0.912, select 0.022, faces 0.902) is complete end-to-end.
 
@@ -145,7 +145,7 @@ cheap; biggest single migration in the fork deserves end-to-end check.
 ### I.3 — TC-058 detail (Web-DUMP failure modes)
 
 Coverage for the quiet-mode surface added in boot 0.923 / adjuster
-0.913 (TODOLIST top entry). Larger surface than the historical
+0.913 (DECISIONS.md top entry). Larger surface than the historical
 loud-mode path.
 
 #### TC-058a — Endpoint HTTP 500 mid-cascade

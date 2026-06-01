@@ -1,4 +1,10 @@
-# QuickySitter — TODO list
+# QuickySitter — decision record
+
+> Retained decision history, trimmed from the former `TODOLIST.md` at the 1.0
+> release. The open/forward-looking TODOs (script-name big-refactor, watchdog
+> standby, the sitB=UI refactor phases, ALL-mode sitter cap, RLV plumbing review)
+> were dropped as obsolete. What remains records *why* the script-name-probe
+> migration was done this way, and which probes are deliberately kept.
 
 ## Script-name probe migration
 
@@ -34,7 +40,7 @@ patterns the migrated paths use.
 - `[QS]menu` — removed from the fork entirely 2026-05-20. The fork originally existed to fix duplicate-menu-management when stock `[AV]menu` coexisted in a linkset with a QS sit system (stock probed for `[AV]sitA`, missed `[QS]sitA`, stayed active alongside `[QS]adjuster`). Decision: menu-prop objects and QS-sitter furniture are mutually exclusive use cases — menu-only linksets use stock `[AV]menu` in a sitter-less object. Removed: `qs/[QS]menu.lsl`, the menu row in the migration table, Quick wins #1 (`[QS]menu` prop_script migration), the `[RESET]`-button-doesn't-reload-AVpos section, and all menu references in the AVsitter-plugin probes section. `[QS]root.lsl`'s defensive `menu_script="[AV]menu"` probe stays — it supports the menu-prop-only linkset config and never referenced `[QS]menu`.
 - `[QS]boot` LSD-wipe warning — boot 0.912 extends the existing `linkset_data` handler with a `LINKSETDATA_RESET` branch that surfaces a one-shot `llOwnerSay("[QS] LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.")`. Triggers on `/88` or any `llLinksetDataReset` call. Boot itself re-seeds on the next `state_entry` (`qs:boot:asset` is gone → skip-check fails) but sibling-script RAM caches (sitA/sitB/adjuster) stay stale until the user manually resets or re-rezzes — the warning is the cue. Cost: ~115 bytes static; spam-bounded (1 message per wipe per furniture, wipes are explicit user actions).
 - `[AV]camera` migration — **declined 2026-05-20** after verifying stock `[AV]camera`'s name-bound code is dead. Its `main_script="[AV]sitA"` global (avstock `[AV]camera.lsl` L19) is only referenced by `get_number_of_scripts()` (L32-40), which is **never called anywhere in the file** — pure dead code. All working code paths in [AV]camera are protocol-based (90020/90022/90045/90065/90230/90231/90174 use `SCRIPT_CHANNEL` and sender-filtering, not script-name matching), so stock [AV]camera runs correctly in QS-sitter setups without modification. Our remaining `camera_script="[AV]camera"` references (boot L28/L739 DUMP cascade, adjuster L444/L822/L940 menu gate + 90174-dispatch) are stock-AVsitter-protocol surface, not internal coupling — they're equivalent to having a hardcoded `"[AV]camera"` because that **is** the protocol-mandated name. No `[QS]camera` fork planned; no migration possible.
-- AVpos notecard without `SITTER` directive — boot 0.913 synthesizes a virtual `SITTER 0` when the first pose-ish directive (POSE / SYNC / MENU / TOMENU / BUTTON / SEQUENCE / `{posename}<...>` splice line) arrives with `current_channel == -1`. Replicates stock AVsitter's "implicit slot 0" behavior (in stock, each `[AV]sitA` instance had its own SCRIPT_CHANNEL baked into the script name, so the slot was never implicit; QS's consolidated boot parser made it implicit by accident). Verified safe: empty SITTER_INFO falls back to first POSE name as slot button via [`[QS]select`'s existing fallback](./[QS]select.lsl) L210-214, and empty GENDERS returns FALSE for gender-based swap checks rather than matching falsely. The companion case "no MENU directive, only POSE entries" (A2 in the original analysis) was deferred — current evidence suggests sitA's MENU_LIST picks up all pose names regardless of type, so likely works as a flat list already; reconsider only if a real-world notecard with this shape surfaces broken end-to-end.
+- AVpos notecard without `SITTER` directive — boot 0.913 synthesizes a virtual `SITTER 0` when the first pose-ish directive (POSE / SYNC / MENU / TOMENU / BUTTON / SEQUENCE / `{posename}<...>` splice line) arrives with `current_channel == -1`. Replicates stock AVsitter's "implicit slot 0" behavior (in stock, each `[AV]sitA` instance had its own SCRIPT_CHANNEL baked into the script name, so the slot was never implicit; QS's consolidated boot parser made it implicit by accident). Verified safe: empty SITTER_INFO falls back to first POSE name as slot button via [`[QS]select`'s existing fallback](../[QS]select.lsl) L210-214, and empty GENDERS returns FALSE for gender-based swap checks rather than matching falsely. The companion case "no MENU directive, only POSE entries" (A2 in the original analysis) was deferred — current evidence suggests sitA's MENU_LIST picks up all pose names regardless of type, so likely works as a flat list already; reconsider only if a real-world notecard with this shape surfaces broken end-to-end.
 - `[QS]boot` self-check false-positive during updater runs — boot 0.914 resets the self-check safety-net timer on every `CHANGED_INVENTORY` while `selfcheck_pending` is TRUE; boot 0.915 extends the timer from 5s → 10s for additional headroom on busy regions. The updater swaps sibling scripts one-by-one over a window that can exceed 5s, and the previous code fired `self_check_report()` mid-swap and reported false-positive `"[QS]sitA missing"` ERRORs for scripts the updater was about to re-add. Now each inventory event during the pending window pushes the 10s deadline back, and the report only fires once inventory has been quiescent for a full 10s. Untouched: notecard-asset-key-driven reset path (`llResetScript()` still wipes LSD when the AVpos changes), `try_complete_selfcheck()` early-exit when both flags flip TRUE, and the legitimate "actually missing" detection (after inventory settles with sitA truly absent, the timer fires normally). Considered + rejected: full reset on every `CHANGED_INVENTORY` (Variante B) — solves the same race at much higher cost (Reset-Karussell on texture swaps, prop drops, plugin additions) without meaningful additional benefit because boot's state is already idempotent vs notecard via the `qs:boot:asset` skip-check from 0.901.
 - **Web-only DUMP — QUICKYHUD path goes quiet, self-hosted endpoint, live-view URL + progress** ([AVsitter #14](https://github.com/AVsitter/AVsitter/issues/14)). boot 0.923 + adjuster 0.913 + flat-file `qs/php/settings.php` receiver split the `[DUMP]` chat behavior + web endpoint by entry path. Routing signal in adjuster's `[DUMP]` handler: `helper_mode=TRUE` → loud (stock-style full chat output, stock `avsitter.com/settings.php` endpoint, unchanged from prior releases); `helper_mode=FALSE && QPP_CFG:ADJUSTMODE == "On"` (user entered the enriched pose menu via the `[QUICKYHUD]` button) → quiet + self-hosted `slquicky.com/quicky-sitter/dump/settings.php`. The mode marker rides on 90098's `id` field (`"quiet"` vs `""`), consumed once by boot's 90098 handler on the initial trigger (msg=="0"); cascade re-emits for additional channels (msg>=1) leave the flag untouched so the mode persists across all channels of a multi-channel furniture. boot resets `dump_quiet=FALSE` + `dump_failed=FALSE` between dumps (init in 90098 handler, reset at cascade end). Quiet-mode rendering: a single `dump_quiet` check in `Readout_Say` skips the per-line `llRegionSayTo` while still feeding the web cache, so every dump line including the two `--✄--COPY ABOVE/BELOW--✄--` banners lands silently in the upload payload. Chat output in quiet mode is just three lines: `[DUMP] Live view: <url>` shouted upfront by the 90022 V:-handler the moment the webkey is generated, plus an end-of-cascade `[DUMP] Done — link finalized.` (success) or `[DUMP] Upload failed — link may be incomplete.` (failure). The live-view URL is clickable immediately — settings.php serves partial content with an HTTP `Refresh: 3` header until the `.done` marker lands, so the browser auto-polls and the owner watches AVpos content grow in real time; once the cascade's final-chunk sentinel (`\n\nend`) lands, settings.php touches the `.done` marker and subsequent GETs serve the final file without the Refresh header (browser settles). Progress display: boot calls `llGetNumberOfNotecardLines(notecard_name)` unconditionally in `state_entry` (moved out of `start_boot()` in 0.923 so it fires on both fresh-seed and skip-seed paths). The dataserver callback populates the `notecard_lines` global, web() reads it directly and forwards as `&n=<lines>` in every quiet-mode POST — no LSD persist, no per-dump iteration. settings.php caches the value in `<webkey>.total` (idempotent — first POST writes, subsequent are no-ops) and counts newlines in the partial file to render `"X lines uploaded — notecard had Y lines at boot time"` in the live-view header. No percentage and no clamping: adjuster-added entries ([NEW]/[SAVE] writing to `qs:p:<ch>:<i>` LSD entries) can grow the actual dump output well beyond the original notecard line count, so any computed percentage would either inflate past 100% or need dishonest clamping. Showing both numbers as plain facts ("47 lines uploaded — notecard had 100 lines at boot time") lets the owner see exactly what's happening: dump-in-progress reads as steady growth in the first number, adjuster-included extras read as the first number ending up higher than the second, all without misleading math. Rejected alternatives: `llLinksetDataFindKeys("^qs:p:<ch>:.*$", 0, 0)` at dump-trigger (0.921 attempt) — list materialization peaked at 10–25 KB on furniture with 200+ entries and crashed the event handler with stack-heap collision; iterative `llLinksetDataRead` count loop at dump-trigger (0.922-pre) — worked but cost ~25ms for redundant work given that the existing `notecard_lines` plus "honest reporting of both numbers" approach makes adjuster-added entries visible to the user without any per-dump LSD scan; LSD persist of `notecard_lines` to `qs:meta:lines` (also 0.922-pre) — defensive over-engineering for an edge case (skip-seed path) that the always-fire `llGetNumberOfNotecardLines` in state_entry solves cleaner at zero cost; "X of ~Y (Z%)" percentage display (0.922-pre) — broke down honesty-wise once adjuster-added entries pushed the upload past the notecard's original line count. Loud-mode skips &n= (stock endpoint ignores unknown params; no progress display needed because chat output IS the progress). Endpoint selection sits in a tiny `dump_url()` helper so the POST in `web()` and any URL-shout share one source of truth. Failure detection is intentionally minimal: a fresh `http_response` event sets `dump_failed = TRUE` on any non-200, the end-of-cascade branch checks it. Final-chunk failures may slip through (HTTP responses are async vs the synchronous URL shout), but intermediate-chunk failures are reliably caught — and the user already sees them in the browser (stalled content + 30s stall-detector message from settings.php once `$stall_seconds` elapses without new chunks). Reject gate (boot 0.917+) refuses initial triggers (`ch == 0`) while a cascade is already in progress (`qs_dump_ch != -1`) with an owner-facing chat hint — prevents two clicks from clobbering `webkey` + `cache` + `qs_dump_pi` mid-stream and producing a half-uploaded settings file. Backend: shipped under `qs/php/` as a flat-file PHP receiver (~166 lines, no DB dependency, opportunistic GET-driven TTL cleanup, exclusive-lock chunk append) with `dumps/.htaccess` blocking direct access on Apache (nginx needs explicit `deny`). Wire protocol stays byte-identical to upstream AVsitter so switching to a MySQL-backed receiver later is a backend swap, not a client change. PROTOCOL.md § 90098 documents the new id-field semantics. Considered + rejected: notecard `DUMPMODE` directive (more user-facing config surface, no clear win when the entry-path signal is already available); HUD-side `*DUMP*` dispatcher in `[QS]hudproxy.lsl` (user is already adjusting via the adjuster's pose menu — adding a redundant HUD button would split the workflow without removing any chat from the actual `[DUMP]` click); dedicated `Readout_Banner` helper that forced chat for the `--✄--` markers (tested 0.916–0.917 — the start hint already conveyed "dump is running" and the URL shout signaled "done", so the duplicate visual cue was net noise); auto-switch-to-loud-on-failure (more code, masks the actual problem — the explicit fail hint surfaces "your QS endpoint is down" cleanly and the user can retry via `[HELPER]` `[DUMP]`); HTTP-response-await before URL shout (synchronous wait on async event, needs timer + state machine — not worth the complexity when intermediate failures are already caught and the live-view URL surfaces partial state in the browser anyway); start-hint at 90098 time on top of the V:-handler URL shout (tested 0.917-0.919 — two rapid-fire chat lines in <100ms gap, redundant); hovertext progress bar via `llSetText` (visible to anyone nearby in the sim, privacy regression for public-region creators); chat-milestone progress bar at 25/50/75/100% (more chat lines, redundant with the live-view URL where the browser already shows progress visually). Cost: ~280 bytes static across boot + adjuster (new globals + endpoint pair + routing branch + reject gate + URL shout move + http_response handler + URL switch).
 
@@ -70,126 +76,4 @@ see "Recently retired" above). `[QS]menu` was retired from the fork
 `[AV]camera` stays stock — no `[QS]camera` fork planned (see Recently
 retired for the dead-code analysis showing stock [AV]camera's
 name-bound paths are unused).
-
-## Big refactor — slot identity without script names
-
-The intrinsic `[QS]sitA N` naming convention forces sitA scripts to
-discover their slot from their own script name. To eliminate this,
-boot would assign slots via a register-on-state_entry handshake, and
-sitA would persist its assigned slot in LSD keyed by some other
-bootstrap identifier (UUID generated at first run?).
-
-Cost: breaks AVsitter-stock compatibility for sitter slots. Stock
-plugins probing `[AV]sitA N` would never find QS sitters.
-
-Benefit: complete script-name independence on the sitter side.
-
-Parked. Reconsider only if AVsitter compat is dropped as a goal.
-
-## Watchdog-only standby — global script-time savings
-
-Every running QS fork script consumes simulator script time even
-when the furniture is idle (no avatars seated, no recent menu
-activity). On furniture-heavy regions this adds up across many
-objects.
-
-**Idea:** keep exactly one watchdog script alive per furniture
-piece. The watchdog listens for the events that should wake the
-rest of the system — touch, sit, HUD LinkMsg, region restart — and
-brings sibling scripts back via `llSetScriptState(..., TRUE)`. All
-other QS fork scripts are put to sleep with
-`llSetScriptState(..., FALSE)` after a configurable idle timeout.
-
-**Open design questions:**
-- Which script is the watchdog? `[QS]boot` already owns the
-  bootstrap cascade and is a natural candidate, or a dedicated
-  `[QS]watchdog` fork.
-- How does the watchdog know which siblings to wake? Inventory
-  probes by name reintroduce the script-name coupling we just
-  removed. Use the QSALIVE-cached basename list collected during
-  normal operation, persisted in LSD so it survives region restart.
-- Wake-from-sit: who catches the sit event when sitA is asleep?
-  Either the watchdog stays in root prim and forwards via LinkMsg,
-  or sitA stays awake alongside the watchdog and only the helper
-  scripts (adjuster, menu, select, prop, ...) sleep.
-- State preservation: LSD already persists across script enable /
-  disable cycles, so resume should be lossless. Listeners and
-  timers are NOT preserved → the watchdog must own every listener
-  and every timer during standby.
-- Wake latency: how responsive is the first touch / menu open
-  after sleep? Needs measurement on a real region.
-- Standby trigger: timer-based (e.g., N seconds idle) vs. explicit
-  ("go to sleep" menu item or HUD button).
-- AVsitter compatibility: stock AV plugins (faces, camera) won't
-  cooperate with our standby protocol. Decide whether to leave
-  unknown plugins running or to sleep them anyway with a wake
-  broadcast on the relevant LinkMsg.
-
-**Out of scope here:** memory savings. `llSetScriptState(FALSE)`
-keeps the heap allocated; this is purely a script-time optimization.
-
-## Open improvements
-
-- **ALL-mode sitter cap.** `[QS]hudproxy.lsl`'s ALL fan-out
-  (`change()` L590–614 in hud-repo) iterates the full `getSitterList()`
-  and does one `llJsonGetValue(sJsonSitters,[sUID,"p"])` + one
-  `mutateOneSitter` + one 90057 LinkMsg per matching sitter. At 6+
-  sitters in the same pose this approaches the historical SHC point
-  documented in the `slotToUID` comment (L94–96) — the old O(N²)
-  JSON-parse path collided at 6 sitters, and while slot lookup is
-  now O(1), the ALL fan-out still does N JSON parses + N link-messages
-  per click. Plan: refuse ALL when `iLen > 6` with a chat hint to the
-  triggering user ("Group too large for ALL — use ME/YOU"). The
-  registration cap (`[QS]hudproxy.lsl` L1014: `>= 7`) stays as-is;
-  only the broadcast path gets the new guard so ME/YOU continue to
-  work up to 7 sitters. Verify under region stress (6× sitter, same
-  pose, repeated ZUP) before locking the value in — drop to 5 if heap
-  headroom stays tight.
-
-- **RLV: general plumbing review.** HUD-side SWAP gate shipped in
-  `[QS]hudproxy.lsl` 0.904 — `openSwapDialog` refuses HUD-initiated
-  seat swaps when the cached 90201/90202 flag from `[AV]root-security`
-  is set, bouncing a chat hint to the requesting user. The sitB
-  stock-menu `[SWAP]` path was intentionally left intact so RLV scenes
-  that want to allow it can still use that route. Still open: the rest
-  of the RLV plumbing in the fork is stale — review all sit/unsit/
-  pose-change paths for RLV-awareness, audit which restrictions are
-  honored vs. silently bypassed, decide whether per-sitter RLV state
-  (vs. the current furniture-global flag) is needed for finer gates,
-  and document the supported RLV verbs in `PROTOCOL.md`.
-
-- **Strategic refactor: `sitB` = UI, `sitA` = State, `adjuster` = Mutator.**
-  Long-term direction for relieving `sitA`'s 64 KB Mono-cap pressure
-  by consolidating all dialog rendering in `sitB`. State machinery
-  (sit-targets, anim, sequencer, personal-offset cache) stays in
-  `sitA`; position/rotation math + LSD live-save stay in `adjuster`.
-  Each phase is a self-contained commit, testable in isolation.
-  - **Phase 1 (shipped, sitB 0.908 / renamed 0.910):** `QSPLUG_REGISTER`
-    + `[OPTIONS]` top-level menu. Plug-and-play plugin button
-    registration; the button auto-hides when no plugins are registered.
-    Originally shipped labelled `[PLUGINS]`; renamed in sitB 0.910 for
-    user-facing friendliness.
-  - **Phase 2 (shipped, sitA 0.910 + sitB 0.909):** ADJUST submenu
-    migrated. `sitB.adjust_dialog()` renders, dispatches to
-    `ADJUST_MENU` notecard pairs, broadcasts builtins on 90100, bridges
-    `[POSE]` back via 90101 to `sitA.adjust_pose_menu()`. External
-    plugins' 90101[ADJUST] back-routes ([AV]root-security, [QS]faces)
-    keep working via a new receiver in `sitB`. Net: −82 LOC in sitA.
-  - **Phase 3 (planned, ~120 LOC):** `adjust_pose_menu` rendering →
-    `sitB`. `sitA` keeps the math (`CURRENT_POSITION`, `sit_using_prim_params`,
-    `REFERENCE` flag); `sitB` renders the dialog and forwards click
-    events via a new LinkMsg pair (`X+`/`Y+`/`Z+` → sitA mutates state,
-    re-renders via `sitB`). Risk: chatty LinkMsg traffic on rapid clicks.
-  - **Phase 4 (planned, ~200 LOC):** `[QS]adjuster`'s `NEW` dialog
-    (`POSE`/`SYNC`/`PROP`/`CAMERA`/`SUBMENU`) → `sitB`. Adjuster keeps
-    LSD live-save + comm-channel listen for chat-driven naming;
-    rendering moves to sitB. Watch out for `comm_channel` listen
-    conflicts.
-  - **Phase 5 (planned, ~150 LOC):** `[HELPER]` dialog + `TextBox`
-    naming (currently in adjuster) → `sitB`. Adjuster becomes a pure
-    mutator service — math + LSD only, no UI.
-  - **Estimated total:** sitA shrinks ~5-10 KB raw (decisive against
-    the 64 KB Mono cap on furniture with >500 poses); adjuster shrinks
-    ~15 KB raw; sitB grows ~10 KB but stays under cap because it has
-    far less state than sitA.
 
