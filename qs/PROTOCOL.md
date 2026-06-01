@@ -884,7 +884,7 @@ turned out to refresh skeleton state but not loop phase
 (architecturally can't do what it was supposed to do), and the
 auto-tick approach competed with the natural sequence timer in
 sitA in ways that didn't add value over a HUD-driven trigger.
-The history is preserved in `qs/TESTPLAN.md` § Design decisions.
+The history is preserved in `qs/test/TESTPLAN.md` § Design decisions.
 
 ### What hudproxy must do
 
