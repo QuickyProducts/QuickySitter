@@ -2,7 +2,7 @@
 
 Funktionale Test-Coverage. SYNC-Drift-Investigation und Re-Sync-
 Architektur sind bewusst auf einen Smoke-Test reduziert; für
-Architektur-Details siehe [`PROTOCOL.md` § Re-Sync trigger](./PROTOCOL.md#re-sync-trigger--90271)
+Architektur-Details siehe [`PROTOCOL.md` § Re-Sync trigger](../PROTOCOL.md#re-sync-trigger--90271)
 und die Git-Historie.
 
 ---
