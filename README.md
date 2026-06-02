@@ -1,6 +1,6 @@
 # QuickySitter™
 
-QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for Second Life® written in LSL. Full documentation: [QuickySitter-docs](https://github.com/QuickyProducts/QuickySitter-docs).
+QuickySitter™ is a fork of **AVsitter™ 2** — a furniture pose system for Second Life® written in LSL. Full documentation: [QuickySitter-docs](https://quickyproducts.github.io/QuickySitter-docs/).
 
 ## Goals
 
