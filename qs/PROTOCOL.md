@@ -446,9 +446,9 @@ sit attempt instead of seeing a silent no-menu / no-animation furniture:
    is not installed — props won't be rezzed.
 
 Adjuster presence is deliberately **not** checked. `[QS]sitB` already
-gates the `[HELPER]` menu item on `QS_ADJUSTER_HELLO` (90091), so an
-end-user (read-only) install just doesn't expose the Adjust path —
-nothing is broken from the user's view.
+gates the `[HELPER]` / `[QUICKYHUD]` menu items on the `qs:alive:adjuster`
+LSD flag, so an end-user (read-only) install just doesn't expose the Adjust
+path — nothing is broken from the user's view.
 
 | Num    | Direction              | `msg`  | `id`       | Meaning |
 |--------|------------------------|--------|------------|---------|
@@ -754,12 +754,13 @@ A plugin that never announces still works in stock-AVsitter furniture
 
 ### Migration status
 
-- `[QS]prop` (≥ 0.020) — announces ✅ (also broadcasts QS_PROP_HELLO
-  90089 since 0.901 so `[QS]adjuster` can gate the `[PROP]` menu item
-  without an inventory probe)
-- `[QS]faces` (≥ 0.902) — announces ✅ (also broadcasts QS_FACES_HELLO
-  90090 so sitB / adjuster can gate the `[FACES]` / `[EXPRESSION]`
-  menu items without an inventory probe)
+- `[QS]prop` — announces QSDUMP ✅; publishes the `qs:alive:prop` LSD flag
+  so `[QS]adjuster` can gate the `[PROP]` menu item without an inventory
+  probe (the old `QS_PROP_HELLO` 90089 broadcast was retired in 0.9951).
+- `[QS]faces` — announces QSDUMP ✅; publishes the `qs:alive:faces` LSD flag
+  so `[QS]sitB` / `[QS]adjuster` can gate the `[FACES]` / `[EXPRESSION]`
+  menu items without an inventory probe (the old `QS_FACES_HELLO` 90090
+  broadcast was retired in 0.9951).
 - `[AV]camera` — stock, hardcoded in boot's cascade. No `[QS]camera`
   fork planned: stock [AV]camera's only name-bound code
   (`get_number_of_scripts` via `main_script="[AV]sitA"`) is dead code

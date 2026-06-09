@@ -73,18 +73,24 @@ in sitB memory would push it past Mono's 64 KB cap. With on-demand LSD reads
 via [`qs_pose_data(idx)`](./[QS]sitB.lsl), sitB stays slim regardless of
 config size.
 
-## Why personal offsets stayed volatile
+## Personal offsets: persistent in LSD, RAM as fallback
 
-Stock keeps `CUSTOMS` in sitA's memory (per sitter slot). QuickySitter moved
-them out into a dedicated [`[QS]offset`](./[QS]offset.lsl) script with an
-LRU cache (one global instance, computed cap based on free memory). Both are
-volatile: lost on script reset, on rerez, on owner change.
+Stock keeps `CUSTOMS` in sitA's memory (per sitter slot), volatile — lost on
+script reset, rerez, and owner change. QuickySitter moved personal offsets out
+into a dedicated [`[QS]offset`](./[QS]offset.lsl) script with a two-tier store:
 
-We considered persisting these to LSD too, but they'd need to be keyed per
-user UUID, LSD has a write throttle, and the value of "I always sit X cm
-forward across rerezes" wasn't deemed worth the complexity. Stock parity
-won here. If you change your mind, the obvious key would be
-`qs:custom:<user_short>:<pose_name>`.
+- **LSD tier (persistent):** `QSO:<short8>:<slot>:<pose>` (plus the `M#T!`
+  per-slot all-poses fallback), written whenever LSD has room past the
+  `QPP_CFG:RESERVE` floor. Survives script reset and rerez; cleared on owner
+  change.
+- **RAM tier (volatile fallback):** a single global `CUSTOMS` LRU cache
+  (cap 200), used only when the LSD tier is at its floor.
+
+Per-user keying is by an 8-char UUID prefix (`<short8>`) with the pose name in
+the key. The persistent tier is advertised to plugins via the `offsetlsd_v1`
+capability in the QSALIVE reply. See the per-script breakdown below and
+[PROTOCOL.md § Personal pose offsets](./PROTOCOL.md) for the 90260–90265
+traffic.
 
 ## Per-script state breakdown
 
@@ -196,4 +202,4 @@ shared `qs:p:<ch>:<i>` namespace.
 - [PROTOCOL.md](./PROTOCOL.md) — link-message protocol that connects these
   stores
 - [`[QS]boot.lsl`](./[QS]boot.lsl) — the writer for the persistent half
-- [`[QS]offset.lsl`](./[QS]offset.lsl) — the volatile personal-offset store
+- [`[QS]offset.lsl`](./[QS]offset.lsl) — the personal-offset store (LSD-persistent, RAM fallback)
