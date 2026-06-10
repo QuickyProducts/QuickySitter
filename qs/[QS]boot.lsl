@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.999";
+string version = "1.0";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
