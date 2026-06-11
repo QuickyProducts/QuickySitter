@@ -20,9 +20,10 @@
 // Channel sitB listens on for plugin registrations.
 integer QSPLUG_REGISTER = 90212;
 
-// QSALIVE reply broadcast. sitA slot 0 emits this unsolicited on its
-// state_entry; we use that as the cheapest "sitter pack reset, re-announce"
-// trigger. See QSALIVE Discovery in the docs.
+// QSALIVE reply broadcast. sitA slot 0 emits this unsolicited after
+// every LSD (re)load (fresh boot, own reset, notecard re-seed); we use
+// it as the cheapest "sitter pack reset, re-announce" trigger. See
+// QSALIVE Discovery in the docs.
 integer QSALIVE_REPLY   = 90097;
 
 // Pick a free channel for your click events. Fork-reserved bands leave
@@ -78,9 +79,10 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        // sitA broadcasts QSALIVE_REPLY unsolicited on its state_entry.
-        // If sitA reset while we kept running, sitB likely also re-loaded
-        // (boot's QS_BOOT_RELOAD cascade) and the registry is empty.
+        // sitA broadcasts QSALIVE_REPLY unsolicited after every LSD
+        // (re)load, and answers sitB's own boot-time 90096 probe — so
+        // every event that can empty sitB's registry (full pack reset,
+        // sitB-only reset) ends in a 90097 we can hear here.
         // Re-announce; idempotent if sitB still has us.
         if (num == QSALIVE_REPLY)
         {

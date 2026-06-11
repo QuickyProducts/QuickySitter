@@ -37,8 +37,9 @@ integer SWAP;
 integer AMENU;
 integer SCRIPT_CHANNEL;
 // QSALIVE-driven sitter count cache (replaces the legacy "sitB → sitA"
-// derived inventory probe). Slot-0 sitA sends an unsolicited 90097 on
-// its own state_entry; we cache the count from the payload's field 2.
+// derived inventory probe). Slot-0 sitA sends an unsolicited 90097 at
+// the end of every LSD (re)load (fresh boot, own reset, notecard
+// re-seed); we cache the count from the payload's field 2.
 // Default 1 = solo behavior until the reply lands, which matches the
 // safest mis-render direction (multi-sitter UI elements stay hidden).
 integer QSALIVE_PROBE = 90096;
