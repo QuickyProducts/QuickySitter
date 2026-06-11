@@ -105,7 +105,7 @@ plugin-discovery probe but in the opposite direction (sitA is the
 | Num    | Direction              | `msg`                                    | `id` | Meaning |
 |--------|------------------------|------------------------------------------|------|---------|
 | 90096  | plugin → `[QS]sitA`    | `""`                                     | `""` | "Anyone here? Identify yourself." |
-| 90097  | `[QS]sitA` → plugin    | `<product>\|<ver>\|<sitters>\|<caps>`    | `""` | Presence reply. Also broadcast unsolicited from slot 0's `state_entry` once boot finishes. |
+| 90097  | `[QS]sitA` → plugin    | `<product>\|<ver>\|<sitters>\|<caps>`    | `""` | Presence reply. Also broadcast unsolicited by slot 0 after every LSD (re)load — fresh boot, own reset, notecard re-seed. |
 
 **Reply payload** (pipe-delimited, parse with `llParseString2List` — see
 [MEMORY.md note on KeepNulls](../../.claude/projects/.../feedback_lsl_parse_nulls.md)):
@@ -115,7 +115,7 @@ plugin-discovery probe but in the opposite direction (sitA is the
 | 0     | Product token. Always `QuickySitter` for this fork. Future forks (or upstream) may set their own.|
 | 1     | Version string. Mirrors the global `version` in [`[QS]sitA.lsl`](./[QS]sitA.lsl). |
 | 2     | Sitter-slot count, identical to `get_number_of_scripts()`. Plugins can use this directly instead of running the legacy inventory loop. |
-| 3     | Capability CSV. Substring-match for individual features. Initial set: `customs90260` (personal-offset cache, see [§ Personal pose offsets](#personal-pose-offsets--qsoffset--qssita)), `dump90098` (DUMP cascade, see [§ DUMP](#dump--entirely-in-qsboot)), `offsetlsd_v1` (offset.lsl ≥ 0.04 supports persistent LSD storage at `QSO:<short>:<pose>`; gates plugin migrations from older volatile-only releases). |
+| 3     | Capability CSV. Substring-match for individual features. Initial set: `customs90260` (personal-offset cache, see [§ Personal pose offsets](#personal-pose-offsets--qsoffset--qssita)), `dump90098` (DUMP cascade, see [§ DUMP](#dump--entirely-in-qsboot)), `offsetlsd_v1` (offset.lsl ≥ 0.04 supports persistent LSD storage at `QSO:<short>:<slot>:<pose>`; gates plugin migrations from older volatile-only releases). |
 
 ### Who answers, when, and on which link
 
@@ -124,11 +124,13 @@ plugin-discovery probe but in the opposite direction (sitA is the
   don't have to deduplicate.
 - Both probe and reply use `LINK_SET` so plugins in child prims see
   them.
-- On boot, slot 0 emits one unsolicited `90097` at the end of
-  `state_entry` (after `boot_done = TRUE`). Plugins that came up before
-  sitA missed any earlier replies; this lets them latch onto QS without
-  having to send a probe themselves. Plugins that come up *after* sitA
-  still get an answer via the normal probe path.
+- Slot 0 emits one unsolicited `90097` at the end of every
+  `qs_load_from_lsd()` — reached from `state_entry` when the linkset is
+  already seeded (own reset), and from boot's `QS_BOOT_RELOAD` broadcast
+  on a fresh boot and on every notecard re-seed. Plugins that came up
+  before sitA missed any earlier replies; this lets them latch onto QS
+  without having to send a probe themselves. Plugins that come up
+  *after* sitA still get an answer via the normal probe path.
 
 ### Adoption pattern for plugin authors
 
@@ -182,8 +184,8 @@ default
 
 `changed(CHANGED_INVENTORY)` is a good place to re-run `probe_qs()` if
 the plugin needs to react to sitter-count changes — slot 0 will re-emit
-`90097` on its own reset (state_entry runs again), but the plugin can
-also pull on demand.
+`90097` on its own reset and after every notecard re-seed (each ends in
+a fresh LSD load), but the plugin can also pull on demand.
 
 ## qs:alive — LSD presence flags
 
@@ -531,8 +533,9 @@ the self-check is for **install verification**, not runtime presence.
 
 ### sitA reuses QSALIVE, not a separate probe
 
-`[QS]sitA` (slot 0) already broadcasts `90097` on its `state_entry`
-(see [§ QSALIVE](#qsalive--presence-probe-for-plugin-discovery)). Boot
+`[QS]sitA` (slot 0) already broadcasts `90097` at the end of every
+`qs_load_from_lsd()` (see
+[§ QSALIVE](#qsalive--presence-probe-for-plugin-discovery)). Boot
 just listens. No new probe number for sitA.
 
 ## Personal pose offsets — `[QS]offset` ↔ `[QS]sitA`
@@ -758,8 +761,8 @@ A plugin that never announces still works in stock-AVsitter furniture
   so `[QS]adjuster` can gate the `[PROP]` menu item without an inventory
   probe (the old `QS_PROP_HELLO` 90089 broadcast was retired in 0.9951).
 - `[QS]faces` — announces QSDUMP ✅; publishes the `qs:alive:faces` LSD flag
-  so `[QS]sitB` / `[QS]adjuster` can gate the `[FACES]` / `[EXPRESSION]`
-  menu items without an inventory probe (the old `QS_FACES_HELLO` 90090
+  so `[QS]sitB` can gate its `[FACES]` menu item and `[QS]adjuster` its
+  `[FACE]` action without an inventory probe (the old `QS_FACES_HELLO` 90090
   broadcast was retired in 0.9951).
 - `[AV]camera` — stock, hardcoded in boot's cascade. No `[QS]camera`
   fork planned: stock [AV]camera's only name-bound code
