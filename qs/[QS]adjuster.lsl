@@ -836,7 +836,7 @@ default
             // sittarget updates on some furnitures). Without this guard,
             // adjuster's "last sitter left" heuristic (last-link agent
             // size == ZERO_VECTOR) fires end_helper_mode → 90266 Off →
-            // hudproxy.setAdjustmode("Off") → 953-broadcast flips both
+            // hudproxy.setAdjustmode("Off") → 958-broadcast flips both
             // HUDs out of ADJUSTMODE mid-swap. Skip CHANGED_LINK in the
             // grace window — a real stand-up still fires CHANGED_LINK
             // after the grace expires.
