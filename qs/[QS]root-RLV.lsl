@@ -31,7 +31,7 @@
  */
 
 string product = "QuickySitter™ RLV";
-string version = "1.0";
+string version = "1.001";
 integer QS_ALIVE_CENSUS = 90079;   // [QS] fork: boot presence re-census broadcast
 integer ignorenextswap;
 string notecard_name = "AVpos";
@@ -1215,7 +1215,13 @@ state running
         hovertext();
         if (expecting_relay_results)
         {
-            llListenRemove(RELAY_SEARCH_CHANNEL);
+            // 1.001: stock AVsitter passed the CHANNEL here, but
+            // llListenRemove takes the HANDLE — the call was a no-op, so
+            // every relay search leaked its listen. At the 65-listens-
+            // per-script cap (~60 searches without a reset) the next
+            // llListen throws the fatal "Too many listens" run-time
+            // error and halts the script.
+            llListenRemove(SEARCHhandle);
             expecting_relay_results = FALSE;
             relay_select_menu();
         }
