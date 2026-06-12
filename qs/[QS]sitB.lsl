@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.0";
+string version = "1.001";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -342,6 +342,10 @@ integer animation_menu(integer animation_menu_function)
         // Self-hides when the registry is empty so furniture without any
         // QSPLUG_REGISTER-using plugins looks identical to pre-0.908.
         // Only on the root menu (current_menu == -1) — submenus stay clean.
+        // An AVpos item with the same label shadows this entry on click:
+        // page_map dispatch in listen() runs first (see the [OPTIONS]
+        // handler there), so both buttons render but dispatch to the
+        // AVpos item. PROTOCOL.md § QSPLUG_REGISTER documents this.
         if (current_menu == -1 && llGetListLength(QSPLUG_REGISTRY))
         {
             menu_items2 += "[OPTIONS]";
@@ -733,20 +737,6 @@ default
             animation_menu(0);
             return;
         }
-        // [OPTIONS] top-level entry. Gated in animation_menu on a non-empty
-        // registry, but check here defensively too.
-        if (msg == "[OPTIONS]")
-        {
-            if (!llGetListLength(QSPLUG_REGISTRY))
-            {
-                animation_menu(0);
-                return;
-            }
-            in_plugin_menu = TRUE;
-            plugin_page = 0;
-            plugin_dialog();
-            return;
-        }
         // While the ADJUST submenu is open, route via the migrated dispatcher
         // (used to live in sitA's listen handler pre-0.910). Pose-menu paging
         // uses menu_page, ADJUST paging uses adjust_page — both [<<]/[>>]
@@ -905,6 +895,27 @@ default
                 }
             }
             animation_menu(0);
+        }
+        else if (msg == "[OPTIONS]")
+        {
+            // [OPTIONS] top-level entry into the plugin dialog. Checked
+            // AFTER page_map dispatch (1.001; previously before it) so an
+            // AVpos item with the same label — e.g. a legacy
+            // `BUTTON [OPTIONS]|<chan>` wired to an external plugin —
+            // wins on click, same precedence as [BACK]/[STOP] below.
+            // Pre-1.001 the early check shadowed such a button and, with
+            // an empty registry, silently ate its clicks. Gated in
+            // animation_menu on a non-empty registry, but check here
+            // defensively too — the dialog can outlive a plugin removal.
+            if (!llGetListLength(QSPLUG_REGISTRY))
+            {
+                animation_menu(0);
+                return;
+            }
+            in_plugin_menu = TRUE;
+            plugin_page = 0;
+            plugin_dialog();
+            return;
         }
         else if (msg == "[DONE]")
         {

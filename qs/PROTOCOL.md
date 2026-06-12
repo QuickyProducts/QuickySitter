@@ -287,6 +287,16 @@ When the user clicks a registered button, sitB sends
 plugin receives that in its own `link_message` handler and reacts as
 it sees fit — no message round-trip through sitA or adjuster.
 
+**Label collision with AVpos content:** an AVpos item named
+`[OPTIONS]` (e.g. a legacy `BUTTON [OPTIONS]|<chan>` wired to an
+external plugin) takes precedence on click — sitB's page-content
+dispatch runs before the built-in `[OPTIONS]` handler (since sitB
+1.001), the same precedence every other built-in button has. The
+plugin entry still renders alongside it, so the pose menu then shows
+two `[OPTIONS]` buttons that both dispatch to the AVpos item, making
+the plugin dialog unreachable. Avoid the `[OPTIONS]` label in AVpos
+notecards on furniture that also carries QSPLUG_REGISTER plugins.
+
 ### Adoption pattern for plugin authors
 
 ```lsl
