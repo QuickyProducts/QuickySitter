@@ -42,7 +42,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0";
+string version = "1.001";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -718,7 +718,16 @@ default
                 }
                 return;
             }
-            if (num == 90030)
+            // 90031 (QS_SWAP_QUIET, HUD-initiated swap) carries the same
+            // slot payload as stock 90030 and needs the same cleanup.
+            // Without it the old worn Quicky-HUD stayed attached until
+            // the replacement HUD's LOCAT broadcast evicted it AFTER the
+            // new HUD had already captured the (still RLV-zeroed) hover
+            // height as its "original" — the post-swap hover-height
+            // loss. Removing both slots' props here lets the old HUD
+            // detach and restore BEFORE the 90070-driven re-attach rezzes
+            // its successor, matching the stock 90030 path's behavior.
+            if (num == 90030 || num == 90031)
             {
                 remove_props_by_sitter(msg, FALSE);
                 remove_props_by_sitter((string)id, FALSE);
