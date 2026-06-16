@@ -33,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "1.0";
+string version = "1.01";
 integer select_type;
 list BUTTONS;
 
@@ -288,7 +288,21 @@ default
                 // [QUICKYHUD] is sitA's hudproxy-gated entry into
                 // ADJUSTMODE. Adjuster opens its own submenu with
                 // [ADJUST OFF] / [BACK] from there.
-                llMessageLinked(LINK_SET, 90101, llDumpList2String(["X", message, id], "|"), id);
+                //
+                // Slot field (90101 data[0]): "[ADJUST]" is a single-seat
+                // operation, so scope it to the clicker's OWN slot. av_index
+                // == the clicker's SCRIPT_CHANNEL (SITTERS is channel-indexed
+                // via the 90070 handler), so sitB's slot filter
+                // (data[0]=="X" || (integer)data[0]==SCRIPT_CHANNEL) passes
+                // for exactly that one slot. The "X" wildcard made it pass in
+                // EVERY slot's sitB -> all N rendered their own adjust dialog
+                // at the same avatar at once -> dialog throttle, and [BACK]
+                // then dropped into each slot's menu in turn. [HELPER] and
+                // [QUICKYHUD] genuinely want the all-slots "X" fan-out (mode
+                // entry must reach every sitB), so they keep it.
+                string sSlot = "X";
+                if (message == "[ADJUST]") sSlot = (string)av_index;
+                llMessageLinked(LINK_SET, 90101, llDumpList2String([sSlot, message, id], "|"), id);
             }
             // 0.9956: revert the 0.9952 llList2String change — it was wrong
             // for [QS]select and broke swapping onto empty slots. Unlike
