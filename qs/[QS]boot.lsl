@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0";
+string version = "1.01";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -259,6 +259,21 @@ integer dialog_handle;
 integer qs_dump_ch = -1;
 integer qs_dump_pi;
 integer dump_quiet;
+
+// Cascade watchdog. The 90021 plugin-probe cascade sends 90020 to each
+// DUMP-capable plugin, then waits for it to echo 90021 back — with no
+// built-in timeout. A non-conformant plugin that never echoes (a third-party
+// DUMP plugin, or a mismatched camera) would park the dump forever, stalling
+// exactly where the next "SITTER" line should print, with no footer. After
+// each 90020 we arm a one-shot inactivity timer; every dump line the plugin
+// emits (90022) re-arms it, so a slow but working plugin is never falsely
+// skipped — only true silence trips it. On trip we re-emit the channel-done
+// 90021 ourselves, naming the silent plugin, so the cascade skips past it and
+// the dump finishes (minus that plugin's lines) instead of hanging.
+integer qs_cascade_pending;        // TRUE while waiting for a probed plugin's 90021
+integer qs_cascade_ch = -1;        // channel whose cascade is active (-1 = none)
+string  qs_cascade_wait;           // script we sent 90020 to and are waiting on
+float   QS_CASCADE_TIMEOUT = 5.0;  // seconds of plugin silence before we skip it
 
 // Notecard cursor.
 key notecard_query;
@@ -675,6 +690,7 @@ qs_dump_start(integer ch)
     llMessageLinked(LINK_THIS, 90022, vline, (string)ch);
     qs_dump_ch = ch;
     qs_dump_pi = 0;
+    qs_cascade_ch = ch;   // watchdog: this channel's 90021 echoes are now valid
     llMessageLinked(LINK_THIS, 90099, (string)ch, "");
 }
 
@@ -803,6 +819,20 @@ default
 
     timer()
     {
+        if (qs_cascade_pending)
+        {
+            // Cascade watchdog tripped: the plugin we probed went silent (no
+            // 90022, no 90021) past the timeout. Warn the owner, then re-emit
+            // the channel-done 90021 naming the silent plugin so the 90021
+            // handler finds it via llListFindList, ++i skips past it, and the
+            // cascade continues (next plugin / next channel / finalize). The
+            // dump completes without that plugin's lines instead of hanging.
+            qs_cascade_pending = FALSE;
+            llRegionSayTo(llGetOwner(), 0,
+                "[DUMP] Plugin '" + qs_cascade_wait + "' did not respond — its lines are omitted from this dump.");
+            llMessageLinked(LINK_THIS, 90021, (string)qs_cascade_ch, qs_cascade_wait);
+            return;
+        }
         if (selfcheck_pending)
         {
             // One-shot self-check tick (armed in finalize_boot). Stop
@@ -934,6 +964,16 @@ default
             // they're done, advance to the next channel via 90098 (back to
             // qs_dump_start) or finalize the upload and shout the URL.
             integer script_channel = (integer)msg;
+            // Watchdog: drop a stale 90021 echoed by a plugin we already
+            // skipped on a now-finished channel — processing it would
+            // double-advance / duplicate output. Only qs_cascade_ch's echoes
+            // are currently valid (it is -1 after finalize, so late echoes
+            // arriving post-dump are dropped too).
+            if (script_channel != qs_cascade_ch) return;
+            // A valid 90021 arrived (channel-done, or a plugin echo): whatever
+            // we were waiting on has answered, so disarm the wait. The probe
+            // loop below re-arms it if it sends a fresh 90020.
+            qs_cascade_pending = FALSE;
             // [QS]faces (≥ 0.902) announces via QSDUMP_HELLO, so it lands
             // in dump_plugins automatically. camera_script stays hardcoded
             // until [QS]camera fork exists.
@@ -949,16 +989,35 @@ default
                 }
                 if (llGetInventoryType(lookfor) == INVENTORY_SCRIPT)
                 {
-                    llMessageLinked(LINK_THIS, 90020, (string)script_channel, llList2String(scripts, i));
+                    string probed = llList2String(scripts, i);
+                    Out(3, "[DUMP] probing plugin '" + probed + "' for channel " + (string)script_channel);
+                    llMessageLinked(LINK_THIS, 90020, (string)script_channel, probed);
+                    // Arm the inactivity watchdog: if `probed` neither emits a
+                    // dump line (90022) nor echoes 90021 before the timeout,
+                    // the timer skips it. Re-armed per 90022 in the receiver.
+                    qs_cascade_pending = TRUE;
+                    qs_cascade_wait = probed;
+                    llSetTimerEvent(QS_CASCADE_TIMEOUT);
                     return;
                 }
             }
             if (script_channel + 1 < total_channels)
             {
+                // Channel done, no more plugins → advance to the next channel.
+                // Clear the active cascade channel (qs_dump_start re-sets it)
+                // so a late stale echo from THIS channel is dropped, and hand
+                // the timer back to AUTOSYNC (the watchdog only runs during
+                // plugin probes).
+                qs_cascade_ch = -1;
+                arm_autosync();
                 llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
             }
             else
             {
+                // Dump complete — release the cascade watchdog and restore the
+                // AUTOSYNC timer before finalizing.
+                qs_cascade_ch = -1;
+                arm_autosync();
                 Readout_Say("");
                 Readout_Say("--✄--COPY ABOVE INTO \"AVpos\" NOTECARD--✄--");
                 Readout_Say("");
@@ -991,6 +1050,12 @@ default
         }
         if (num == 90022)
         {
+            // Watchdog: a dump line from the plugin we're waiting on proves it
+            // is alive and working — push the timeout back so a slow, many-line
+            // plugin is never falsely skipped. Only relevant during a plugin
+            // probe (qs_cascade_pending); boot's own pose lines stream with the
+            // watchdog idle.
+            if (qs_cascade_pending) llSetTimerEvent(QS_CASCADE_TIMEOUT);
             // Format one dump line and Readout_Say it. Sources: boot's
             // own qs_dump_start/qs_dump_tick (V:/S:/{}) and plugin
             // scripts (announced via QSDUMP — [QS]prop, [QS]faces —
