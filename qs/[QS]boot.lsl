@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.01";
+string version = "1.012";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -320,10 +320,10 @@ qs_lsd_write(string k, string v)
     llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
     if (wipe_attempted)
     {
-        Out(0, "ERROR: storage still full after wipe — " + notecard_name + " has too many entries. Reduce poses/sitters in the notecard.");
+        Out(0, "ERROR: storage full after wipe — " + notecard_name + " too large; reduce poses/sitters.");
         return;
     }
-    Out(0, "ERROR: storage full at " + k + " — see dialog to wipe entire storage and retry.");
+    Out(0, "ERROR: storage full at " + k + " — see wipe dialog.");
     show_wipe_dialog();
 }
 
@@ -522,17 +522,17 @@ self_check_report()
     integer ok = TRUE;
     if (!sita_seen)
     {
-        Out(0, "ERROR: [QS]sitA missing — no sit animation will play.");
+        Out(0, "ERROR: [QS]sitA missing — no animations.");
         ok = FALSE;
     }
     if (!sitb_seen)
     {
-        Out(0, "ERROR: [QS]sitB missing — no menu will appear.");
+        Out(0, "ERROR: [QS]sitB missing — no menu.");
         ok = FALSE;
     }
     if (has_prop_in_notecard && llLinksetDataRead("qs:alive:prop") == "")
     {
-        Out(0, "WARN: " + notecard_name + " has PROP* directives but the prop plugin is missing — props will not be rezzed.");
+        Out(0, "WARN: " + notecard_name + " has PROP* but [QS]prop missing — props won't rez.");
     }
     if (!ok)
     {
@@ -644,7 +644,15 @@ web(integer force)
             params += "&n=" + (string)notecard_lines;
         }
         params += "&t=" + llEscapeURL(cache);
-        llHTTPRequest(dump_url(), [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], params);
+        // Throttle guard: llHTTPRequest returns NULL_KEY *synchronously* when the
+        // per-object HTTP rate limit (~25 req / 20s) is hit — the chunk is
+        // dropped, not queued. Flag it so the quiet-mode end-of-cascade message
+        // reports an incomplete upload instead of advertising a truncated link.
+        // Also catches the final web(TRUE) chunk, which the async http_response
+        // non-200 check can miss. (Loud mode posts to the stock endpoint and the
+        // chat output is the real deliverable, so it intentionally ignores this.)
+        if (llHTTPRequest(dump_url(), [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], params) == NULL_KEY)
+            dump_failed = TRUE;
         cache = "";
     }
 }
@@ -829,7 +837,7 @@ default
             // dump completes without that plugin's lines instead of hanging.
             qs_cascade_pending = FALSE;
             llRegionSayTo(llGetOwner(), 0,
-                "[DUMP] Plugin '" + qs_cascade_wait + "' did not respond — its lines are omitted from this dump.");
+                "[DUMP] plugin '" + qs_cascade_wait + "' didn't respond — lines omitted.");
             llMessageLinked(LINK_THIS, 90021, (string)qs_cascade_ch, qs_cascade_wait);
             return;
         }
@@ -863,7 +871,7 @@ default
         // scripts (sitA/sitB/adjuster/...) is now inconsistent with
         // empty LSD until they're reset or the furniture is re-rezzed.
         if (act == LINKSETDATA_RESET)
-            OutForce("LSD was wiped — cached state inconsistent. Reset scripts or re-rez to restore.");
+            OutForce("LSD was wiped — inconsistent state; reset scripts or re-rez.");
         if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
             arm_autosync();
     }
@@ -928,7 +936,7 @@ default
             if (ch == 0 && qs_dump_ch != -1)
             {
                 llRegionSayTo(llGetOwner(), 0,
-                    "[QS] DUMP already in progress — wait for the URL.");
+                    "[QS] DUMP already running — wait for URL.");
                 return;
             }
             if (ch == 0)
@@ -1085,7 +1093,7 @@ default
                     Readout_Say("");
                     Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
                     Readout_Say("");
-                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "AVsitter "));
+                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "QuickySitter "));
                     if (llList2Integer(data, 1))
                     {
                         Readout_Say("MTYPE " + llList2String(data, 1));
