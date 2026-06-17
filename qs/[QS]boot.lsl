@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.011";
+string version = "1.012";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -1093,7 +1093,7 @@ default
                     Readout_Say("");
                     Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
                     Readout_Say("");
-                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "AVsitter "));
+                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "QuickySitter "));
                     if (llList2Integer(data, 1))
                     {
                         Readout_Say("MTYPE " + llList2String(data, 1));
