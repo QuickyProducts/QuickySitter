@@ -275,6 +275,15 @@ integer qs_cascade_ch = -1;        // channel whose cascade is active (-1 = none
 string  qs_cascade_wait;           // script we sent 90020 to and are waiting on
 float   QS_CASCADE_TIMEOUT = 5.0;  // seconds of plugin silence before we skip it
 
+// Dump pacing. The stream is throttle-paced like stock AVsitter's per-line
+// llSleep(0.2): instead of firing the next 90099 tick immediately, qs_dump_tick
+// arms a one-shot timer and timer() fires it after QS_DUMP_PACE. Keeps the
+// dump's HTTP POSTs well under SL's ~1/sec llHTTPRequest throttle (a big config
+// otherwise bursts ~25 chunk-POSTs and trips "Too many HTTP requests too fast")
+// while staying event-driven — peak RAM is still one entry, no blocking loop.
+integer qs_pace_pending;           // TRUE while a paced 90099 self-tick is timer-armed
+float   QS_DUMP_PACE = 0.2;        // seconds between dump entries (stock parity)
+
 // Notecard cursor.
 key notecard_query;
 key reused_key;
@@ -731,7 +740,10 @@ qs_dump_tick()
     }
     parts = [];
     ++qs_dump_pi;
-    llMessageLinked(LINK_THIS, 90099, (string)qs_dump_ch, "");
+    // Throttle-pace: arm a one-shot timer instead of firing 90099 now, so the
+    // POST flushes stay under SL's HTTP rate limit on big configs (see globals).
+    qs_pace_pending = TRUE;
+    llSetTimerEvent(QS_DUMP_PACE);
 }
 
 default
@@ -827,6 +839,14 @@ default
 
     timer()
     {
+        if (qs_pace_pending)
+        {
+            // Paced dump tick: the inter-entry delay elapsed — fire the next
+            // streaming step (replaces qs_dump_tick's old immediate 90099).
+            qs_pace_pending = FALSE;
+            llMessageLinked(LINK_THIS, 90099, (string)qs_dump_ch, "");
+            return;
+        }
         if (qs_cascade_pending)
         {
             // Cascade watchdog tripped: the plugin we probed went silent (no
