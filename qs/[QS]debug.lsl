@@ -25,7 +25,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0";
+string version = "1.02";
 integer chan = 88;
 integer listen_handle;
 integer LSD_TOTAL_BYTES = 131072;  // 128 KB linkset cap

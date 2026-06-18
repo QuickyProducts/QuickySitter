@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.0";
+string version = "1.02";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
