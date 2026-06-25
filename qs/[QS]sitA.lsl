@@ -1293,14 +1293,24 @@ default
             // standup. Re-request the perm once via a one-shot timer. Set ONLY
             // here (no pose playing yet, so the SEQUENCE timer is free) and
             // cleared the instant the grant lands (run_time_permissions), so it
-            // never races the sequence stepper in timer(). Slot-aware read
-            // mirrors the new-sitter detection in the SET-branch below.
-            key onseat = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
-            if (llGetListLength(SITTERS) == 1) onseat = llAvatarOnSitTarget();
-            if (onseat != NULL_KEY && onseat != MY_SITTER)
+            // never races the sequence stepper in timer().
+            //
+            // ONLY for the per-slot paths where our physical seat == our logical
+            // slot (single-seat + explicit SET). NOT the SET==-1 auto-assign
+            // branch below: there the physical prim is decoupled from the logical
+            // slot (first_available reassigns by gender/availability), so reading
+            // our physical sit target here would make the WRONG slot re-claim the
+            // avatar and reseat them. Auto-assign already uses a robust prim-scan
+            // key and never needed this backstop.
+            if (SET != -1 || llGetListLength(SITTERS) <= 1)
             {
-                perm_recheck = onseat;
-                llSetTimerEvent(1.0);
+                key onseat = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
+                if (llGetListLength(SITTERS) == 1) onseat = llAvatarOnSitTarget();
+                if (onseat != NULL_KEY && onseat != MY_SITTER)
+                {
+                    perm_recheck = onseat;
+                    llSetTimerEvent(1.0);
+                }
             }
             SWAPPED = FALSE;
             integer stood;
