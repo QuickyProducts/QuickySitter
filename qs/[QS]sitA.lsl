@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.02";
+string version = "1.03";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -109,6 +109,7 @@ integer HASKEYFRAME = FALSE;
 integer REFERENCE;
 key reused_key;
 integer boot_done;
+key perm_recheck;   // first-sit grant backstop: avatar on our seat not yet our MY_SITTER; "" = none
 integer my_sittarget;
 integer original_my_sittarget;
 list SITTERS_SITTARGETS;
@@ -742,6 +743,18 @@ default
 
     timer()
     {
+        // First-sit grant backstop (armed in changed): if the grant for the
+        // avatar on our seat never landed, re-request it once. Runs ONLY while
+        // awaiting a grant (perm_recheck set, no pose playing), so it never
+        // collides with the SEQUENCE stepper below.
+        if (perm_recheck)
+        {
+            if (perm_recheck != MY_SITTER && llGetAgentSize(perm_recheck) != ZERO_VECTOR)
+                llRequestPermissions(perm_recheck, PERMISSION_TRIGGER_ANIMATION);
+            perm_recheck = "";
+            llSetTimerEvent(0);
+            return;
+        }
         SEQUENCE_POINTER += 2;
         list SEQUENCE = llParseStringKeepNulls(CURRENT_ANIMATION_SEQUENCE, [SEP], []);
         if (SEQUENCE_POINTER >= llGetListLength(SEQUENCE) || llListFindList(["M", "F"], llList2List(SEQUENCE, SEQUENCE_POINTER, SEQUENCE_POINTER)) != -1)
@@ -1274,6 +1287,21 @@ default
             // we need. boot_done's Z.909 link_message gate stays unchanged:
             // there it correctly means "LSD is currently invalid".
             if (!prims) return;
+            // First-sit grant backstop (see perm_recheck): a real avatar is on
+            // our seat but is not our committed MY_SITTER — the grant was lost on
+            // the first event after idle, or the slot is stale from a missed
+            // standup. Re-request the perm once via a one-shot timer. Set ONLY
+            // here (no pose playing yet, so the SEQUENCE timer is free) and
+            // cleared the instant the grant lands (run_time_permissions), so it
+            // never races the sequence stepper in timer(). Slot-aware read
+            // mirrors the new-sitter detection in the SET-branch below.
+            key onseat = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
+            if (llGetListLength(SITTERS) == 1) onseat = llAvatarOnSitTarget();
+            if (onseat != NULL_KEY && onseat != MY_SITTER)
+            {
+                perm_recheck = onseat;
+                llSetTimerEvent(1.0);
+            }
             SWAPPED = FALSE;
             integer stood;
             if (SET == -1 && llGetListLength(SITTERS) > 1)
@@ -1536,6 +1564,7 @@ default
     {
         if (perm & PERMISSION_TRIGGER_ANIMATION)
         {
+            perm_recheck = "";        // grant landed -> disarm the first-sit backstop
             llStopAnimation("sit");
             if (llGetInventoryType("AVhipfix") == INVENTORY_ANIMATION)
             {
