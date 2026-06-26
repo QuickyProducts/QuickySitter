@@ -33,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "1.02";
+string version = "1.03";
 integer select_type;
 list BUTTONS;
 

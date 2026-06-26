@@ -5,7 +5,7 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 Grouped by version, newest on top.
 
 ## Version 1.03
-- **Fix** — After the furniture had been unused for a while, the first sit sometimes showed the default sit pose instead of the furniture animation; it now plays on the first sit — no second sit needed to "wake it up"
+- **Fix** — After the furniture had been unused for a while, the first sit in rare cases showed the default sit pose instead of the furniture animation; it now plays on the first sit — no second sit needed to "wake it up"
 
 ## Version 1.02
 - **Fix** — [QS]select dialog throttle

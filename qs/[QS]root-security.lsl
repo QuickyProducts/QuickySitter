@@ -23,7 +23,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.02";
+string version = "1.03";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
