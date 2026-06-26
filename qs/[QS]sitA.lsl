@@ -18,7 +18,7 @@ string product = "QuickySitter™";
 string version = "1.03";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
-// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
+// 2=runtime status, 3=debug.
 // Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
 // state_entry below).
 integer verbose = 0;
@@ -27,9 +27,10 @@ Out(integer level, string msg)
     if (verbose >= level)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
 }
-OutForce(string msg)
+// Shared "not enough prims" warning (was inlined at both call sites).
+primcount_error()
 {
-    llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
+    llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
 }
 // Derived in state_entry from llGetScriptName() (strip any " N" slot
 // suffix). Lets creators rename "[QS]sitA" → "[AV]sitA" etc. without
@@ -62,15 +63,13 @@ integer SWAPPED;
 integer bSilentSwap;
 key MY_SITTER;
 key CONTROLLER;
+// Shared chat warning (was duplicated at two offset-[SAVE]-failure sites).
+string OFFSET_NOSTORE = "Personal offset storage not installed - position not saved.";
 // ADJUST_MENU global removed in 0.910 — sitB now loads qs:cfg slot 14
 // and renders the ADJUST submenu directly. Phase 2 of the sitB-as-UI
 // refactor.
 integer SET = -1;
 integer MTYPE = 0;
-integer ETYPE = 1;
-integer SELECT;
-integer SWAP = 2;
-integer AMENU = 2;
 integer DFLT = 1;
 list GENDERS;
 integer OLD_HELPER_METHOD;
@@ -142,11 +141,7 @@ qs_load_from_lsd()
 {
     list p = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:" + (string)SCRIPT_CHANNEL), ["\n"], []);
     MTYPE             = (integer)llList2String(p, 0);
-    ETYPE             = (integer)llList2String(p, 1);
     SET               = (integer)llList2String(p, 2);
-    SWAP              = (integer)llList2String(p, 3);
-    SELECT            = (integer)llList2String(p, 4);
-    AMENU             = (integer)llList2String(p, 5);
     OLD_HELPER_METHOD = (integer)llList2String(p, 6);
     WARN              = (integer)llList2String(p, 7);
     HASKEYFRAME       = (integer)llList2String(p, 8);
@@ -334,8 +329,7 @@ sittargets()
     {
         if (!SCRIPT_CHANNEL)
         {
-            // primcount_error() inlined here:
-            llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
+            primcount_error();
         }
         wrong_primcount = TRUE;
     }
@@ -832,7 +826,7 @@ default
             if (llLinksetDataRead("qs:offset:alive") == "1")
                 llRegionSayTo(id, 0, "Personal offset saved for all poses.");
             else
-                llRegionSayTo(id, 0, "Personal offset storage not installed - position not saved.");
+                llRegionSayTo(id, 0, OFFSET_NOSTORE);
         }
         else if (msg == "[SAVE]")
         {
@@ -847,7 +841,7 @@ default
             if (llLinksetDataRead("qs:offset:alive") == "1")
                 llRegionSayTo(id, 0, "Personal position saved for this pose.");
             else
-                llRegionSayTo(id, 0, "Personal offset storage not installed - position not saved.");
+                llRegionSayTo(id, 0, OFFSET_NOSTORE);
         }
         else if (index != -1)
         {
@@ -1610,8 +1604,7 @@ default
             llMessageLinked(LINK_THIS, lnk, posename, channel_or_swap);
             if (wrong_primcount && WARN)
             {
-                // primcount_error() inlined here:
-                llDialog(llGetOwner(), "\nThere aren't enough prims for required SitTargets.\nYou must have one prim for each avatar to sit!", ["OK"], 23658);
+                primcount_error();
             }
             else if (!MTYPE && !bSilentSwap)
             {
