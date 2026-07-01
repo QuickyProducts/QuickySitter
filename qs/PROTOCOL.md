@@ -68,6 +68,7 @@ notice.
 | `90098` | same | `[QS]adjuster` → `[QS]boot`: "start dump for channel". `id` is the mode marker (`"quiet"` → web-only output, anything else → stock-style loud chat). |
 | `90099` | same | `[QS]boot` → self: dump tick |
 | `90212` | between stock `90211` and `90230` | plugin → `[QS]sitB`: `QSPLUG_REGISTER` — register a button into the `[OPTIONS]` top-level menu. msg = `<label>\|<click_chan>\|<scriptName>`, id = `""`. sitB dedupes by scriptName so a plugin reset overwrites instead of duplicates. Click dispatched directly to `<click_chan>` (msg = label, id = controller key) — no adjuster hop. See [§ QSPLUG_REGISTER](#qsplug_register--dynamic-options-menu). |
+| `90213` | same free band | plugin → `[QS]sitB`: `QSADJ_REGISTER` — register a button into the `[ADJUST]` submenu (not `[OPTIONS]`). msg = `<label>\|<click_chan>\|<scriptName>\|<flags>`, id = `""`. `flags` bit 0 = owner-only (render + dispatch gated to `llGetOwner()`, like `[QUICKYHUD]`). sitB dedupes by scriptName; click dispatched to `<click_chan>` with the same `<controller>\|<sitter>` composite-id rule as the notecard `ADJUST` line. sitB ≥ 1.04. See [§ QSADJ_REGISTER](#qsadj_register--dynamic-adjust-submenu). |
 | `90260` | between stock `90230` and `90298` | `[QS]offset` → `[QS]sitA`: push personal offset |
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
@@ -330,13 +331,14 @@ default
 
 ### Limits and v1 scope
 
-- **`[OPTIONS]` menu only.** The pose menu's main button strip
-  (`[ADJUST]`, `[NEW]`, `[DUMP]`, etc.) and the `[ADJUST]` submenu
-  are not Plugin-Registry targets in v1. Plugin authors who want
-  buttons in those dialogs must still patch sitB directly (or use
-  the legacy notecard `ADJUST` line, which is functionally identical
-  to a registry entry but boot-time and scoped to the ADJUST
-  submenu, not the new `[OPTIONS]` menu).
+- **`[OPTIONS]` and `[ADJUST]` are registry targets; the main strip
+  is not.** `[OPTIONS]` is the QSPLUG_REGISTER target (this section);
+  the `[ADJUST]` submenu is the QSADJ_REGISTER target (next section,
+  sitB ≥ 1.04). The pose menu's main button strip (`[NEW]`, `[DUMP]`,
+  etc.) is still not a registry target — those need a direct sitB
+  patch. The legacy notecard `ADJUST` line remains a boot-time
+  equivalent of a QSADJ_REGISTER entry (but without the owner-gate
+  flag — it always renders for any sitter).
 - **No active staleness probe in v1.** If a plugin script crashes
   silently between announces, its label stays in the registry until
   sitB resets (which re-issues a 90097 broadcast, prompting all
@@ -351,6 +353,61 @@ default
   dispatch when `AMENU & 4` is unset) is not emulated. Plugins that
   need the sitter key can request it via QSALIVE or via the
   sitter-list LSD keys (`qs:sitter:<ch>`).
+
+## QSADJ_REGISTER — dynamic [ADJUST] submenu
+
+The sibling of QSPLUG_REGISTER for the `[ADJUST]` submenu instead of
+the top-level `[OPTIONS]` menu. Use it for owner/setup tools that
+belong next to `[TEXTURE]` / `[HELPER]` / `[QUICKYHUD]` rather than in
+the plug-and-play `[OPTIONS]` list. Available since sitB 1.04.
+
+A plugin announces its button at runtime; sitB renders it in the
+`[ADJUST]` dialog and dispatches clicks straight back to the plugin's
+channel — no sitA / adjuster edits. It replaces the legacy AVpos
+`ADJUST <label>|<chan>` line: the creator no longer hand-edits the
+AVpos, and (unlike that line) the entry carries an owner-gate flag.
+
+**Self-show:** when a registered entry visible to the current
+controller exists, `[ADJUST]` appears on the root pose menu even if
+`AMENU` is off — parallel to `[OPTIONS]`'s self-hide. Owner-only
+entries don't trigger the self-show for a non-owner.
+
+| Num    | Direction              | `msg`                                         | `id` | Meaning |
+|--------|------------------------|-----------------------------------------------|------|---------|
+| 90213  | plugin → `[QS]sitB`    | `<label>\|<click_chan>\|<scriptName>\|<flags>`| `""` | "Add this button to the `[ADJUST]` submenu." |
+| `<click_chan>` | `[QS]sitB` → plugin | `<label>` | `<controller>` or `<controller>\|<sitter>` | "User clicked your button." Composite id when `AMENU & 4` is unset, same as the notecard `ADJUST` line. |
+
+**Announce payload** — fields 0–2 are identical to QSPLUG_REGISTER
+(label, click channel, scriptName-as-dedupe-key). Field 3 is new:
+
+| Field | Content |
+|-------|---------|
+| 3     | `flags` — integer bitfield. Bit 0 (`1`) = **owner-only**: sitB renders and dispatches the entry only when the controller is `llGetOwner()`, exactly like `[QUICKYHUD]`. `0` = visible to any seated avatar (parity with notecard `ADJUST` entries and QSPLUG_REGISTER buttons). |
+
+**Owner-gate caveat (legacy coexistence).** The gate is sitB-side. If a
+furniture also keeps the legacy `ADJUST <label>|<chan>` notecard line with
+the SAME label, that line is ungated and its `ADJUST_MENU` dispatch runs
+first — so an owner-only registry entry is defeated by a coexisting legacy
+line. Remove the legacy line when adopting an owner-only registry entry,
+and (defense-in-depth) have the plugin re-check `llGetOwner()` in its own
+click handler.
+
+**sitB side.** sitB caches registrations in a strided-4 RAM list
+`ADJUST_DYN = [label, click_chan, scriptName, flags, ...]`, deduped by
+scriptName. `adjust_dialog` renders the notecard `ADJUST_MENU` entries
+first, then the visible `ADJUST_DYN` labels (skipping any label already
+present in `ADJUST_MENU`, so a legacy AVpos line + the registry don't
+double up). The owner gate is enforced both at render and at click
+dispatch. `ADJUST_DYN` is RAM only — never written to or rebuilt from
+`qs:cfg`, so a boot re-seed leaves it intact; a sitB reset clears it,
+and the plugin re-announces on the next 90097 (QSALIVE reply), the
+same recovery path QSPLUG_REGISTER uses.
+
+**Adoption pattern** — identical to QSPLUG_REGISTER (`register_*` on
+`state_entry` / `on_rez` / `CHANGED_INVENTORY` / 90097) but on channel
+90213 with the trailing `flags` field, e.g.
+`"[MYTOOL]|" + (string)MY_CLICK_CHAN + "|" + llGetScriptName() + "|1"`
+for an owner-only tool.
 
 ## HUDPROXY presence — 90093
 

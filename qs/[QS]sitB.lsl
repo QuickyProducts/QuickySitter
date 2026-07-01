@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.03";
+string version = "1.04";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -82,6 +82,13 @@ integer QS_SITB_HELLO     = 90078;
 // plug-and-play mechanism; the user-facing label is just friendlier.
 integer QSPLUG_REGISTER   = 90212;
 list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
+// QSADJ_REGISTER — like QSPLUG_REGISTER but the button lands in the [ADJUST]
+// submenu, not [OPTIONS]. msg = "<label>|<click_chan>|<scriptName>|<flags>";
+// flags bit 0 = owner-only (render + dispatch gated to llGetOwner(), like
+// [QUICKYHUD]). RAM registry, re-announced by the plugin on QSALIVE_REPLY, so it
+// survives a re-seed (qs_load_from_lsd rebuilds ADJUST_MENU, never ADJUST_DYN).
+integer QSADJ_REGISTER    = 90213;
+list    ADJUST_DYN;             // [label, click_chan, scriptName, flags, ...] (strided 4)
 integer in_plugin_menu;         // TRUE while [OPTIONS] dialog is open;
                                 // flips listen() to plugin-flavored routing
 integer plugin_page;            // pagination state for [OPTIONS] dialog
@@ -330,7 +337,21 @@ integer animation_menu(integer animation_menu_function)
         {
             menu_items0 = menu_items0 + "<< Softer" + "Harder >>";
         }
-        if (AMENU == 2 || (AMENU == 1 && current_menu == -1) || llSubStringIndex(submenu_info, "A") != -1)
+        // Self-show [ADJUST] when a registered entry (QSADJ_REGISTER) is
+        // visible to this controller, even with AMENU off — parallel to
+        // [OPTIONS]'s self-show below. Owner-only entries don't count for a
+        // non-owner (else they'd see a phantom [ADJUST] that bounces back).
+        integer adj_reg = FALSE;
+        if (current_menu == -1)   // self-show only matters on the root menu
+        {
+            integer adi;
+            integer adn = llGetListLength(ADJUST_DYN);
+            for (adi = 0; adi < adn && !adj_reg; adi += 4)
+                if (!((integer)llList2String(ADJUST_DYN, adi + 3) & 1) || CONTROLLER == llGetOwner())
+                    adj_reg = TRUE;
+        }
+        if (AMENU == 2 || (AMENU == 1 && current_menu == -1) || llSubStringIndex(submenu_info, "A") != -1
+            || adj_reg)
         {
             // [ADJUST] is the entry button when neither mode is active.
             // In helper_mode / qh_on, [BACK] (added above) carries the
@@ -596,6 +617,19 @@ adjust_dialog()
     integer i;
     integer n = llGetListLength(ADJUST_MENU);
     while (i < n) { dyn += llList2String(ADJUST_MENU, i); i += 2; }
+    // Registered ADJUST entries (QSADJ_REGISTER), strided 4. Owner-only
+    // entries (flags bit 0) render only for the owner, like [QUICKYHUD].
+    // Dedupe against dyn (already holds the notecard ADJUST labels): skips a
+    // legacy AVpos entry with the same label AND a duplicate registry entry
+    // (e.g. a plugin re-announced under a renamed script).
+    integer dn = llGetListLength(ADJUST_DYN);
+    for (i = 0; i < dn; i += 4)
+    {
+        string dlab = llList2String(ADJUST_DYN, i);
+        if ((!((integer)llList2String(ADJUST_DYN, i + 3) & 1) || CONTROLLER == llGetOwner())
+            && llListFindList(dyn, [dlab]) == -1)
+            dyn += dlab;
+    }
 
     list tail;
     if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
@@ -792,6 +826,25 @@ default
                     dispatch_id = (key)((string)id + "|" + (string)MY_SITTER);
                 llMessageLinked(LINK_SET,
                     llList2Integer(ADJUST_MENU, ami + 1), msg, dispatch_id);
+                return;
+            }
+            // Registered ADJUST entry (QSADJ_REGISTER)? Strided 4, label at
+            // %4==0. Mirror the ADJUST_MENU dispatch (incl. the composite id).
+            integer adx = llListFindList(ADJUST_DYN, [msg]);
+            if (adx != -1 && (adx % 4) == 0)
+            {
+                // Enforce the owner gate at dispatch too — a hidden button
+                // can still be reached via a stale/forged listen reply.
+                if (((integer)llList2String(ADJUST_DYN, adx + 3) & 1)
+                    && CONTROLLER != llGetOwner())
+                    return;
+                in_adjust_menu = FALSE;
+                adjust_page = 0;
+                key dispatch_id = id;
+                if (id != MY_SITTER && !(AMENU & 4))
+                    dispatch_id = (key)((string)id + "|" + (string)MY_SITTER);
+                llMessageLinked(LINK_SET,
+                    llList2Integer(ADJUST_DYN, adx + 1), msg, dispatch_id);
                 return;
             }
             // Built-in conditional buttons ([TEXTURE]/[FACES]/[SECURITY]/
@@ -1128,6 +1181,29 @@ default
                     [label, chan, sName], ri, ri + 2);
             else
                 QSPLUG_REGISTRY += [label, chan, sName];
+            return;
+        }
+        if (num == QSADJ_REGISTER)
+        {
+            // PROTOCOL.md § QSADJ_REGISTER — register a button into the
+            // [ADJUST] submenu. Strided 4 [label, chan, sName, flags];
+            // dedupe by scriptName like QSPLUG. flags bit 0 = owner-only.
+            list ap = llParseString2List(msg, ["|"], []);
+            string alabel = llList2String(ap, 0);
+            integer achan = (integer)llList2String(ap, 1);
+            string asName = llList2String(ap, 2);
+            integer aflags = (integer)llList2String(ap, 3);
+            if (alabel == "" || achan == 0 || asName == "")
+                return;                                  // malformed announce
+            integer ari = 0;
+            integer arn = llGetListLength(ADJUST_DYN);
+            while (ari < arn && llList2String(ADJUST_DYN, ari + 2) != asName)
+                ari += 4;
+            if (ari < arn)
+                ADJUST_DYN = llListReplaceList(ADJUST_DYN,
+                    [alabel, achan, asName, aflags], ari, ari + 3);
+            else
+                ADJUST_DYN += [alabel, achan, asName, aflags];
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
