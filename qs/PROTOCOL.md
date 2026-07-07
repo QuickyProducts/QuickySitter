@@ -900,84 +900,31 @@ because saving doesn't change it.
 
 ## Re-Sync trigger — `90271`
 
-Multi-avatar SYNC poses (loops with multiple sitters in shared timing —
-cuddles, dances) drift between viewers over time, especially after a
-viewer culls and re-acquires an avatar (camera zoom, region crossing,
-draw-distance changes). The viewer restarts the looped anim locally
-at `t=0` on re-acquisition, while other viewers keep their original
-timeline.
-
-`[QS]sitA` exposes a single LinkMsg that any in-prim script can send
-to force every sitter slot to re-phase its main pose loop in the same
-Sim frame:
-
-| Num   | Direction                                | `msg` | `id`  | Meaning |
-|-------|------------------------------------------|-------|-------|---------|
-| 90271 | hudproxy / any → all `[QS]sitA` slots    | `""`  | `""`  | "Every SYNC-pose sitter, do one Stop+Start cycle on your main anim now." |
-
-### Mechanism
-
-On receipt of `90271`, each `[QS]sitA` instance whose current pose is
-a SYNC pose (name not prefixed `P:`) and whose sitter is alive runs:
-
-```
-llStopAnimation(CURRENT_ANIMATION_FILENAME);
-llSleep(0.05);
-llStartAnimation(CURRENT_ANIMATION_FILENAME);
-```
-
-The 50 ms sleep is just long enough to cross a Sim-frame boundary so
-Stop and Start aren't coalesced into a no-op (Sim runs at ~45 Hz /
-22 ms per frame), short enough that most viewers' next render frame
-falls outside the gap. Stop+Start is the only mechanism that actually
-re-phases a running loop on the viewer side — the viewer determines
-loop phase locally at the `Start` event.
-
-POSE-type poses (prefixed `P:`) are solo-by-convention and don't need
-re-sync — `do_resync_tick` no-ops on them.
-
-### Policy lives on the sender side
-
-`[QS]sitA` deliberately knows nothing about *when* to re-sync. It
-just executes the trigger when asked. The sender (typically hudproxy
-in QuickyHUD setups) decides:
-
-- **Auto vs manual** (the user's HUD setting)
-- **Tick interval** (e.g., every 30 s, or only on user-noticed drift)
-- **Per-furniture overrides** (HUD might disable Re-Sync for solo
-  furnitures, or for furnitures whose creator marked them as solo)
-
-This split came after several iterations (sitA 0.16–0.21) tried to
-own auto-tick scheduling inside sitA itself: a wall-clock-aligned
-30 s timer, a notecard `RESYNC OFF` directive, and a dummy-anim
-refresh trick. All three were abandoned — the dummy-anim trick
-turned out to refresh skeleton state but not loop phase
-(architecturally can't do what it was supposed to do), and the
-auto-tick approach competed with the natural sequence timer in
-sitA in ways that didn't add value over a HUD-driven trigger.
-The history is preserved in `qs/test/TESTPLAN.md` § Design decisions.
-
-### What hudproxy must do
-
-When the user clicks the SYNC button on the HUD, hudproxy in the
-furniture's linkset sends:
+Forces every SYNC-pose sitter to re-phase its main pose loop, correcting
+cross-viewer drift on multi-avatar loops. Any in-prim script may send it;
+sending is one line:
 
 ```lsl
 llMessageLinked(LINK_SET, 90271, "", "");
 ```
 
-That's the entire integration. Auto-tick (if hudproxy implements it)
-is a `llSetTimerEvent` loop on hudproxy's side that fires the same
-LinkMsg every N seconds.
+| Num   | Direction                                | `msg` | `id`  | Meaning |
+|-------|------------------------------------------|-------|-------|---------|
+| 90271 | hudproxy / any → all `[QS]sitA` slots    | `""`  | `""`  | "Every SYNC-pose sitter, do one Stop+Start cycle on your main anim now." |
 
-### Multi-sitter timing
+`do_resync_tick()` in `[QS]sitA` applies the trigger only when **all** of
+these hold — otherwise it no-ops, so a broadcast is always safe:
 
-All `[QS]sitA` slots in the linkset receive `90271` in the same Sim
-frame (LINK_SET broadcast). Each does its own Stop+Sleep+Start, with
-the Sim processing them sequentially within the frame. The resulting
-viewer-side restarts arrive within one Sim frame of each other —
-close enough that drift between sitters is corrected to within
-~50 ms.
+- current pose is a SYNC pose (name not prefixed `P:`)
+- `PERMISSION_TRIGGER_ANIMATION` is granted
+- sitter is alive (`llGetAgentSize != ZERO_VECTOR`)
+- `CURRENT_ANIMATION_FILENAME` is non-empty
+
+`[QS]sitA` owns none of the *when*/*how-often* policy — that lives entirely
+on the sender. Mechanism (the 50 ms Stop+Start rationale), sender-side
+policy, and the sitA 0.16–0.21 iteration history are documented in the
+private QuickyHUD repo (`docs/resync-90271.md`) and `qs/test/TESTPLAN.md`
+(TC-029).
 
 ## QSPROP_ATTACH — `90280`
 
