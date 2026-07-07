@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.03";
+string version = "1.031";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug.
@@ -474,25 +474,16 @@ update_current_anim_name()
 }
 
 // Manual Re-Sync trigger — see qs/PROTOCOL.md § Re-Sync trigger (90271).
-// Convention: SYNC poses are stored without the "P:" prefix; POSE-type
-// poses get "P:<name>" by boot's parser. We only re-sync SYNC because
-// only multi-avatar SYNC suffers from cross-viewer drift.
+// SYNC poses carry no "P:" prefix; only they need re-sync.
 integer is_sync_pose()
 {
     return CURRENT_POSE_NAME != ""
         && llSubStringIndex(CURRENT_POSE_NAME, "P:") != 0;
 }
 
-// Stop+Start the main pose anim across a Sim-frame boundary, forcing
-// every viewer to remove the anim and re-add it — the only mechanism
-// that re-phases a running loop locally on each viewer. The 50 ms gap
-// is just long enough to defeat Sim coalescing (Sim ~45 Hz / 22 ms
-// per frame) without lingering long enough for viewers to render the
-// gap as a visible "stand-up" flicker. No-op when the gating
-// conditions aren't met (e.g. POSE-type pose, no permissions, no
-// sitter). Triggered by LinkMsg 90271 from hudproxy or any in-prim
-// source. See TESTPLAN TC-029 for the iteration history that landed
-// on the HUD-owned manual-trigger model.
+// Stop+Start across a Sim-frame boundary re-phases the pose loop on
+// every viewer; no-op unless the gates below hold. Mechanism + design
+// history: PROTOCOL.md § 90271, TESTPLAN TC-029.
 do_resync_tick()
 {
     if (!is_sync_pose()) return;
