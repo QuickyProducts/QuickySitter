@@ -19,7 +19,7 @@ key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.03";
+string version = "1.04";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 string notecard_name = "AVpos";
