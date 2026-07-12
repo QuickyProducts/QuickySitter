@@ -4,6 +4,9 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Version 1.04
+- **Feature** — Plugins can now add their own buttons to the [ADJUST] menu. Used by the new QuickyHUD Animesh partner-dummy plugin (set up couples / group poses without a second avatar)
+
 ## Version 1.03
 - **Fix** — The first sit after the furniture had been idle a while now plays the proper animation right away (in rare cases it could show the default pose until you re-sat)
 
