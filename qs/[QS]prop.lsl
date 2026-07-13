@@ -15,12 +15,25 @@
  *      survives state_entry; we only re-parse the notecard when its inv key
  *      changes). External interface (link-messages, region-says, llRezAtRoot
  *      payload format) is byte-identical to stock + items 1–4 above.
+ *   6. PROP SCALE + WORN FIT (1.05+): optional AVpos fields 7-9
+ *      `PROP …|<point>|<scale>|<wornpos>|<wornrot>` + comm-channel commands
+ *      QSSCALE/QSWORN (apply on rez) / QSSAVESCALE/QSSAVEWORN (persist on
+ *      [SAVE]), handled by the [QS]propadjust companion script inside the
+ *      prop. The companion is NOT part of this repo — it ships with the
+ *      commercial QuickyHUD bundle. Props without the companion, and stock
+ *      [AV]prop receiving the QSSAVE* replies, ignore the extension
+ *      entirely. See qs/PROTOCOL.md § Prop scale for the open wire spec.
  *
  * LSD layout under "qs:prop:*":
  *   qs:prop:meta        = "<notecard_key>\t<count>\t<warn>\t<groups_nl>"
  *                         (groups_nl is "\n"-joined sequential_prop_groups)
- *   qs:prop:<i>         = "<trig>\t<type>\t<obj>\t<grp>\t<pos>\t<rot>\t<pt>\t<prs>"
- *                         (8 fields, prs = post_rez_say payload)
+ *   qs:prop:<i>         = "<trig>\t<type>\t<obj>\t<grp>\t<pos>\t<rot>\t<pt>\t<prs>\t<scl>\t<wpos>\t<wrot>"
+ *                         (11 fields; prs = post_rez_say payload, scl =
+ *                         uniform scale factor vs inventory size ("" ≡ "1"),
+ *                         wpos/wrot = worn fit: local pos + Euler-deg rot
+ *                         vs attach point, "" = unset. Rows written by
+ *                         older versions have 8/9 fields and stay
+ *                         readable — missing trailing fields read "".)
  *   qs:prop:trig:<trig> = "i0,i1,…"  (indices matching this trigger)
  *   qs:prop:sit:<sit>   = "i0,i1,…"  (indices belonging to this sitter)
  *   qs:prop:grp:<grp>   = "i0,i1,…"  (indices belonging to this group)
@@ -42,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.04";
+string version = "1.0501";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -225,14 +238,18 @@ string prop_trig_sit(string trig)
 }
 
 // Append a new prop to the LSD store. Writes the entry + the three
-// indices (trig, sit, grp). Returns the assigned index.
+// indices (trig, sit, grp). Returns the assigned index. scl is the
+// uniform scale factor as string ("1" = unscaled); wpos/wrot the worn
+// fit vectors as strings ("" = unset).
 integer prop_add(string trig, integer type, string obj, string grp,
-                 vector pos, vector rot, string pt, string prs)
+                 vector pos, vector rot, string pt, string prs, string scl,
+                 string wpos, string wrot)
 {
     integer idx = prop_count_cached;
     llLinksetDataWrite(LSD_PROP_PFX + (string)idx,
         trig + "\t" + (string)type + "\t" + obj + "\t" + grp
-        + "\t" + (string)pos + "\t" + (string)rot + "\t" + pt + "\t" + prs);
+        + "\t" + (string)pos + "\t" + (string)rot + "\t" + pt + "\t" + prs
+        + "\t" + scl + "\t" + wpos + "\t" + wrot);
     prop_index_append(LSD_TRIG_PFX + trig, idx);
     prop_index_append(LSD_SIT_PFX  + prop_trig_sit(trig), idx);
     prop_index_append(LSD_GRP_PFX  + grp, idx);
@@ -247,6 +264,55 @@ prop_update_pos_rot(integer idx, vector pos, vector rot)
     entry = llListReplaceList(entry, [(string)pos], 4, 4);
     entry = llListReplaceList(entry, [(string)rot], 5, 5);
     llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
+}
+
+// Pad a loaded entry to 11 fields so index-writes land correctly on
+// rows written by older versions (8 or 9 fields).
+list prop_pad(list entry)
+{
+    while (llGetListLength(entry) < 11)
+    {
+        entry += "";
+    }
+    return entry;
+}
+
+// Update the scale factor of an existing prop (used by QSSAVESCALE
+// listen).
+prop_update_scale(integer idx, string scl)
+{
+    list entry = prop_pad(prop_load(idx));
+    entry = llListReplaceList(entry, [scl], 8, 8);
+    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
+}
+
+// Update the worn fit of an existing prop (used by QSSAVEWORN listen).
+prop_update_worn(integer idx, string wpos, string wrot)
+{
+    list entry = prop_pad(prop_load(idx));
+    entry = llListReplaceList(entry, [wpos, wrot], 9, 10);
+    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
+}
+
+// Build the optional "|<scale>[|<wpos>|<wrot>]" AVpos-line suffix for a
+// loaded entry (SAVEPROP chat line + [DUMP] output). Scale is forced in
+// whenever worn fields follow, so the notecard parser's field positions
+// (6=scale, 7=wpos, 8=wrot) stay aligned; a bare non-1 scale comes out
+// alone; fully unset props return "" (stock line format).
+string prop_line_suffix(list entry)
+{
+    string scl  = llList2String(entry, 8);
+    string wpos = llList2String(entry, 9);
+    if (wpos != "")
+    {
+        if (scl == "") scl = "1";
+        return "|" + scl + "|" + wpos + "|" + llList2String(entry, 10);
+    }
+    if (scl != "" && (float)scl != 1.0)
+    {
+        return "|" + scl;
+    }
+    return "";
 }
 
 // Update point and prs of an existing prop (used by 90280 re-attach).
@@ -602,7 +668,7 @@ default
                 string grp = (string)sitter + "|QSDYN";
                 idx = prop_add(trig, type, obj, grp,
                                <0.0, 0.0, 0.0>, <0.0, 0.0, 0.0>,
-                               point, postSay);
+                               point, postSay, "1", "", "");
                 if (llListFindList(sequential_prop_groups, [grp]) == -1)
                 {
                     sequential_prop_groups += grp;
@@ -757,7 +823,7 @@ default
                 }
                 string prop_group = (string)sitter + "|G1";
                 integer new_idx = prop_add(trig, 0, (string)id, prop_group,
-                                           <0,0,1>, <0,0,0>, "", "");
+                                           <0,0,1>, <0,0,0>, "", "", "1", "", "");
                 if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                 {
                     sequential_prop_groups += prop_group;
@@ -791,14 +857,15 @@ default
                         {
                             type = "";
                         }
-                        Readout_Say("PROP" + type + " " + llDumpList2String([
+                        string dump_line = "PROP" + type + " " + llDumpList2String([
                             element(trig, 1),
                             llList2String(entry, 2),
                             element(llList2String(entry, 3), 1),
                             llList2String(entry, 4),
                             llList2String(entry, 5),
                             llList2String(entry, 6)
-                        ], "|"));
+                        ], "|") + prop_line_suffix(entry);
+                        Readout_Say(dump_line);
                     }
                 }
                 llMessageLinked(LINK_THIS, 90021, msg, llGetScriptName());
@@ -863,8 +930,65 @@ default
                     }
                     string trig = llList2String(entry, 0);
                     string grp  = llList2String(entry, 3);
-                    string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(entry, 6);
+                    string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(entry, 6) + prop_line_suffix(entry);
                     llSay(0, text);
+                }
+            }
+            else
+            {
+                Out(0, "ERROR: cannot find prop: " + name);
+            }
+            return;
+        }
+        if (llList2String(data, 0) == "QSSAVESCALE")
+        {
+            // [QS]propadjust replying to the [SAVE]-triggered PROPSEARCH
+            // broadcast with its current scale factor (vs inventory size).
+            integer index = (integer)llList2String(data, 1);
+            if (index >= 0 && index < prop_count_cached)
+            {
+                float f = (float)llList2String(data, 2);
+                if (f > 0.0)
+                {
+                    // Snap near-1 to exactly 1 so untouched props keep
+                    // stock-format notecard lines.
+                    if (f > 0.995 && f < 1.005) f = 1.0;
+                    string scl = "1";
+                    if (f != 1.0) scl = (string)f;
+                    string prev = llList2String(prop_load(index), 8);
+                    if (prev == "") prev = "1";
+                    if (scl != prev)
+                    {
+                        prop_update_scale(index, scl);
+                        llSay(0, "PROP size saved: " + (string)llRound(f * 100.0)
+                            + "% ('" + name + "').");
+                    }
+                }
+            }
+            else
+            {
+                Out(0, "ERROR: cannot find prop: " + name);
+            }
+            return;
+        }
+        if (llList2String(data, 0) == "QSSAVEWORN")
+        {
+            // [QS]propadjust on a WORN prop replying to PROPSEARCH with its
+            // current attach-point-local pos/rot (Euler deg).
+            integer index = (integer)llList2String(data, 1);
+            if (index >= 0 && index < prop_count_cached)
+            {
+                string wpos = llList2String(data, 2);
+                string wrot = llList2String(data, 3);
+                if (wpos != "")
+                {
+                    list entry = prop_load(index);
+                    if (wpos != llList2String(entry, 9) || wrot != llList2String(entry, 10))
+                    {
+                        prop_update_worn(index, wpos, wrot);
+                        llSay(0, "PROP fit saved: " + wpos + " / " + wrot
+                            + " ('" + name + "').");
+                    }
                 }
             }
             else
@@ -890,6 +1014,19 @@ default
                 if (postSay != "")
                 {
                     llSay(comm_channel, postSay);
+                }
+                // Persisted scale factor + worn fit → [QS]propadjust in the
+                // prop. Props without the companion ignore the commands.
+                string scl = llList2String(entry, 8);
+                if (scl != "" && (float)scl != 1.0)
+                {
+                    llSay(comm_channel, "QSSCALE|" + llList2String(data, 1) + "|" + scl);
+                }
+                string wpos = llList2String(entry, 9);
+                if (wpos != "")
+                {
+                    llSay(comm_channel, "QSWORN|" + llList2String(data, 1)
+                        + "|" + wpos + "|" + llList2String(entry, 10));
                 }
             }
             llMessageLinked(LINK_SET, 90500, llDumpList2String([
@@ -941,6 +1078,14 @@ default
                     if (command == "PROP2") prop_type = 2;
                     if (command == "PROP3") prop_type = 3;
                     string prop_group = (string)notecard_section + "|" + llList2String(parts, 2);
+                    // Optional fields 7-9 (1.05+): uniform scale factor
+                    // (missing/zero/negative → "1", stock line format) +
+                    // worn-fit pos/rot vectors ("" = unset).
+                    string prop_scl = llList2String(parts, 6);
+                    if ((float)prop_scl <= 0.0)
+                    {
+                        prop_scl = "1";
+                    }
                     prop_add(
                         (string)notecard_section + "|" + llList2String(parts, 0),
                         prop_type,
@@ -949,7 +1094,10 @@ default
                         (vector)llList2String(parts, 3),
                         (vector)llList2String(parts, 4),
                         llList2String(parts, 5),
-                        "");
+                        "",
+                        prop_scl,
+                        llList2String(parts, 7),
+                        llList2String(parts, 8));
                     if (llListFindList(sequential_prop_groups, [prop_group]) == -1)
                     {
                         sequential_prop_groups += prop_group;

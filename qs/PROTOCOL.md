@@ -1014,3 +1014,36 @@ Total changes from stock `[AV]prop` 2.2p04:
 7. Version string + header comment block.
 
 Everything else verbatim from stock.
+
+## Prop scale — `QSSCALE` / `QSSAVESCALE` (comm channel)
+
+Optional uniform prop scaling (`[QS]prop` ≥ 1.05). Requires the
+**`[QS]propadjust`** companion script in the prop's root prim, next to the
+untouched stock `[AV]object` (experience-compiled, must not be forked).
+The companion is not part of this repository — it ships with the
+commercial QuickyHUD bundle; this section documents the open wire spec
+the sitter side implements. Not link messages — region-says on the prop
+`comm_channel`, same transport as stock `REZ`/`ATTACHTO`/`PROPSEARCH`.
+
+| Command | Direction | Payload | Meaning |
+|---------|-----------|---------|---------|
+| `QSSCALE\|<id>\|<factor>` | `[QS]prop` → prop | prop index + factor | "Scale yourself to `<factor>` × your inventory size." Sent in the `REZ` handshake branch when the stored factor ≠ 1. Applied via `llScaleByFactor` (uniform, clamped to prim limits). |
+| `QSSAVESCALE\|<id>\|<factor>` | prop → `[QS]prop` | prop index + factor | Reply to the stock `PROPSEARCH` broadcast (`[SAVE]` in ADJUSTMODE/helper mode), alongside `[AV]object`'s `SAVEPROP`. `[QS]prop` persists the factor to LSD (`qs:prop:<i>` field 9) and chats a confirmation when it changed. Factors within ±0.5 % of 1 snap to exactly 1. Answered from **worn props too** (companion ≥ 0.0012) — a scale factor stays well-defined on-body, so type-1 auto-attach props can be resized while worn; only the position half (`SAVEPROP`) keeps stock's world-only gate. Wearer must be within llSay range of the furniture (given while seated). |
+| `QSWORN\|<id>\|<pos>\|<rot>` | `[QS]prop` → prop | prop index + local pos + Euler-deg rot | "Once attached, place yourself at this offset relative to the attach point." Sent in the `REZ` handshake branch when a worn fit is stored (companion caches it and applies in its `attach()` event — covers type-1 auto-attach and type-2 touch-attach alike). Overrides the attach offset baked into the object asset. |
+| `QSSAVEWORN\|<id>\|<pos>\|<rot>` | prop → `[QS]prop` | prop index + local pos + Euler-deg rot | Reply to `PROPSEARCH`, **only while attached** (companion ≥ 0.0013): the prop's current `llGetLocalPos`/`llGetLocalRot` vs its attach point — i.e. whatever on-body editing the wearer just did. Persisted to LSD (`qs:prop:<i>` fields 10/11), chat confirmation on change. |
+
+**AVpos**: optional fields 7–9
+`PROP <trigger>|<object>|<group>|<pos>|<rot>|<point>|<scale>|<wornpos>|<wornrot>`.
+Scale missing/`0`/negative → `1`; worn fields missing → unset. `[DUMP]` and
+the `[SAVE]` chat line emit the suffix only as far as needed (nothing for
+stock props; scale alone when ≠ 1; scale — forced to `1` if unscaled — plus
+both worn vectors when a fit is stored, keeping field positions aligned).
+
+**Factor semantics**: always relative to the prop's *inventory* scale
+(root scale at rez, captured by `[QS]propadjust` before `QSSCALE` arrives).
+Viewer-editor stretch and the companion's owner touch menu (±1/5/10 %,
+`[RESTORE]`) both resolve to the same `llGetScale()`-derived factor.
+
+**Compatibility**: props without the companion ignore `QSSCALE` (rezzed
+unscaled); stock `[AV]prop` ignores `QSSAVESCALE`. No stock message is
+reused or altered.
