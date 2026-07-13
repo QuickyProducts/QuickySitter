@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.04";
+string version = "1.0401";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -230,6 +230,17 @@ integer total_channels;
 integer boot_done;
 integer boot_failed;
 integer wipe_attempted;
+
+// Low-storage watchdog. The linkset_data event fires in this script on
+// EVERY LSD write anywhere in the linkset, so boot (the LSD lifecycle
+// owner) is the one central place that sees every writer — adjuster
+// pose saves, HUD configs, plugins — without touching any of them.
+// One-shot warning once free space drops below LSD_LOW_WATER; re-armed
+// only after deletes/a wipe lift it back above twice the threshold
+// (hysteresis, no spam). Boot's own seeding passes through here too, so
+// an oversized AVpos warns BEFORE qs_lsd_write hits hard memfull.
+integer LSD_LOW_WATER = 4096;
+integer lsd_low_warned;
 
 // Wipe-confirmation dialog state. dialog_channel is per-instance random.
 integer dialog_channel;
@@ -894,6 +905,19 @@ default
             OutForce("LSD was wiped — inconsistent state; reset scripts or re-rez.");
         if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
             arm_autosync();
+
+        // Low-storage watchdog — see LSD_LOW_WATER. Runs on every LSD
+        // event: writes shrink free space (warn once), deletes/wipes can
+        // recover it (re-arm above 2x the threshold).
+        integer avail = llLinksetDataAvailable();
+        if (!lsd_low_warned && avail < LSD_LOW_WATER)
+        {
+            lsd_low_warned = TRUE;
+            OutForce("storage low: " + (string)avail
+                + " bytes free — pose saves and configs may start failing. Reduce poses or clear unused data.");
+        }
+        else if (lsd_low_warned && avail > LSD_LOW_WATER * 2)
+            lsd_low_warned = FALSE;
     }
 
     link_message(integer sender, integer num, string msg, key id)
