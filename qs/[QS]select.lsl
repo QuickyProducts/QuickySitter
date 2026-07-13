@@ -33,7 +33,7 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "1.04";
+string version = "1.0401";
 integer select_type;
 list BUTTONS;
 
@@ -358,9 +358,13 @@ default
             {
                 integer new_count = (integer)llList2String(d, 2);
                 qs_alive = TRUE;
-                if (new_count != qs_sitter_count_cached)
+                qs_sitter_count_cached = new_count;
+                // 1.0401: resize against the actual list length, not the
+                // cache. The cache initializes to 1, so a single-sitter
+                // reply (count 1) matched it and the 7-slot state_entry
+                // fallback never shrank — sit showed "Sitter 0".."Sitter 6".
+                if (new_count != llGetListLength(SITTERS))
                 {
-                    qs_sitter_count_cached = new_count;
                     init_lists();
                 }
             }
