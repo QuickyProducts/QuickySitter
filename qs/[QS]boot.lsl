@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0401";
+string version = "1.0402";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -801,6 +801,13 @@ default
                 ++ch;
             total_channels = ch;
             boot_done = TRUE;
+            // Status line for the skip path — finalize_boot (and its
+            // "Load complete" Mem/Storage line) only runs on a real
+            // notecard parse, so a plain reset/re-rez showed neither
+            // memory nor storage headroom without this.
+            Out(1, "Cached boot; " + (string)total_channels
+                + " sitter(s) ready. Mem=" + (string)(65536 - llGetUsedMemory())
+                + " Storage=" + (string)llLinksetDataAvailable());
             // Self-check on the skip-seed path too — sitA/sitB presence
             // still needs verification after a script reset. PROP-warn
             // is skipped here (no notecard parse → has_prop_in_notecard
