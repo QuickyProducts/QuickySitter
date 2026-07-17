@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0402";
+string version = "1.05";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -109,19 +109,21 @@ integer has_prop_in_notecard;
 integer selfcheck_pending;
 
 // [DUMP] output pipeline. Migrated from adjuster: cache fills via
-// Readout_Say, web() flushes to the AVsitter settings service every
+// Readout_Say, web() flushes to the settings receiver every
 // ~1024 escaped chars or on force(TRUE) at the end of the cascade.
 //
-// Two endpoints: `url` (stock avsitter.com/settings.php, third-party,
-// uncontrolled TTL/uptime) is used for the loud [HELPER] path, keeping
-// stock behavior + chat fallback if the service goes down. `url_qs`
-// (self-hosted at slquicky.com) is used for the quiet [QUICKYHUD]
-// path — same w/c/t POST + ?q GET protocol (selfhosted PHP is a verbatim
-// deploy of the AVsitter PHP receiver, MIT). web() picks the endpoint
-// per-request based on `dump_quiet`. http_response sets `dump_failed`
-// when the QS endpoint returns non-200 so the end-of-cascade URL shout
-// can fall back to a chat-only failure hint instead of a dead link.
-string url    = "https://avsitter.com/settings.php";
+// Both dump modes post to the self-hosted receiver (qs/php/settings.php
+// at slquicky.com, same w/c/t POST + ?q GET protocol as the retired
+// stock avsitter.com service). `url` serves the loud [HELPER] path
+// (since 1.05 — avsitter.com stopped working with QS output, issue #66;
+// chat output remains that path's primary deliverable, see
+// http_response), `url_qs` the quiet [QUICKYHUD] path. Two constants
+// kept so the modes can be split again if a stock endpoint revives.
+// web() picks the endpoint per-request based on `dump_quiet`.
+// http_response sets `dump_failed` when the QS endpoint returns non-200
+// on a quiet dump so the end-of-cascade URL shout can fall back to a
+// chat-only failure hint instead of a dead link.
+string url    = "https://slquicky.com/quicky-sitter/dump/settings.php";
 string url_qs = "https://slquicky.com/quicky-sitter/dump/settings.php";
 string cache;
 string webkey;
@@ -1545,8 +1547,10 @@ default
         }
     }
 
-    // QS DUMP-endpoint failure detection. Stock-loud dumps go to
-    // avsitter.com (not our concern, chat fallback already covers).
+    // QS DUMP-endpoint failure detection. Loud dumps post to the
+    // self-hosted endpoint too (since 1.05) but are deliberately NOT
+    // flagged — the chat output is that path's primary deliverable, a
+    // dead link degrades exactly like the stock avsitter.com behavior.
     // Quiet dumps go to url_qs (self-hosted) — if any chunk POST
     // returns non-200, set dump_failed so the end-of-cascade URL
     // shout flips to a chat-only failure hint instead of advertising

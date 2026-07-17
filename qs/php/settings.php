@@ -71,6 +71,49 @@ function http_400($msg) {
     die($msg);
 }
 
+function group_positions($text) {
+    // Reorder the assembled dump into the classic AVsitter layout
+    // (QuickySitter issue #66): within each sitter block, pose/menu/
+    // plugin lines keep their streamed order and every {name}<pos><rot>
+    // position line moves into one contiguous block at the end,
+    // blank-line separated. Boot streams the two interleaved (one LSD
+    // entry per tick emits SYNC + {} back-to-back — [QS]boot.lsl
+    // qs_dump_tick()); regrouping here keeps the LSL dump engine
+    // untouched. Re-import is unaffected: both QS boot and stock
+    // AVsitter match {} lines to poses/props by name, order-independent.
+    //
+    // Block boundaries that flush the pending position lines:
+    //   - a "SITTER n" line (next channel starts)
+    //   - the closing --✄--COPY ABOVE--✄-- marker (end of dump)
+    // Single-sitter dumps have no SITTER line, so the closing marker
+    // (plus an EOF safety flush) covers them.
+    $out = [];
+    $pending = [];
+    foreach (explode("\n", $text) as $line) {
+        if (isset($line[0]) && $line[0] === '{') {
+            $pending[] = $line;
+            continue;
+        }
+        $is_boundary = strpos($line, 'SITTER ') === 0
+            || (strpos($line, '--') === 0 && strpos($line, 'COPY ABOVE') !== false);
+        if ($is_boundary && count($pending)) {
+            if (count($out) && end($out) !== '') {
+                $out[] = '';
+            }
+            $out = array_merge($out, $pending, ['']);
+            $pending = [];
+        }
+        $out[] = $line;
+    }
+    if (count($pending)) {
+        if (count($out) && end($out) !== '') {
+            $out[] = '';
+        }
+        $out = array_merge($out, $pending);
+    }
+    return implode("\n", $out);
+}
+
 // ----------------------------------------------------------------------
 // Directory bootstrap (create on first request if missing)
 // ----------------------------------------------------------------------
@@ -194,7 +237,13 @@ if (isset($_REQUEST['q'])) {
 
     if (file_exists($paths['done'])) {
         // Cascade complete. Final file, no Refresh — browser settles.
-        readfile($paths['data']);
+        // Served in the classic grouped AVpos layout; &raw=1 is the
+        // escape hatch for the byte-exact stream as boot uploaded it.
+        if (isset($_REQUEST['raw'])) {
+            readfile($paths['data']);
+        } else {
+            echo group_positions(file_get_contents($paths['data']));
+        }
         exit;
     }
 

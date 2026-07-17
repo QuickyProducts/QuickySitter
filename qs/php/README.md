@@ -1,13 +1,14 @@
 # QuickySitter DUMP receiver — `settings.php`
 
-Self-hosted backend for the **QUICKYHUD-path [DUMP]** (web-only mode,
-shipped in `[QS]boot.lsl` ≥ 0.919). Implements the same w/c/t POST +
-?q GET wire protocol as the upstream AVsitter receiver but persists
-to flat files instead of MySQL — simpler deploy, no DB dependency,
-drop-in compatible with the LSL side.
+Self-hosted backend for the QuickySitter **[DUMP]** upload. Implements
+the same w/c/t POST + ?q GET wire protocol as the upstream AVsitter
+receiver but persists to flat files instead of MySQL — simpler deploy,
+no DB dependency, drop-in compatible with the LSL side.
 
-The stock-loud `[HELPER] [DUMP]` keeps using `avsitter.com/settings.php`
-and does **not** route through this file.
+Serves **both** dump modes: the quiet QUICKYHUD path (web-only, since
+`[QS]boot.lsl` ≥ 0.919) and — since `[QS]boot.lsl` ≥ 1.05 — the loud
+`[HELPER] [DUMP]` path's "Settings copy" link too (the stock
+`avsitter.com/settings.php` no longer works with QS output, issue #66).
 
 ## What it does
 
@@ -16,6 +17,17 @@ Accepts the `w=<webkey>&c=<chunkno>&t=<text>` POST chunks streamed by
 per-webkey file under `$dump_dir`. On `?q=<webkey>` GET, serves the
 assembled content. Entries are auto-deleted opportunistically on GET
 after `$ttl_seconds` (default 600 = 10 min).
+
+**Classic grouped output (issue #66):** boot streams pose lines and
+their `{name}<pos><rot>` position lines interleaved (one LSD entry per
+tick emits both back-to-back). The finished GET (`.done` present)
+regroups each sitter block into the classic AVsitter DUMP layout —
+pose/menu/plugin lines first, all position lines in one blank-line
+separated block at the end — which is much easier to edit for large
+AVpos notecards. Re-import is order-independent (both QS and stock
+AVsitter match `{}` lines by name), so the transform is purely
+cosmetic. Append `&raw=1` to get the byte-exact stream as uploaded
+instead. Live-view (partial) responses always serve the raw stream.
 
 **Live-view mode:** while the dump is still uploading (the `.done`
 marker isn't there yet), GET responses include an HTTP `Refresh: 3`
@@ -64,13 +76,15 @@ No database, no schema migration, no credentials. Backup = `cp -r`.
 
 ## Hardcoded endpoint (LSL side)
 
-`[QS]boot.lsl` global `url_qs`:
+`[QS]boot.lsl` globals `url` (loud [HELPER] path, since 1.05) and
+`url_qs` (quiet QUICKYHUD path), currently the same value:
 
 ```lsl
+string url    = "https://slquicky.com/quicky-sitter/dump/settings.php";
 string url_qs = "https://slquicky.com/quicky-sitter/dump/settings.php";
 ```
 
-Changing the deploy location means bumping that string and re-uploading
+Changing the deploy location means bumping those strings and re-uploading
 boot. There is intentionally no notecard override — the URL is a
 fork-level decision, not a per-creator one.
 
@@ -133,8 +147,9 @@ and the end-of-cascade URL shout is replaced by:
 [DUMP] Upload failed — link may be incomplete.
 ```
 
-The owner can retry via `[HELPER]` `[DUMP]` (stock loud path,
-`avsitter.com` endpoint, chat fallback).
+The owner can retry via `[HELPER]` `[DUMP]` (loud path — same endpoint
+since boot 1.05, but the full ◆ chat output serves as the fallback
+deliverable there, so a dead link never blocks the workflow).
 
 ## Extensibility — not implemented but easy to add
 

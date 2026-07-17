@@ -5,6 +5,8 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 Grouped by version, newest on top.
 
 ## Unreleased
+- **Feature** — The [DUMP] settings-copy web page now shows the classic AVsitter layout: all pose and menu lines together, position data grouped below — much easier to edit large AVpos notecards (add `&raw=1` to the link for the old interleaved stream)
+- **Fix** — The [HELPER] [DUMP] "Settings copy" link now uses the QuickySitter dump service; the old avsitter.com page it pointed to no longer works
 - **Feature** — Prop scale & worn-fit support: props equipped with the [QS]propadjust script (part of the QuickyHUD bundle) can be resized in the editor — or fitted directly on the body for attachment props — and saved with [SAVE], no more take-back-and-replace loop. Owners can also fine-tune a rezzed prop's size by touch (±1/5/10 % menu, [RESTORE])
 
 ## Version 1.04
