@@ -3,6 +3,9 @@
 /*
  * QuickySitter DUMP receiver — flat-file edition
  *
+ * Version 1.05 — tracks the QuickySitter release it shipped with
+ * ([QS]boot.lsl ≥ 1.05 routes both dump modes here).
+ *
  * Self-hosted backend for [QS]boot.lsl ≥ 0.919's QUICKYHUD-path quiet
  * DUMP. Speaks the same w/c/t POST + ?q GET wire protocol as the
  * upstream AVsitter settings.php but persists to flat files instead of
