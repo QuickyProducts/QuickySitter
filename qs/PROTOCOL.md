@@ -382,22 +382,23 @@ entries don't trigger the self-show for a non-owner.
 
 | Field | Content |
 |-------|---------|
-| 3     | `flags` — integer bitfield. Bit 0 (`1`) = **owner-only**: sitB renders and dispatches the entry only when the controller is `llGetOwner()`, exactly like `[QUICKYHUD]`. `0` = visible to any seated avatar (parity with notecard `ADJUST` entries and QSPLUG_REGISTER buttons). |
+| 3     | `flags` — integer bitfield. Bit 0 (`1`) = **owner-gated**: sitB renders and dispatches the entry only when the controller passes `adjust_allowed()` — the owner, or a non-owner allowed by the `qs:sec:adjust` ACL ([QS]root-security's `Adjust` level, see STORAGE.md; absent ⇒ owner-only) — exactly like `[QUICKYHUD]`. `0` = visible to any seated avatar (parity with notecard `ADJUST` entries and QSPLUG_REGISTER buttons). |
 
 **Owner-gate caveat (legacy coexistence).** The gate is sitB-side. If a
 furniture also keeps the legacy `ADJUST <label>|<chan>` notecard line with
 the SAME label, that line is ungated and its `ADJUST_MENU` dispatch runs
-first — so an owner-only registry entry is defeated by a coexisting legacy
-line. Remove the legacy line when adopting an owner-only registry entry,
-and (defense-in-depth) have the plugin re-check `llGetOwner()` in its own
-click handler.
+first — so an owner-gated registry entry is defeated by a coexisting legacy
+line. Remove the legacy line when adopting an owner-gated registry entry,
+and (defense-in-depth) have the plugin re-check the gate in its own click
+handler (`llGetOwner()`, or mirror sitB's `adjust_allowed()` to honor the
+`qs:sec:adjust` ACL).
 
 **sitB side.** sitB caches registrations in a strided-4 RAM list
 `ADJUST_DYN = [label, click_chan, scriptName, flags, ...]`, deduped by
 scriptName. `adjust_dialog` renders the notecard `ADJUST_MENU` entries
 first, then the visible `ADJUST_DYN` labels (skipping any label already
 present in `ADJUST_MENU`, so a legacy AVpos line + the registry don't
-double up). The owner gate is enforced both at render and at click
+double up). The adjust-access gate is enforced both at render and at click
 dispatch. `ADJUST_DYN` is RAM only — never written to or rebuilt from
 `qs:cfg`, so a boot re-seed leaves it intact; a sitB reset clears it,
 and the plugin re-announces on the next 90097 (QSALIVE reply), the

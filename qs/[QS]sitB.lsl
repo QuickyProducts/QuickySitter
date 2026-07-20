@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.04";
+string version = "1.0501";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -598,6 +598,27 @@ plugin_dialog()
     dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap notice
 }
 
+// Adjust-access ACL (1.05). The level is owner-managed in
+// [QS]root-security's [SECURITY] menu and published as qs:sec:adjust
+// ("OWNER"/"GROUP"/"ALL"; the qs:sec: prefix survives boot's re-seed
+// wipe). Gates the adjust workflows: [QUICKYHUD] render, registered
+// owner-gated entries (QSADJ_REGISTER flags bit 0), and the
+// [HELPER]/[QUICKYHUD] dispatch paths. The owner always passes — the
+// ACL can never lock the owner out (deliberate divergence from stock
+// pass_security, where GROUP can exclude even the owner). has_security
+// guards against a stale key after the security plugin was removed
+// (the 90201 probe resets it, 90202 re-arms). No plugin or no key ⇒
+// owner-only, i.e. the pre-1.05 behavior.
+integer adjust_allowed(key av)
+{
+    if (av == llGetOwner()) return TRUE;
+    if (!has_security) return FALSE;
+    string mode = llLinksetDataRead("qs:sec:adjust");
+    if (mode == "ALL") return TRUE;
+    if (mode == "GROUP") return llSameGroup(av);
+    return FALSE;
+}
+
 // ADJUST submenu — migrated from sitA's inlined options_menu() in 0.909
 // (Phase 2 sitB-as-UI refactor). Renders builtins gated by capability
 // flags + notecard ADJUST_MENU pairs + tail (HELPER/QUICKYHUD/POSE),
@@ -617,8 +638,8 @@ adjust_dialog()
     integer i;
     integer n = llGetListLength(ADJUST_MENU);
     while (i < n) { dyn += llList2String(ADJUST_MENU, i); i += 2; }
-    // Registered ADJUST entries (QSADJ_REGISTER), strided 4. Owner-only
-    // entries (flags bit 0) render only for the owner, like [QUICKYHUD].
+    // Registered ADJUST entries (QSADJ_REGISTER), strided 4. Owner-gated
+    // entries (flags bit 0) render per the adjust ACL, like [QUICKYHUD].
     // Dedupe against dyn (already holds the notecard ADJUST labels): skips a
     // legacy AVpos entry with the same label AND a duplicate registry entry
     // (e.g. a plugin re-announced under a renamed script).
@@ -626,7 +647,7 @@ adjust_dialog()
     for (i = 0; i < dn; i += 4)
     {
         string dlab = llList2String(ADJUST_DYN, i);
-        if ((!((integer)llList2String(ADJUST_DYN, i + 3) & 1) || CONTROLLER == llGetOwner())
+        if ((!((integer)llList2String(ADJUST_DYN, i + 3) & 1) || adjust_allowed(CONTROLLER))
             && llListFindList(dyn, [dlab]) == -1)
             dyn += dlab;
     }
@@ -634,7 +655,8 @@ adjust_dialog()
     list tail;
     if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
         tail += "[HELPER]";
-    // [QUICKYHUD] — owner-only entry, gated on the unprotected
+    // [QUICKYHUD] — adjust-ACL-gated entry (owner-only by default),
+    // gated on the unprotected
     // QPP_CFG:ADJUSTMODE LSD key (same probe sitA used pre-0.910).
     // HUDPROXY presence cleanup (90093) keeps the key from going stale
     // after the HUD is removed.
@@ -647,7 +669,7 @@ adjust_dialog()
     // Creator builds never set the key, so the gate is a no-op for
     // the normal flow. Inverted polarity, see hudadmin's
     // ensureLicenseFlag header for the full rationale.
-    if (CONTROLLER == llGetOwner() && llLinksetDataRead("qs:alive:adjuster") != ""
+    if (adjust_allowed(CONTROLLER) && llLinksetDataRead("qs:alive:adjuster") != ""
         && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1))
         && llLinksetDataRead("qs:hud:unlicensed") != "1")
         tail += "[QUICKYHUD]";
@@ -833,10 +855,10 @@ default
             integer adx = llListFindList(ADJUST_DYN, [msg]);
             if (adx != -1 && (adx % 4) == 0)
             {
-                // Enforce the owner gate at dispatch too — a hidden button
-                // can still be reached via a stale/forged listen reply.
+                // Enforce the adjust-access gate at dispatch too — a hidden
+                // button can still be reached via a stale/forged listen reply.
                 if (((integer)llList2String(ADJUST_DYN, adx + 3) & 1)
-                    && CONTROLLER != llGetOwner())
+                    && !adjust_allowed(CONTROLLER))
                     return;
                 in_adjust_menu = FALSE;
                 adjust_page = 0;
@@ -1384,19 +1406,18 @@ default
             if (sSlot != "X" && (integer)sSlot != SCRIPT_CHANNEL) return;
             if (msg == "[HELPER]")
             {
-                // Non-owner gate — MUST match adjuster's [HELPER] click
-                // handler ([QS]adjuster.lsl, "Only the owner can rez
-                // the helpers..." dialog). Without this guard, sitB
-                // flips helper_mode and opens animation_menu(0) even
-                // though adjuster refused — user sees BOTH the "Only
-                // the owner" dialog AND the helper sub-menu, plus
-                // helper_mode toggles globally for everyone seated.
-                // Same regression-hotspot warning as adjuster's gate:
-                // any future change here MUST preserve this owner check.
-                // data[2] is the controller key (the avatar who clicked
-                // [HELPER] in the ADJUST submenu); compared to
-                // llGetOwner() of the furniture prim.
-                if (llList2Key(data, 2) != llGetOwner()) return;
+                // Adjust-access gate (owner-only by default, widened via
+                // [QS]root-security's Adjust ACL) — MUST match adjuster's
+                // [HELPER] click handler ([QS]adjuster.lsl refusal
+                // dialog). Without this guard, sitB flips
+                // helper_mode and opens animation_menu(0) even though
+                // adjuster refused — user sees BOTH the refusal dialog
+                // AND the helper sub-menu, plus helper_mode toggles
+                // globally for everyone seated. Same regression-hotspot
+                // warning as adjuster's gate: any future change here MUST
+                // preserve this check. data[2] is the controller key (the
+                // avatar who clicked [HELPER] in the ADJUST submenu).
+                if (!adjust_allowed(llList2Key(data, 2))) return;
                 menu_page = 0;
                 helper_mode = !helper_mode;
                 if (llList2Key(data, 2) == MY_SITTER && !OLD_HELPER_METHOD)

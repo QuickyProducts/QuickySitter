@@ -230,7 +230,7 @@ select) with at least one sitter slot.
 | ID | Step | Expected | Covers |
 |---|---|---|---|
 | MA-1 | Cold-rez, sit, open pose menu → `[ADJUST]` | `[FACES]` + `[HELPER]` present; `[NEW]`→`[PROP]`/`[FACE]` present | producer state_entry write + consumer on-demand read, normal boot |
-| MA-2 | With QuickyHUD installed, owner opens `[ADJUST]` | `[QUICKYHUD]` present | `qs:alive:adjuster` read in sitB (owner gate) |
+| MA-2 | With QuickyHUD installed, owner opens `[ADJUST]` | `[QUICKYHUD]` present | `qs:alive:adjuster` read in sitB (adjust-access gate, default owner-only; widened via `qs:sec:adjust`) |
 | MA-3 | `[SAVE]` a pose offset (offset installed) | "Personal position saved for this pose." | `qs:offset:alive` read in sitA |
 | MA-4 | Remove `[QS]faces` (no reset), reopen `[ADJUST]` | `[FACES]` gone | CENSUS wipe + removal detection |
 | MA-5 | Re-add `[QS]faces`, reopen `[ADJUST]` | `[FACES]` back | CENSUS re-stamp + state_entry re-write |

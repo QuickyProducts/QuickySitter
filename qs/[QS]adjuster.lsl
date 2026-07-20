@@ -15,14 +15,12 @@
  */
 
 integer OLD_HELPER_METHOD;
-key key_request;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.04";
+string version = "1.0502";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
-string notecard_name = "AVpos";
 
 // QSALIVE — sitter-count cache (replaces the legacy
 // llGetInventoryType("[QS]sitA " + i) loop). See qs/PROTOCOL.md § QSALIVE.
@@ -39,6 +37,14 @@ integer qs_sitter_count_cached = 1;
 // QS_ALIVE_CENSUS wipes + re-stamps all presence flags on a plugin
 // add/remove or re-seed. See qs/PROTOCOL.md § qs:alive.
 integer QS_ALIVE_CENSUS = 90079;
+
+// has_security mirror (1.05) — [QS]root-security's presence, fed by the
+// same 90201 probe / 90202 reply cycle sitB uses (no script-name
+// inventory probe, project rule). Guards adjust_allowed against a stale
+// qs:sec:adjust key after the security plugin was removed. state_entry
+// emits its own 90201 probe so the flag re-arms after OUR resets too —
+// sitA only probes on its own state_entry/changed events.
+integer has_security;
 
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
@@ -76,7 +82,6 @@ integer active_sitter;
 key controller;
 integer menu_page;
 string adding;
-integer adding_item_type;
 // current_menu reported by sitB in the [NEW] click — tells qs_insert_idx
 // which submenu the user has open so new POSE/SYNC/SUBMENU entries land
 // there instead of getting appended to the LSD tail (where they'd hide
@@ -86,6 +91,22 @@ string last_text;
 integer menu_pages;
 integer number_per_page = 9;
 list chosen_animations = [last_text]; //OSS::list chosen_animations; // Force error in LSO
+
+// Adjust-access ACL (1.05) — mirror of [QS]sitB's adjust_allowed; the
+// MENU_SPEC gate invariant requires BOTH scripts to refuse independently
+// (otherwise the double-dialog / global-toggle regression returns).
+// Level from qs:sec:adjust, written by [QS]root-security
+// ("OWNER"/"GROUP"/"ALL"); absent key or absent security plugin ⇒
+// owner-only, i.e. the pre-1.05 behavior.
+integer adjust_allowed(key av)
+{
+    if (av == llGetOwner()) return TRUE;
+    if (!has_security) return FALSE;
+    string mode = llLinksetDataRead("qs:sec:adjust");
+    if (mode == "ALL") return TRUE;
+    if (mode == "GROUP") return llSameGroup(av);
+    return FALSE;
+}
 
 // ========================================================================
 // QuickySitter LSD persistence layer (adjuster side)
@@ -509,6 +530,13 @@ default
         qs_alive = FALSE;
         solo_offset_applied = FALSE;
         llMessageLinked(LINK_SET, QSALIVE_PROBE, "", "");
+        // Security-plugin probe (90201 → root-security replies 90202,
+        // link_message handler below re-arms has_security). Also resets
+        // the sibling capability flags in sitB/sitA/hudproxy, which their
+        // reply cycle immediately re-sets — same transient the sitA-side
+        // probes cause today.
+        has_security = FALSE;
+        llMessageLinked(LINK_SET, 90201, "", "");
         // Publish our own presence to LSD; sitB gates [HELPER]/[QUICKYHUD]
         // on qs:alive:adjuster, read on-demand. boot's CENSUS re-stamps it.
         llLinksetDataWrite("qs:alive:adjuster", "1");
@@ -545,6 +573,10 @@ default
             llSetTimerEvent(0.0);
             return;
         }
+        // [QS]root-security presence cycle — probe resets, reply re-arms
+        // (same semantics as sitB's has_security; see global's comment).
+        if (num == 90201) { has_security = FALSE; return; }
+        if (num == 90202) { has_security = TRUE;  return; }
         if (num == QS_ALIVE_CENSUS)
         {
             // boot wiped presence on a plugin add/remove or re-seed —
@@ -725,10 +757,10 @@ default
                 }
                 if (msg == "[HELPER]")
                 {
-                    // Non-owner gate — stock-AVsitter parity (verbatim
-                    // wording so long-time AVsitter muscle memory still
-                    // applies). Without this, anyone seated on the prim
-                    // who reaches the ADJUST submenu can flip
+                    // Adjust-access gate (1.05: owner-only by default,
+                    // widened via [QS]root-security's Adjust ACL —
+                    // qs:sec:adjust). Without this, anyone seated on the
+                    // prim who reaches the ADJUST submenu can flip
                     // helper_mode, rez the [AV]helper bars, and move
                     // pose anchors for everyone.
                     //
@@ -737,15 +769,14 @@ default
                     // because helper_mode toggles, [QUICKYHUD] cross-
                     // routes through here, and the [HELPER] / [DONE]
                     // exit-button rename touched the same block. Any
-                    // future change here MUST preserve this owner check.
+                    // future change here MUST preserve this check.
                     // Don't fold the early-return into a single big
                     // if-statement — the explicit `return` keeps the
                     // intent visible during diff review.
-                    if (id != llGetOwner()) {
+                    if (!adjust_allowed(id)) {
                         llDialog(id,
-                            "Only the owner can rez the helpers. If "
-                            + "the owner is nearby they can type "
-                            + "'/5 helper' in chat.",
+                            "No adjust access — see [SECURITY] > Adjust. "
+                            + "Owner nearby? Type '/5 helper' in chat.",
                             ["OK"], -3675);
                         return;
                     }
@@ -755,6 +786,13 @@ default
                 }
                 if (msg == "[QUICKYHUD]")
                 {
+                    // Adjust-access gate (1.05). This handler was ungated
+                    // before — protected only by sitB's render gate, so a
+                    // stale/forged listen reply could flip ADJUSTMODE
+                    // globally. Mirrors the [HELPER] gate above; silent
+                    // return matches sitB's dispatch-gate style (the
+                    // button is never rendered for refused avatars).
+                    if (!adjust_allowed(id)) return;
                     controller = id;
                     // Arm the comm_channel listen so the [NEW] sub-flow's
                     // sub-dialogs (new_menu → [POSE]/[SYNC]/[PROP]/[FACE]/
@@ -767,7 +805,13 @@ default
                     // helper_mode branch).
                     llListenRemove(listen_handle);
                     listen_handle = llListen(comm_channel, "", "", "");
-                    llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
+                    // id = the operator (1.05; was llGetOwner()): hudproxy
+                    // forwards it as ATTACH_FOR_ADJUST so the HUD lands on
+                    // whoever entered ADJUSTMODE — with the Adjust ACL that
+                    // may be a non-owner (e.g. a GROUP-allowed creator).
+                    // The "Off" flips keep llGetOwner(): hudproxy ignores
+                    // id on Off.
+                    llMessageLinked(LINK_SET, 90266, "On", id);
                     helper_method = 1;
                     // Re-show the main pose menu so sitB's qh_on branch
                     // emits the ADJUSTMODE-enriched buttons ([NEW]/

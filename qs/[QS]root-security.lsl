@@ -11,6 +11,18 @@
  *   2. The AVsitter `#version` preprocessor marker de-sugared to a plain
  *      `version` string — QS ships plain LSL; raw `#version` is not valid LSL.
  *   3. Product string rebranded to "QuickySitter(TM) Security".
+ *   4. QS extension (1.05): third ACL category "Adjust" (OWNER/GROUP/ALL,
+ *      default OWNER) controlling who may enter the adjust workflows
+ *      ([HELPER]/[QUICKYHUD] and owner-gated registered [ADJUST] entries).
+ *      This script only manages the setting and publishes it to LSD as
+ *      qs:sec:adjust — enforcement lives in [QS]sitB / [QS]adjuster,
+ *      which read the key synchronously in their gates. The qs:sec:
+ *      prefix survives boot's re-seed wipe (^qs:(meta|cfg|...) pattern);
+ *      after a full llLinksetDataReset the key is re-written on boot's
+ *      QS_ALIVE_CENSUS broadcast and on our own state_entry. On
+ *      CHANGED_OWNER the level resets to OWNER — a sold/transferred
+ *      item must not carry the previous creator's widened ACL to the
+ *      buyer (their group members could edit default poses).
  * Sit/menu access logic otherwise byte-identical to stock.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,7 +35,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.04";
+string version = "1.0501";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -36,6 +48,23 @@ integer SIT_INDEX;
 integer MENU_INDEX;
 string lastmenu;
 list MENU_TYPES = [lastmenu]; //OSS::list MENU_TYPES; // Force error in LSO
+// Adjust ACL (QS extension, see header diff #4). Order matters: index 0
+// is the default, and OWNER preserves the pre-1.05 owner-only behavior.
+list ADJUST_TYPES = ["OWNER", "GROUP", "ALL"];
+integer ADJUST_INDEX;
+// boot broadcasts QS_ALIVE_CENSUS after wiping/re-stamping LSD presence
+// flags (plugin add/remove, re-seed, full reset) — our hook to re-write
+// qs:sec:adjust after a full llLinksetDataReset.
+integer QS_ALIVE_CENSUS = 90079;
+
+// Publish the Adjust ACL level for the enforcing scripts ([QS]sitB
+// render/dispatch gates, [QS]adjuster click handlers). LSD because those
+// gates run synchronously inside dialog builders — no link-message
+// round-trip is possible there.
+write_adjust_access()
+{
+    llLinksetDataWrite("qs:sec:adjust", llList2String(ADJUST_TYPES, ADJUST_INDEX));
+}
 
 integer pass_security(key id, string context)
 {
@@ -112,12 +141,12 @@ register_touch(key id, integer animation_menu_function, integer active_prim, int
 
 main_menu()
 {
-    list buttons = (list)"Sit" + "Menu";
+    list buttons = (list)"Sit" + "Menu" + "Adjust";
     if (active_sitter) // OSS::if (osIsUUID(active_sitter) && active_sitter != NULL_KEY)
     {
         buttons = "[BACK]" + buttons;
     }
-    dialog("Sit access: " + llList2String(SIT_TYPES, SIT_INDEX) + "\nMenu access: " + llList2String(MENU_TYPES, MENU_INDEX) + "\n\nChange security settings:", buttons);
+    dialog("Sit access: " + llList2String(SIT_TYPES, SIT_INDEX) + "\nMenu access: " + llList2String(MENU_TYPES, MENU_INDEX) + "\nAdjust access: " + llList2String(ADJUST_TYPES, ADJUST_INDEX) + "\n\nChange security settings:", buttons);
     lastmenu = "";
 }
 
@@ -143,6 +172,12 @@ default
     state_entry()
     {
         MENU_TYPES = SIT_TYPES;
+        // Restore a persisted Adjust level before the first write — the
+        // LSD key survives a script reset, unlike the RAM-only
+        // SIT_INDEX/MENU_INDEX (which revert to stock defaults).
+        integer idx = llListFindList(ADJUST_TYPES, [llLinksetDataRead("qs:sec:adjust")]);
+        if (idx != -1) ADJUST_INDEX = idx;
+        write_adjust_access();
         llMessageLinked(LINK_SET, 90202, (string)check_for_RLV(), "");
     }
 
@@ -157,6 +192,10 @@ default
         if (num == 90201)
         {
             llMessageLinked(LINK_SET, 90202, (string)check_for_RLV(), "");
+        }
+        else if (num == QS_ALIVE_CENSUS)
+        {
+            write_adjust_access();
         }
         else if (num == 90006)
         {
@@ -204,6 +243,12 @@ default
             lastmenu = msg;
             return;
         }
+        else if (msg == "Adjust")
+        {
+            dialog("Adjust security — who may use the adjust tools\n([HELPER]/[QUICKYHUD] + owner-gated plugin entries):", ADJUST_TYPES);
+            lastmenu = msg;
+            return;
+        }
         else
         {
             if (msg == "[BACK]")
@@ -223,12 +268,35 @@ default
                 main_menu();
                 return;
             }
+            else if (lastmenu == "Adjust")
+            {
+                // Guarded (unlike the stock Sit/Menu branches): a -1 here
+                // would persist a garbage level to LSD, not just to RAM.
+                integer pick = llListFindList(ADJUST_TYPES, [msg]);
+                if (pick != -1)
+                {
+                    ADJUST_INDEX = pick;
+                    write_adjust_access();
+                }
+                main_menu();
+                return;
+            }
         }
         llListenRemove(menu_handle);
     }
 
     changed(integer change)
     {
+        if (change & CHANGED_OWNER)
+        {
+            // Safety reset (see header diff #4): don't carry a widened
+            // Adjust ACL across a sale/transfer if the creator forgot to
+            // set it back — the new owner re-widens via [SECURITY] →
+            // Adjust if wanted. Sit/Menu need no equivalent: their
+            // indices are RAM-only and llGetOwner() re-resolves live.
+            ADJUST_INDEX = 0; // OWNER
+            write_adjust_access();
+        }
         if (change & CHANGED_LINK)
         {
             check_sitters();
