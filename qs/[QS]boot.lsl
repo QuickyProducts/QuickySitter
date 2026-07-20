@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.05";
+string version = "1.25";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -115,7 +115,7 @@ integer selfcheck_pending;
 // Both dump modes post to the self-hosted receiver (qs/php/settings.php
 // at slquicky.com, same w/c/t POST + ?q GET protocol as the retired
 // stock avsitter.com service). `url` serves the loud [HELPER] path
-// (since 1.05 — avsitter.com stopped working with QS output, issue #66;
+// (since 1.25 — avsitter.com stopped working with QS output, issue #66;
 // chat output remains that path's primary deliverable, see
 // http_response), `url_qs` the quiet [QUICKYHUD] path. Two constants
 // kept so the modes can be split again if a stock endpoint revives.
@@ -1548,7 +1548,7 @@ default
     }
 
     // QS DUMP-endpoint failure detection. Loud dumps post to the
-    // self-hosted endpoint too (since 1.05) but are deliberately NOT
+    // self-hosted endpoint too (since 1.25) but are deliberately NOT
     // flagged — the chat output is that path's primary deliverable, a
     // dead link degrades exactly like the stock avsitter.com behavior.
     // Quiet dumps go to url_qs (self-hosted) — if any chunk POST

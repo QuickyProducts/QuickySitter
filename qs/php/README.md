@@ -6,7 +6,7 @@ receiver but persists to flat files instead of MySQL — simpler deploy,
 no DB dependency, drop-in compatible with the LSL side.
 
 Serves **both** dump modes: the quiet QUICKYHUD path (web-only, since
-`[QS]boot.lsl` ≥ 0.919) and — since `[QS]boot.lsl` ≥ 1.05 — the loud
+`[QS]boot.lsl` ≥ 0.919) and — since `[QS]boot.lsl` ≥ 1.25 — the loud
 `[HELPER] [DUMP]` path's "Settings copy" link too (the stock
 `avsitter.com/settings.php` no longer works with QS output, issue #66).
 
@@ -76,7 +76,7 @@ No database, no schema migration, no credentials. Backup = `cp -r`.
 
 ## Hardcoded endpoint (LSL side)
 
-`[QS]boot.lsl` globals `url` (loud [HELPER] path, since 1.05) and
+`[QS]boot.lsl` globals `url` (loud [HELPER] path, since 1.25) and
 `url_qs` (quiet QUICKYHUD path), currently the same value:
 
 ```lsl
@@ -148,7 +148,7 @@ and the end-of-cascade URL shout is replaced by:
 ```
 
 The owner can retry via `[HELPER]` `[DUMP]` (loud path — same endpoint
-since boot 1.05, but the full ◆ chat output serves as the fallback
+since boot 1.25, but the full ◆ chat output serves as the fallback
 deliverable there, so a dead link never blocks the workflow).
 
 ## Extensibility — not implemented but easy to add

@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.0501";
+string version = "1.25";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -598,7 +598,7 @@ plugin_dialog()
     dialog_open_for = CONTROLLER; // 0.9960: track open dialog for HUD-swap notice
 }
 
-// Adjust-access ACL (1.05). The level is owner-managed in
+// Adjust-access ACL (1.25). The level is owner-managed in
 // [QS]root-security's [SECURITY] menu and published as qs:sec:adjust
 // ("OWNER"/"GROUP"/"ALL"; the qs:sec: prefix survives boot's re-seed
 // wipe). Gates the adjust workflows: [QUICKYHUD] render, registered
@@ -608,7 +608,7 @@ plugin_dialog()
 // pass_security, where GROUP can exclude even the owner). has_security
 // guards against a stale key after the security plugin was removed
 // (the 90201 probe resets it, 90202 re-arms). No plugin or no key ⇒
-// owner-only, i.e. the pre-1.05 behavior.
+// owner-only, i.e. the pre-1.25 behavior.
 integer adjust_allowed(key av)
 {
     if (av == llGetOwner()) return TRUE;

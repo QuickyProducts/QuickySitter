@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.0502";
+string version = "1.25";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -38,7 +38,7 @@ integer qs_sitter_count_cached = 1;
 // add/remove or re-seed. See qs/PROTOCOL.md § qs:alive.
 integer QS_ALIVE_CENSUS = 90079;
 
-// has_security mirror (1.05) — [QS]root-security's presence, fed by the
+// has_security mirror (1.25) — [QS]root-security's presence, fed by the
 // same 90201 probe / 90202 reply cycle sitB uses (no script-name
 // inventory probe, project rule). Guards adjust_allowed against a stale
 // qs:sec:adjust key after the security plugin was removed. state_entry
@@ -92,12 +92,12 @@ integer menu_pages;
 integer number_per_page = 9;
 list chosen_animations = [last_text]; //OSS::list chosen_animations; // Force error in LSO
 
-// Adjust-access ACL (1.05) — mirror of [QS]sitB's adjust_allowed; the
+// Adjust-access ACL (1.25) — mirror of [QS]sitB's adjust_allowed; the
 // MENU_SPEC gate invariant requires BOTH scripts to refuse independently
 // (otherwise the double-dialog / global-toggle regression returns).
 // Level from qs:sec:adjust, written by [QS]root-security
 // ("OWNER"/"GROUP"/"ALL"); absent key or absent security plugin ⇒
-// owner-only, i.e. the pre-1.05 behavior.
+// owner-only, i.e. the pre-1.25 behavior.
 integer adjust_allowed(key av)
 {
     if (av == llGetOwner()) return TRUE;
@@ -757,7 +757,7 @@ default
                 }
                 if (msg == "[HELPER]")
                 {
-                    // Adjust-access gate (1.05: owner-only by default,
+                    // Adjust-access gate (1.25: owner-only by default,
                     // widened via [QS]root-security's Adjust ACL —
                     // qs:sec:adjust). Without this, anyone seated on the
                     // prim who reaches the ADJUST submenu can flip
@@ -786,7 +786,7 @@ default
                 }
                 if (msg == "[QUICKYHUD]")
                 {
-                    // Adjust-access gate (1.05). This handler was ungated
+                    // Adjust-access gate (1.25). This handler was ungated
                     // before — protected only by sitB's render gate, so a
                     // stale/forged listen reply could flip ADJUSTMODE
                     // globally. Mirrors the [HELPER] gate above; silent
@@ -805,7 +805,7 @@ default
                     // helper_mode branch).
                     llListenRemove(listen_handle);
                     listen_handle = llListen(comm_channel, "", "", "");
-                    // id = the operator (1.05; was llGetOwner()): hudproxy
+                    // id = the operator (1.25; was llGetOwner()): hudproxy
                     // forwards it as ATTACH_FOR_ADJUST so the HUD lands on
                     // whoever entered ADJUSTMODE — with the Adjust ACL that
                     // may be a non-owner (e.g. a GROUP-allowed creator).

@@ -130,13 +130,13 @@ in the first draft — they are the critical part.
 | `[ADJUST OFF]` | pose menu (qh_on branch) | qh-only exit: adjuster flips ADJUSTMODE off + clears helper_method ([adj:780+](../[QS]adjuster.lsl)) |
 | stand-up | — | auto-`end_helper_mode` (adjuster [329](../[QS]adjuster.lsl)): 90266 "Off" if helper_method==1, then cleanup; sitB CHANGED_LINK clears `helper_mode` (if !OLD_HELPER_METHOD) |
 
-**Adjust-access invariant (1.05; formerly "owner-gate"):** `[HELPER]`/`[QUICKYHUD]`
+**Adjust-access invariant (1.25; formerly "owner-gate"):** `[HELPER]`/`[QUICKYHUD]`
 clicks from avatars failing `adjust_allowed()` MUST be refused — sitB AND adjuster
 each check independently (both define the same predicate). The predicate: owner
 always passes; non-owners pass per the `qs:sec:adjust` ACL level (`GROUP`/`ALL`)
 written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
 `has_security` so a stale key after plugin removal falls back to owner-only
-(= pre-1.05 behavior). Missing either gate = the double-dialog / global-toggle
+(= pre-1.25 behavior). Missing either gate = the double-dialog / global-toggle
 regression. The rebuild must keep both.
 
 **`[DONE]` vs `[BACK]` (regression history):** `[DONE]` is *deliberately separate*

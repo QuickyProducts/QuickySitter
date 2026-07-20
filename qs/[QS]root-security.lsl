@@ -11,7 +11,7 @@
  *   2. The AVsitter `#version` preprocessor marker de-sugared to a plain
  *      `version` string — QS ships plain LSL; raw `#version` is not valid LSL.
  *   3. Product string rebranded to "QuickySitter(TM) Security".
- *   4. QS extension (1.05): third ACL category "Adjust" (OWNER/GROUP/ALL,
+ *   4. QS extension (1.25): third ACL category "Adjust" (OWNER/GROUP/ALL,
  *      default OWNER) controlling who may enter the adjust workflows
  *      ([HELPER]/[QUICKYHUD] and owner-gated registered [ADJUST] entries).
  *      This script only manages the setting and publishes it to LSD as
@@ -35,7 +35,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.0501";
+string version = "1.25";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -49,7 +49,7 @@ integer MENU_INDEX;
 string lastmenu;
 list MENU_TYPES = [lastmenu]; //OSS::list MENU_TYPES; // Force error in LSO
 // Adjust ACL (QS extension, see header diff #4). Order matters: index 0
-// is the default, and OWNER preserves the pre-1.05 owner-only behavior.
+// is the default, and OWNER preserves the pre-1.25 owner-only behavior.
 list ADJUST_TYPES = ["OWNER", "GROUP", "ALL"];
 integer ADJUST_INDEX;
 // boot broadcasts QS_ALIVE_CENSUS after wiping/re-stamping LSD presence

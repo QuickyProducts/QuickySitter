@@ -15,7 +15,7 @@
  *      survives state_entry; we only re-parse the notecard when its inv key
  *      changes). External interface (link-messages, region-says, llRezAtRoot
  *      payload format) is byte-identical to stock + items 1–4 above.
- *   6. PROP SCALE + WORN FIT (1.05+): optional AVpos fields 7-9
+ *   6. PROP SCALE + WORN FIT (1.25+): optional AVpos fields 7-9
  *      `PROP …|<point>|<scale>|<wornpos>|<wornrot>` + comm-channel commands
  *      QSSCALE/QSWORN (apply on rez) / QSSAVESCALE/QSSAVEWORN (persist on
  *      [SAVE]), handled by the [QS]propadjust companion script inside the
@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.0501";
+string version = "1.25";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -1078,7 +1078,7 @@ default
                     if (command == "PROP2") prop_type = 2;
                     if (command == "PROP3") prop_type = 3;
                     string prop_group = (string)notecard_section + "|" + llList2String(parts, 2);
-                    // Optional fields 7-9 (1.05+): uniform scale factor
+                    // Optional fields 7-9 (1.25+): uniform scale factor
                     // (missing/zero/negative → "1", stock line format) +
                     // worn-fit pos/rot vectors ("" = unset).
                     string prop_scl = llList2String(parts, 6);
