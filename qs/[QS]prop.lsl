@@ -18,9 +18,9 @@
  *   6. PROP SCALE + WORN FIT (1.25+): optional AVpos fields 7-9
  *      `PROP …|<point>|<scale>|<wornpos>|<wornrot>` + comm-channel commands
  *      QSSCALE/QSWORN (apply on rez) / QSSAVESCALE/QSSAVEWORN (persist on
- *      [SAVE]), handled by the [QS]propadjust companion script inside the
- *      prop. The companion is NOT part of this repo — it ships with the
- *      commercial QuickyHUD bundle. Props without the companion, and stock
+ *      [SAVE]), handled by the [QS]objectadjust companion script inside the
+ *      prop (shipped in qs/plugins/propadjust/, named after the stock
+ *      [AV]object it sits beside). Props without the companion, and stock
  *      [AV]prop receiving the QSSAVE* replies, ignore the extension
  *      entirely. See qs/PROTOCOL.md § Prop scale for the open wire spec.
  *
@@ -942,7 +942,7 @@ default
         }
         if (llList2String(data, 0) == "QSSAVESCALE")
         {
-            // [QS]propadjust replying to the [SAVE]-triggered PROPSEARCH
+            // [QS]objectadjust replying to the [SAVE]-triggered PROPSEARCH
             // broadcast with its current scale factor (vs inventory size).
             integer index = (integer)llList2String(data, 1);
             if (index >= 0 && index < prop_count_cached)
@@ -973,7 +973,7 @@ default
         }
         if (llList2String(data, 0) == "QSSAVEWORN")
         {
-            // [QS]propadjust on a WORN prop replying to PROPSEARCH with its
+            // [QS]objectadjust on a WORN prop replying to PROPSEARCH with its
             // current attach-point-local pos/rot (Euler deg).
             integer index = (integer)llList2String(data, 1);
             if (index >= 0 && index < prop_count_cached)
@@ -1015,7 +1015,7 @@ default
                 {
                     llSay(comm_channel, postSay);
                 }
-                // Persisted scale factor + worn fit → [QS]propadjust in the
+                // Persisted scale factor + worn fit → [QS]objectadjust in the
                 // prop. Props without the companion ignore the commands.
                 string scl = llList2String(entry, 8);
                 if (scl != "" && (float)scl != 1.0)

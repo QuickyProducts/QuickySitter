@@ -1019,11 +1019,11 @@ Everything else verbatim from stock.
 ## Prop scale — `QSSCALE` / `QSSAVESCALE` (comm channel)
 
 Optional uniform prop scaling (`[QS]prop` ≥ 1.25). Requires the
-**`[QS]propadjust`** companion script in the prop's root prim, next to the
-untouched stock `[AV]object` (experience-compiled, must not be forked).
-The companion is not part of this repository — it ships with the
-commercial QuickyHUD bundle; this section documents the open wire spec
-the sitter side implements. Not link messages — region-says on the prop
+**`[QS]objectadjust`** companion script in the prop's root prim, next to the
+untouched stock `[AV]object` (experience-compiled, must not be forked) —
+hence the name. The companion lives in this repository under
+`qs/plugins/propadjust/`; this section documents the wire spec both sides
+implement. Not link messages — region-says on the prop
 `comm_channel`, same transport as stock `REZ`/`ATTACHTO`/`PROPSEARCH`.
 
 | Command | Direction | Payload | Meaning |
@@ -1041,7 +1041,7 @@ stock props; scale alone when ≠ 1; scale — forced to `1` if unscaled — plu
 both worn vectors when a fit is stored, keeping field positions aligned).
 
 **Factor semantics**: always relative to the prop's *inventory* scale
-(root scale at rez, captured by `[QS]propadjust` before `QSSCALE` arrives).
+(root scale at rez, captured by `[QS]objectadjust` before `QSSCALE` arrives).
 Viewer-editor stretch and the companion's owner touch menu (±1/5/10 %,
 `[RESTORE]`) both resolve to the same `llGetScale()`-derived factor.
 
