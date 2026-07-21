@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.25";
+string version = "1.26";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -90,48 +90,15 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS;
 list SITTER_POSES;
-list ATTACH_POINTS =
-    [ ATTACH_CHEST,             "chest"
-    , ATTACH_HEAD,              "head"
-    , ATTACH_LSHOULDER,         "left shoulder"
-    , ATTACH_RSHOULDER,         "right shoulder"
-    , ATTACH_LHAND,             "left hand"
-    , ATTACH_RHAND,             "right hand"
-    , ATTACH_LFOOT,             "left foot"
-    , ATTACH_RFOOT,             "right foot"
-    , ATTACH_BACK,              "back"
-    , ATTACH_PELVIS,            "pelvis"
-    , ATTACH_MOUTH,             "mouth"
-    , ATTACH_CHIN,              "chin"
-    , ATTACH_LEAR,              "left ear"
-    , ATTACH_REAR,              "right ear"
-    , ATTACH_LEYE,              "left eye"
-    , ATTACH_REYE,              "right eye"
-    , ATTACH_NOSE,              "nose"
-    , ATTACH_RUARM,             "right upper arm"
-    , ATTACH_RLARM,             "right lower arm"
-    , ATTACH_LUARM,             "left upper arm"
-    , ATTACH_LLARM,             "left lower arm"
-    , ATTACH_RHIP,              "right hip"
-    , ATTACH_RULEG,             "right upper leg"
-    , ATTACH_RLLEG,             "right lower leg"
-    , ATTACH_LHIP,              "left hip"
-    , ATTACH_LULEG,             "left upper leg"
-    , ATTACH_LLLEG,             "left lower leg"
-    , ATTACH_BELLY,             "stomach"
-    , ATTACH_LEFT_PEC,          "left pectoral"
-    , ATTACH_RIGHT_PEC,         "right pectoral"
-    , ATTACH_HUD_CENTER_2,      "HUD center 2"
-    , ATTACH_HUD_TOP_RIGHT,     "HUD top right"
-    , ATTACH_HUD_TOP_CENTER,    "HUD top"
-    , ATTACH_HUD_TOP_LEFT,      "HUD top left"
-    , ATTACH_HUD_CENTER_1,      "HUD center"
-    , ATTACH_HUD_BOTTOM_LEFT,   "HUD bottom left"
-    , ATTACH_HUD_BOTTOM,        "HUD bottom"
-    , ATTACH_HUD_BOTTOM_RIGHT,  "HUD bottom right"
-    , ATTACH_NECK,              "neck"
-    , ATTACH_AVATAR_CENTER,     "avatar center"
-    ];
+// Attach-point lookup, memory-flattened (1.26): the former 80-slot
+// ATTACH_POINTS list (40 int/name pairs, ~2 KB resident heap) sat in
+// globals for the one get_point() call per rez. Now one CSV string;
+// get_point parses it transiently so the list cost exists only during
+// the lookup. Order matters: first substring match wins (longest/most
+// specific names before their prefixes, as before).
+// The numbers are the ATTACH_* constant values (llAttachToAvatarTemp
+// wire codes) in the same order as the old pair list.
+string ATTACH_CSV = "1,chest,2,head,3,left shoulder,4,right shoulder,5,left hand,6,right hand,7,left foot,8,right foot,9,back,10,pelvis,11,mouth,12,chin,13,left ear,14,right ear,15,left eye,16,right eye,17,nose,18,right upper arm,19,right lower arm,20,left upper arm,21,left lower arm,22,right hip,23,right upper leg,24,right lower leg,25,left hip,26,left upper leg,27,left lower leg,28,stomach,29,left pectoral,30,right pectoral,31,HUD center 2,32,HUD top right,33,HUD top,34,HUD top left,35,HUD center,36,HUD bottom left,37,HUD bottom,38,HUD bottom right,39,neck,40,avatar center";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -169,12 +136,16 @@ integer get_number_of_scripts()
 
 integer get_point(string text)
 {
+    // Transient parse of ATTACH_CSV (see global's comment) — the pair
+    // list lives only for this call instead of squatting in the heap.
+    list pts = llCSV2List(ATTACH_CSV);
+    text = llToUpper(text);
     integer i;
-    for (i = 1; i < llGetListLength(ATTACH_POINTS); i = i + 2)
+    for (i = 1; i < llGetListLength(pts); i = i + 2)
     {
-        if (llSubStringIndex(llToUpper(text), llToUpper(llList2String(ATTACH_POINTS, i))) != -1)
+        if (llSubStringIndex(text, llToUpper(llList2String(pts, i))) != -1)
         {
-            return llList2Integer(ATTACH_POINTS, i - 1);
+            return (integer)llList2String(pts, i - 1);
         }
     }
     return 0;
@@ -257,40 +228,18 @@ integer prop_add(string trig, integer type, string obj, string grp,
     return idx;
 }
 
-// Update pos and rot of an existing prop (used by SAVEPROP listen).
-prop_update_pos_rot(integer idx, vector pos, vector rot)
+// Generic field update on an existing prop row (1.26 memory trim —
+// replaces the four per-field updaters: pos/rot from SAVEPROP, pt/prs
+// from 90280 re-attach, scale from QSSAVESCALE, worn from QSSAVEWORN).
+// Pads to 11 fields first so index-writes land correctly on rows
+// written by older versions (8 or 9 fields).
+prop_update(integer idx, integer field, list vals)
 {
     list entry = prop_load(idx);
-    entry = llListReplaceList(entry, [(string)pos], 4, 4);
-    entry = llListReplaceList(entry, [(string)rot], 5, 5);
-    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
-}
-
-// Pad a loaded entry to 11 fields so index-writes land correctly on
-// rows written by older versions (8 or 9 fields).
-list prop_pad(list entry)
-{
     while (llGetListLength(entry) < 11)
-    {
         entry += "";
-    }
-    return entry;
-}
-
-// Update the scale factor of an existing prop (used by QSSAVESCALE
-// listen).
-prop_update_scale(integer idx, string scl)
-{
-    list entry = prop_pad(prop_load(idx));
-    entry = llListReplaceList(entry, [scl], 8, 8);
-    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
-}
-
-// Update the worn fit of an existing prop (used by QSSAVEWORN listen).
-prop_update_worn(integer idx, string wpos, string wrot)
-{
-    list entry = prop_pad(prop_load(idx));
-    entry = llListReplaceList(entry, [wpos, wrot], 9, 10);
+    entry = llListReplaceList(entry, vals,
+        field, field + llGetListLength(vals) - 1);
     llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
 }
 
@@ -313,15 +262,6 @@ string prop_line_suffix(list entry)
         return "|" + scl;
     }
     return "";
-}
-
-// Update point and prs of an existing prop (used by 90280 re-attach).
-prop_update_pt_prs(integer idx, string pt, string prs)
-{
-    list entry = prop_load(idx);
-    entry = llListReplaceList(entry, [pt],  6, 6);
-    entry = llListReplaceList(entry, [prs], 7, 7);
-    llLinksetDataWrite(LSD_PROP_PFX + (string)idx, llDumpList2String(entry, "\t"));
 }
 
 // Wipe the entire qs:prop:* LSD namespace. Used on notecard-key change
@@ -677,7 +617,7 @@ default
             }
             else
             {
-                prop_update_pt_prs(idx, point, postSay);
+                prop_update(idx, 6, [point, postSay]);
             }
             if (id != NULL_KEY)
                 SITTERS = llListReplaceList(SITTERS, [id], sitter, sitter);
@@ -921,7 +861,7 @@ default
                     rotation f = llList2Rot((details = llGetObjectDetails(llGetKey(), details) + llGetObjectDetails(id, details)), 1);
                     vector target_rot = llRot2Euler(llList2Rot(details, 3) / f) * RAD_TO_DEG;
                     vector target_pos = (llList2Vector(details, 2) - llList2Vector(details, 0)) / f;
-                    prop_update_pos_rot(index, target_pos, target_rot);
+                    prop_update(index, 4, [(string)target_pos, (string)target_rot]);
                     list entry = prop_load(index);
                     string type = (string)llList2Integer(entry, 1);
                     if (type == "0")
@@ -959,7 +899,7 @@ default
                     if (prev == "") prev = "1";
                     if (scl != prev)
                     {
-                        prop_update_scale(index, scl);
+                        prop_update(index, 8, [scl]);
                         llSay(0, "PROP size saved: " + (string)llRound(f * 100.0)
                             + "% ('" + name + "').");
                     }
@@ -985,7 +925,7 @@ default
                     list entry = prop_load(index);
                     if (wpos != llList2String(entry, 9) || wrot != llList2String(entry, 10))
                     {
-                        prop_update_worn(index, wpos, wrot);
+                        prop_update(index, 9, [wpos, wrot]);
                         llSay(0, "PROP fit saved: " + wpos + " / " + wrot
                             + " ('" + name + "').");
                     }

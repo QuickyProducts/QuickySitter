@@ -4,6 +4,9 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Unreleased
+- **Fix** — On furniture with many poses and props the prop script could run out of memory and crash on 1.25 (visible as "Stack-Heap Collision" in chat, and the Quicky HUD no longer attached). The script now uses less memory than 1.24 did
+
 ## Version 1.25
 *Version numbers of QuickySitter and the QuickySitter Pro creator kit are
 unified from this release on — QuickySitter jumps from 1.04 to 1.25 to meet
