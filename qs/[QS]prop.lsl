@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.26";
+string version = "1.25";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -90,7 +90,7 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS;
 list SITTER_POSES;
-// Attach-point lookup, memory-flattened (1.26): the former 80-slot
+// Attach-point lookup, memory-flattened (1.25): the former 80-slot
 // ATTACH_POINTS list (40 int/name pairs, ~2 KB resident heap) sat in
 // globals for the one get_point() call per rez. Now one CSV string;
 // get_point parses it transiently so the list cost exists only during
@@ -228,7 +228,7 @@ integer prop_add(string trig, integer type, string obj, string grp,
     return idx;
 }
 
-// Generic field update on an existing prop row (1.26 memory trim —
+// Generic field update on an existing prop row (1.25 memory trim —
 // replaces the four per-field updaters: pos/rot from SAVEPROP, pt/prs
 // from 90280 re-attach, scale from QSSAVESCALE, worn from QSSAVEWORN).
 // Pads to 11 fields first so index-writes land correctly on rows
