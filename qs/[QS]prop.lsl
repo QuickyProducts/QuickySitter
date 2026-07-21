@@ -191,11 +191,40 @@ list prop_load(integer idx)
         ["\t"], []);
 }
 
+// Validated read of a qs:prop:trig:<trig> index row (1.25). A crash
+// mid-write (early-1.25 Stack-Heap Collision inside the 90280 handler)
+// can leave the row poisoned or stale; the plain (integer) cast turned
+// such garbage into index 0 and rezzed the wrong prop. Every element
+// must be a well-formed in-range integer whose row's trig field matches
+// the requested trigger; otherwise the poisoned key is deleted and []
+// returned, so callers treat the trigger as absent and 90280 re-creates
+// it via prop_add (self-heal). Transient list only, no resident state.
+list prop_trig_indices(string trig)
+{
+    list idx = prop_index_list(LSD_TRIG_PFX + trig);
+    integer n = llGetListLength(idx);
+    integer i;
+    for (i = 0; i < n; i++)
+    {
+        string s = llList2String(idx, i);
+        integer v = (integer)s;
+        if ((string)v != s || v < 0 || v >= prop_count_cached
+            || llList2String(prop_load(v), 0) != trig)
+        {
+            llLinksetDataDelete(LSD_TRIG_PFX + trig);
+            Out(0, "WARNING: dropped corrupted prop index for '" + trig
+                + "' (self-heal).");
+            return [];
+        }
+    }
+    return idx;
+}
+
 // Return the first index matching `trig`, or -1 if no entry.
 // (90280 dynamic-attach uses this for idempotent re-attach.)
 integer prop_find_trigger(string trig)
 {
-    list idx = prop_index_list(LSD_TRIG_PFX + trig);
+    list idx = prop_trig_indices(trig);
     if (llGetListLength(idx) == 0) return -1;
     return (integer)llList2String(idx, 0);
 }
@@ -350,7 +379,7 @@ remove_all_props()
 
 rez_props_by_trigger(string pose_name)
 {
-    list idx_strs = prop_index_list(LSD_TRIG_PFX + pose_name);
+    list idx_strs = prop_trig_indices(pose_name);
     integer n = llGetListLength(idx_strs);
     integer i;
     for (i = 0; i < n; i++)
@@ -361,7 +390,7 @@ rez_props_by_trigger(string pose_name)
 
 list get_props_by_pose(string pose_name)
 {
-    list idx_strs = prop_index_list(LSD_TRIG_PFX + pose_name);
+    list idx_strs = prop_trig_indices(pose_name);
     integer n = llGetListLength(idx_strs);
     list result;
     integer i;
