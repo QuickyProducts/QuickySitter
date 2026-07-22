@@ -819,7 +819,12 @@ default
                 {
                     list entry = prop_load(i);
                     string trig = llList2String(entry, 0);
-                    if (llSubStringIndex(trig, msg + "|") == 0)
+                    // QSDYN rows are internal 90280 attach registrations
+                    // (re-created on demand by the HUD attach path); a
+                    // dumped line would round-trip into customer AVpos
+                    // notecards as a bogus attachment prop.
+                    if (llSubStringIndex(trig, msg + "|") == 0
+                        && element(llList2String(entry, 3), 1) != "QSDYN")
                     {
                         string type = (string)llList2Integer(entry, 1);
                         if (type == "0")
@@ -892,15 +897,26 @@ default
                     vector target_pos = (llList2Vector(details, 2) - llList2Vector(details, 0)) / f;
                     prop_update(index, 4, [(string)target_pos, (string)target_rot]);
                     list entry = prop_load(index);
-                    string type = (string)llList2Integer(entry, 1);
-                    if (type == "0")
+                    string grp = llList2String(entry, 3);
+                    if (element(grp, 1) == "QSDYN")
                     {
-                        type = "";
+                        // Internal 90280 attach row: the new offsets are
+                        // persisted for re-attach, but the row must never
+                        // round-trip into AVpos, so no paste-format line
+                        // ([DUMP] skips QSDYN for the same reason).
+                        llSay(0, "PROP Saved to memory (internal attach row, no AVpos line).");
                     }
-                    string trig = llList2String(entry, 0);
-                    string grp  = llList2String(entry, 3);
-                    string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(entry, 6) + prop_line_suffix(entry);
-                    llSay(0, text);
+                    else
+                    {
+                        string type = (string)llList2Integer(entry, 1);
+                        if (type == "0")
+                        {
+                            type = "";
+                        }
+                        string trig = llList2String(entry, 0);
+                        string text = "PROP Saved to memory, SITTER " + element(trig, 0) + ": PROP" + type + " " + element(trig, 1) + "|" + name + "|" + element(grp, 1) + "|" + (string)target_pos + "|" + (string)target_rot + "|" + llList2String(entry, 6) + prop_line_suffix(entry);
+                        llSay(0, text);
+                    }
                 }
             }
             else
