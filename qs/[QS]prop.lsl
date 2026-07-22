@@ -90,15 +90,6 @@ list sequential_prop_groups;
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS;
 list SITTER_POSES;
-// Attach-point lookup, memory-flattened (1.25): the former 80-slot
-// ATTACH_POINTS list (40 int/name pairs, ~2 KB resident heap) sat in
-// globals for the one get_point() call per rez. Now one CSV string;
-// get_point parses it transiently so the list cost exists only during
-// the lookup. Order matters: first substring match wins (longest/most
-// specific names before their prefixes, as before).
-// The numbers are the ATTACH_* constant values (llAttachToAvatarTemp
-// wire codes) in the same order as the old pair list.
-string ATTACH_CSV = "1,chest,2,head,3,left shoulder,4,right shoulder,5,left hand,6,right hand,7,left foot,8,right foot,9,back,10,pelvis,11,mouth,12,chin,13,left ear,14,right ear,15,left eye,16,right eye,17,nose,18,right upper arm,19,right lower arm,20,left upper arm,21,left lower arm,22,right hip,23,right upper leg,24,right lower leg,25,left hip,26,left upper leg,27,left lower leg,28,stomach,29,left pectoral,30,right pectoral,31,HUD center 2,32,HUD top right,33,HUD top,34,HUD top left,35,HUD center,36,HUD bottom left,37,HUD bottom,38,HUD bottom right,39,neck,40,avatar center";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
@@ -136,16 +127,20 @@ integer get_number_of_scripts()
 
 integer get_point(string text)
 {
-    // Transient parse of ATTACH_CSV (see global's comment) — the pair
-    // list lives only for this call instead of squatting in the heap.
-    list pts = llCSV2List(ATTACH_CSV);
+    // Attach-point lookup, second memory pass (1.25): the name list is
+    // a function-local literal (no global => no resident heap copy),
+    // names-only and pre-uppercased (no llToUpper alloc per loop turn).
+    // Positions are contiguous: value = list index + 1 = the ATTACH_*
+    // constant (chest=1 ... avatar center=40), verified against the
+    // stock pair list. Order matters: first substring match wins.
+    list pts = llCSV2List("CHEST,HEAD,LEFT SHOULDER,RIGHT SHOULDER,LEFT HAND,RIGHT HAND,LEFT FOOT,RIGHT FOOT,BACK,PELVIS,MOUTH,CHIN,LEFT EAR,RIGHT EAR,LEFT EYE,RIGHT EYE,NOSE,RIGHT UPPER ARM,RIGHT LOWER ARM,LEFT UPPER ARM,LEFT LOWER ARM,RIGHT HIP,RIGHT UPPER LEG,RIGHT LOWER LEG,LEFT HIP,LEFT UPPER LEG,LEFT LOWER LEG,STOMACH,LEFT PECTORAL,RIGHT PECTORAL,HUD CENTER 2,HUD TOP RIGHT,HUD TOP,HUD TOP LEFT,HUD CENTER,HUD BOTTOM LEFT,HUD BOTTOM,HUD BOTTOM RIGHT,NECK,AVATAR CENTER");
     text = llToUpper(text);
     integer i;
-    for (i = 1; i < llGetListLength(pts); i = i + 2)
+    for (i = 0; i < 40; i++)
     {
-        if (llSubStringIndex(text, llToUpper(llList2String(pts, i))) != -1)
+        if (llSubStringIndex(text, llList2String(pts, i)) != -1)
         {
-            return (integer)llList2String(pts, i - 1);
+            return i + 1;
         }
     }
     return 0;
@@ -212,8 +207,7 @@ list prop_trig_indices(string trig)
             || llList2String(prop_load(v), 0) != trig)
         {
             llLinksetDataDelete(LSD_TRIG_PFX + trig);
-            Out(0, "WARNING: dropped corrupted prop index for '" + trig
-                + "' (self-heal).");
+            Out(0, "WARN: bad prop index '" + trig + "' dropped.");
             return [];
         }
     }
@@ -904,7 +898,7 @@ default
                         // persisted for re-attach, but the row must never
                         // round-trip into AVpos, so no paste-format line
                         // ([DUMP] skips QSDYN for the same reason).
-                        llSay(0, "PROP Saved to memory (internal attach row, no AVpos line).");
+                        llSay(0, "PROP Saved to memory (internal attach row).");
                     }
                     else
                     {
