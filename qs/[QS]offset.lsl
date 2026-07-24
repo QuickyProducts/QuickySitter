@@ -6,11 +6,13 @@
  *   1. LSD QSO:<short>:<slot>:<pose>  (persistent across script reset
  *      and re-rez). Used when llLinksetDataAvailable() leaves room for
  *      at least LSD_MIN_FREE_POSES more entries (after honoring
- *      QPP_CFG:RESERVE if QuickyHUD's hudprop set one). Keys are
- *      written UNPROTECTED: the proprietary QuickyHUD/QuickyProp
- *      LSD_PASS is intentionally not in this MPL-licensed source.
- *      QPP_CFG:* keys (license, adjustmode, reserve) remain protected
- *      by hudproxy/hudprop. Pose offsets aren't security-sensitive
+ *      QPP_CFG:RESERVE if the QuickyHUD kit's hudadmin set one). Keys
+ *      are written UNPROTECTED: the proprietary QuickyHUD LSD_PASS is
+ *      intentionally not in this MPL-licensed source.
+ *      HUD-side, only the license token remains protected; ADJUSTMODE
+ *      and RESERVE are written unprotected since kit 1.25 (hudadmin
+ *      migrates legacy protected entries) precisely so this script
+ *      can read them. Pose offsets aren't security-sensitive
  *      (they're sit positions), so unprotected reads/writes are
  *      acceptable.
  *
@@ -77,9 +79,10 @@ integer QS_ALIVE_CENSUS = 90079;
 // LSD_PASS-protected and we don't have the password.
 string LSD_PREFIX = "QSO:";
 
-// QuickyHUD's hudprop (when present) writes the bytes-to-keep-free
-// budget here. Reads are unprotected so we can honor it without the
-// password. Default: nothing reserved.
+// The QuickyHUD kit's hudadmin (when present) writes the bytes-to-
+// keep-free budget here, unprotected since kit 1.25 (a protected key
+// would read as "" here; hudadmin migrates legacy protected entries).
+// Default: nothing reserved.
 string LSD_RESERVE_KEY = "QPP_CFG:RESERVE";
 
 // Conservative per-entry size estimate for the threshold check. Each
