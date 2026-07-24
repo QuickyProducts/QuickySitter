@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.25";
+string version = "1.26";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -582,6 +582,14 @@ start_boot()
     boot_failed = FALSE;
     reused_variable = 0;
     last_pct = -1;   // force first qs_loading_text() to paint
+    // Authoring lock (1.26) is notecard-derived like the qs:cfg:*
+    // settings, but lives under qs:hud: (whose other keys belong to
+    // hudadmin and must survive), so the re-seed wipe pattern doesn't
+    // cover it. Clear it at parse start on BOTH re-seed paths (notecard
+    // change in-world and offline swap detected in state_entry): an
+    // AVpos whose AUTHORING line was removed must unlock. The parser
+    // re-writes the key when the line is (still) there.
+    llLinksetDataDelete("qs:hud:authoring");
     Out(2, "Loading from " + notecard_name + "...");
     notecard_query = llGetNotecardLine(notecard_name, 0);
 }
@@ -1192,6 +1200,16 @@ default
                     {
                         Readout_Say("VERBOSE " + vstr);
                     }
+                    // AUTHORING is global like VERBOSE; emit only the
+                    // non-default "locked" so a dump of a locked piece
+                    // round-trips the lock when pasted into a fresh
+                    // AVpos. Via the menus [DUMP] is unreachable while
+                    // locked (adjuster gate); this fires for dumps
+                    // triggered by other 90098 senders.
+                    if (llLinksetDataRead("qs:hud:authoring") == "locked")
+                    {
+                        Readout_Say("AUTHORING locked");
+                    }
                 }
                 Readout_Say("");
                 if (total_channels > 1 || llList2String(data, 5) != "")
@@ -1344,6 +1362,26 @@ default
             // so notecards stay portable in the read direction.
             verbose = (integer)part0;
             llLinksetDataWrite("qs:cfg:verbose", part0);
+            return;
+        }
+        if (command == "AUTHORING")
+        {
+            // QS extension (1.26): creator authoring lock, VERBOSE-style
+            // token -> LSD write. "AUTHORING locked" writes
+            // qs:hud:authoring, which the authoring_locked() readers
+            // (sitB, adjuster, cross-repo hudproxy/hudadmin) gate on;
+            // "AUTHORING open" is accepted for explicitness and equals
+            // the default (start_boot cleared the key at parse start).
+            // The AVpos notecard is the single source of truth: whoever
+            // can edit it owns the furniture anyway (threat model
+            // revised 2026-07-24, see PROTOCOL.md "Authoring lock").
+            // Stock AVsitter ignores the unknown command.
+            string a = llToLower(part0);
+            if (a == "locked" || a == "open")
+                llLinksetDataWrite("qs:hud:authoring", a);
+            else
+                Out(0, "WARN: AUTHORING expects 'locked' or 'open', got '"
+                    + part0 + "' (line ignored).");
             return;
         }
         if (command == "BRAND")  { BRAND = part0; return; }

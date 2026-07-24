@@ -253,70 +253,57 @@ Second member of the adjust-access family after the 1.25 Adjust ACL
 sitters may author", the lock answers "may this piece be authored at all"
 and can never be overridden by the ACL.
 
-### State contract
+### The AVpos token is the single source of truth
 
-| Key | Values | Writer | Readers |
-|-----|--------|--------|---------|
-| `qs:hud:authoring` (plain) | `"open"` / `"locked"` | hudadmin (QuickyHUD repo, `ensureAuthoringFlag`) | sitB + adjuster `authoring_locked()`, hudproxy |
-| `QPP_CFG:AUTHORING` (protected, `LSD_PASS`) | same | hudadmin | hudadmin only |
+```
+AUTHORING locked
+```
 
-Reader semantics (`authoring_locked()` in sitB and adjuster, both check
-independently per the MENU_SPEC invariant):
+VERBOSE-style token: boot parses it at seed and writes the plain LSD key
+`qs:hud:authoring` (`"locked"`; `AUTHORING open` is accepted for
+explicitness and equals the default; any other value warns at `Out(0)`
+and is ignored). `start_boot` clears the key at parse start on both
+re-seed paths, so removing the line and re-saving the notecard unlocks.
+Every reader gates on the key directly and independently:
 
-- `"open"` → authoring allowed (subject to the adjust ACL as before)
-- `"locked"` → refused for everyone, owner included
-- absent → **fail closed** when the QuickyHUD pipeline is present (probe:
-  `QPP_CFG:ADJUSTMODE` key existence, the established hudproxy-presence
-  signal); open otherwise, so plain OSS furniture without the HUD keeps
-  stock behavior.
+- sitB + adjuster `authoring_locked()` (render, dispatch, 90055
+  default-persist write), per the MENU_SPEC invariant
+- hudproxy (cross-repo): hides the Switch-ADJUSTMODE settings entry
+  (except while ADJUSTMODE is On, so the instant-Off path stays
+  reachable) and refuses 90266 `"On"`
+- hudadmin (cross-repo): refuses the 90267 ADJUSTMODE confirm with a
+  notice dialog
 
-### Why this shape (threat model)
+Absent key or any other value = open; unlocked furniture behaves exactly
+as 1.25. Stock AVsitter parses `AUTHORING` as an unknown command and
+ignores it, so notecards stay portable.
 
-Furniture is typically sold modify, quicky-sitter is public source, and an
-`llLinksetDataReset()` from a customer-added script wipes even protected
-keys. So the pass (`LSD_PASS`) stays private to the QuickyHUD repo, the
-public readers only ever read the plain mirror, and tampering degrades
-toward LOCKED:
+### Threat model (revised 2026-07-24)
 
-- **LSD reset:** mirror + anchor gone → readers see absent + HUD present =
-  locked; hudadmin's `linkset_data` handler re-arms both keys from its RAM
-  cache immediately.
-- **Mirror deleted or forged:** hudadmin re-asserts on the `linkset_data`
-  event and on every `ensureLicenseFlag` call site.
-- **Anchor:** protected; a customer script cannot write or delete it
-  without the private pass, and it survives script resets, so hudadmin
-  recovers its RAM cache after a reset.
-- **Own AVpos / replaced notecard:** the lock lives outside the seed wipe
-  pattern and outside the notecard; a re-seed changes nothing.
+The lock aims at the MENU surface, not at scripted attackers. On modify
+furniture anyone who can edit or swap the AVpos can just as well replace
+the entire script set (or read the notecard from a script), so guarding
+the lock against notecard tampering buys nothing: earlier drafts with a
+protected anchor key, installer-gated adoption and linkset_data re-arm
+were deliberately dropped for this reason. What the design still gives:
 
-Residual (documented, accepted): a determined owner who combines an LSD
-reset with a full script reset (hudadmin amnesia) lands in the absent
-state, which the migration heal below turns back into `"open"` on the next
-hudadmin boot. That effort tier equals replacing the (open-source) sitter
-scripts with a self-patched build, which no in-linkset mechanism can
-prevent on modify furniture; the lock's bar is "no menu-only and no
-single-step-script bypass", not cryptographic proof.
-
-### Lock and unlock (creator toggle)
-
-HUD settings dialog entry `AUTHORING lock: currently ...`, rendered by
-hudproxy only while the creator installer (`[QS]installWithLicense`, the
-same marker the update-targeting gate uses) is resident in the prim;
-routed as msg `"AUTHLOCK"` over the existing 90267 settings wire to
-hudadmin's confirm dialog, which re-checks the marker at action time.
-While the marker is present the creator also keeps ADJUSTMODE access on
-their own locked test pieces (hudproxy settings entry + 90266 "On" +
-hudadmin confirm all honor the override); remove the installer to
-experience the piece exactly as a customer will. Locking tears an active
-ADJUSTMODE down (90266 "Off").
+- **Menus:** no path through pose menu, ADJUST submenu, `/5 helper` chat
+  command or HUD settings reaches authoring on a locked piece, for the
+  owner included.
+- **LSD wipe (`llLinksetDataReset`):** boot re-seeds everything from the
+  notecard, which restores the lock together with the pose data; no
+  extra machinery needed.
+- **`[DUMP]`:** unreachable on a locked piece (adjuster gate), so the
+  menu path never hands out the AVpos content. Boot's dump engine emits
+  the `AUTHORING locked` line (global settings section, next to
+  VERBOSE) so any dump taken of a locked piece round-trips the lock.
 
 ### Migration
 
-Absent anchor at hudadmin boot heals to `"open"`: existing pre-1.26
-furniture keeps its status quo on the first boot after an update, without
-any creator action. A lock only ever appears through the explicit creator
-toggle, so no existing piece can silently flip to locked. Pieces that
-never receive 1.26 scripts are untouched by construction.
+Nothing to migrate: the key only exists where a creator put the
+`AUTHORING locked` line into the AVpos. Existing furniture and plain OSS
+builds have no line, read as open, and behave exactly as before; pieces
+that never receive 1.26 scripts are untouched by construction.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 

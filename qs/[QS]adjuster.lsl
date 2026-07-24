@@ -114,19 +114,13 @@ integer adjust_allowed(key av)
 // [SAVE], the ADJUSTMODE default-persist write) for EVERYONE, owner
 // included: the adjust ACL above answers "who of the sitters may
 // author", this answers "may this piece be authored at all".
-// qs:hud:authoring is written only by the licensed HUD side (hudadmin,
-// see STORAGE.md): "open" allows, "locked" refuses; an absent key fails
-// closed when the QuickyHUD pipeline is present (QPP_CFG:ADJUSTMODE key
-// existence, the established hudproxy-presence probe) so a wiped LSD
-// store degrades toward locked. No HUD in the linkset: absent = open
-// (plain OSS furniture keeps stock behavior). Personal pose offsets
-// (90262 path) are not authoring and stay available.
+// qs:hud:authoring is seeded by [QS]boot from the AVpos "AUTHORING
+// locked" line (single source of truth, see the sitB header and
+// STORAGE.md); absent or any other value means open. Personal pose
+// offsets (90262 path) are not authoring and stay available.
 integer authoring_locked()
 {
-    string v = llLinksetDataRead("qs:hud:authoring");
-    if (v == "open") return FALSE;
-    if (v == "locked") return TRUE;
-    return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)) > 0;
+    return llLinksetDataRead("qs:hud:authoring") == "locked";
 }
 
 // ========================================================================

@@ -235,27 +235,21 @@ integer rlv_present()
 // authoring surface ([HELPER]/[QUICKYHUD] entries, the ADJUSTMODE
 // pose-menu enrichment [NEW]/[DUMP]/[SAVE]) even for the furniture
 // OWNER, so creators can ship customer furniture whose poses cannot be
-// re-authored. Personal pose offsets (the HUD's normal mode, 90262
-// path) are NOT authoring and stay available. State lives in
-// qs:hud:authoring, written only by the licensed HUD side (hudadmin in
-// the QuickyHUD repo, see STORAGE.md): "open" means authoring allowed,
-// "locked" means locked for everyone via the sitter menus (the licensed
-// creator keeps a HUD-side path plus the unlock toggle). An ABSENT key
-// fails closed when the QuickyHUD pipeline is present, probed via the
-// QPP_CFG:ADJUSTMODE key existence (the same probe the [QUICKYHUD]
-// render gate uses): a customer script wiping LSD degrades toward
-// LOCKED, never toward unlocked, and the HUD side re-arms the true
-// state from its protected anchor. Without any HUD in the linkset the
-// absent key means open, so plain OSS furniture keeps stock behavior.
+// re-authored via the menus. Personal pose offsets (the HUD's normal
+// mode, 90262 path) are NOT authoring and stay available. State is the
+// qs:hud:authoring LSD key, seeded by [QS]boot from the AVpos
+// "AUTHORING locked" line (see STORAGE.md); absent or any other value
+// means open. The AVpos notecard is deliberately the single source of
+// truth: on modify furniture anyone who can swap the notecard can
+// replace the whole script set anyway, so the lock aims at the menu
+// surface, not at scripted attackers. After an LSD wipe boot re-seeds
+// from the notecard, which restores the lock with everything else.
 // MENU_SPEC invariant: sitB and adjuster refuse independently. Defined
 // above animation_menu (its first caller; LSL has no forward function
 // references).
 integer authoring_locked()
 {
-    string v = llLinksetDataRead("qs:hud:authoring");
-    if (v == "open") return FALSE;
-    if (v == "locked") return TRUE;
-    return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)) > 0;
+    return llLinksetDataRead("qs:hud:authoring") == "locked";
 }
 
 integer animation_menu(integer animation_menu_function)
