@@ -4,6 +4,9 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Version 1.26
+- **Feature** — Authoring lock: creators can now lock the pose-authoring tools on furniture they sell. On a locked piece the [HELPER] and [QUICKYHUD] menu entries, the HUD adjust mode and the [NEW]/[DUMP]/[SAVE] buttons are unavailable to everyone, including the buyer, so the creator's pose setup cannot be copied or changed. Sitters keep the full pose menus and their personal pose offsets. The lock is set and removed with the QuickySitter Pro creator kit; unlocked furniture behaves exactly as before
+
 ## Version 1.25
 *Version numbers of QuickySitter and the QuickySitter Pro creator kit are
 unified from this release on — QuickySitter jumps from 1.04 to 1.25 to meet

@@ -241,6 +241,83 @@ QSALIVE stays — but only for the **sitter count / version / caps** payload
 plugins need for SITTERS list-sizing. Presence is no longer part of it;
 the 90097 reply no longer triggers any presence re-announce.
 
+## Authoring lock: `qs:hud:authoring` (cross-repo, 1.26)
+
+Creators can ship customer furniture where even the furniture OWNER cannot
+reach the authoring surface: the `[HELPER]`/`[QUICKYHUD]` adjust entries,
+QuickyHUD ADJUSTMODE, and `[NEW]`/`[DUMP]`/`[SAVE]` (including adjuster's
+ADJUSTMODE default-persist write on the 90055 path). Personal pose offsets
+(the HUD's normal mode, 90262 path) are NOT authoring and stay available.
+Second member of the adjust-access family after the 1.25 Adjust ACL
+(`qs:sec:adjust`); the two are orthogonal: the ACL answers "who of the
+sitters may author", the lock answers "may this piece be authored at all"
+and can never be overridden by the ACL.
+
+### State contract
+
+| Key | Values | Writer | Readers |
+|-----|--------|--------|---------|
+| `qs:hud:authoring` (plain) | `"open"` / `"locked"` | hudadmin (QuickyHUD repo, `ensureAuthoringFlag`) | sitB + adjuster `authoring_locked()`, hudproxy |
+| `QPP_CFG:AUTHORING` (protected, `LSD_PASS`) | same | hudadmin | hudadmin only |
+
+Reader semantics (`authoring_locked()` in sitB and adjuster, both check
+independently per the MENU_SPEC invariant):
+
+- `"open"` → authoring allowed (subject to the adjust ACL as before)
+- `"locked"` → refused for everyone, owner included
+- absent → **fail closed** when the QuickyHUD pipeline is present (probe:
+  `QPP_CFG:ADJUSTMODE` key existence, the established hudproxy-presence
+  signal); open otherwise, so plain OSS furniture without the HUD keeps
+  stock behavior.
+
+### Why this shape (threat model)
+
+Furniture is typically sold modify, quicky-sitter is public source, and an
+`llLinksetDataReset()` from a customer-added script wipes even protected
+keys. So the pass (`LSD_PASS`) stays private to the QuickyHUD repo, the
+public readers only ever read the plain mirror, and tampering degrades
+toward LOCKED:
+
+- **LSD reset:** mirror + anchor gone → readers see absent + HUD present =
+  locked; hudadmin's `linkset_data` handler re-arms both keys from its RAM
+  cache immediately.
+- **Mirror deleted or forged:** hudadmin re-asserts on the `linkset_data`
+  event and on every `ensureLicenseFlag` call site.
+- **Anchor:** protected; a customer script cannot write or delete it
+  without the private pass, and it survives script resets, so hudadmin
+  recovers its RAM cache after a reset.
+- **Own AVpos / replaced notecard:** the lock lives outside the seed wipe
+  pattern and outside the notecard; a re-seed changes nothing.
+
+Residual (documented, accepted): a determined owner who combines an LSD
+reset with a full script reset (hudadmin amnesia) lands in the absent
+state, which the migration heal below turns back into `"open"` on the next
+hudadmin boot. That effort tier equals replacing the (open-source) sitter
+scripts with a self-patched build, which no in-linkset mechanism can
+prevent on modify furniture; the lock's bar is "no menu-only and no
+single-step-script bypass", not cryptographic proof.
+
+### Lock and unlock (creator toggle)
+
+HUD settings dialog entry `AUTHORING lock: currently ...`, rendered by
+hudproxy only while the creator installer (`[QS]installWithLicense`, the
+same marker the update-targeting gate uses) is resident in the prim;
+routed as msg `"AUTHLOCK"` over the existing 90267 settings wire to
+hudadmin's confirm dialog, which re-checks the marker at action time.
+While the marker is present the creator also keeps ADJUSTMODE access on
+their own locked test pieces (hudproxy settings entry + 90266 "On" +
+hudadmin confirm all honor the override); remove the installer to
+experience the piece exactly as a customer will. Locking tears an active
+ADJUSTMODE down (90266 "Off").
+
+### Migration
+
+Absent anchor at hudadmin boot heals to `"open"`: existing pre-1.26
+furniture keeps its status quo on the first boot after an update, without
+any creator action. A lock only ever appears through the explicit creator
+toggle, so no existing piece can silently flip to locked. Pieces that
+never receive 1.26 scripts are untouched by construction.
+
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 
 Adding a top-level menu entry for a plugin used to require editing

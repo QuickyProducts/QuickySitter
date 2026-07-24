@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.25";
+string version = "1.26";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -106,6 +106,27 @@ integer adjust_allowed(key av)
     if (mode == "ALL") return TRUE;
     if (mode == "GROUP") return llSameGroup(av);
     return FALSE;
+}
+
+// Authoring lock (1.26): mirror of [QS]sitB's authoring_locked(); the
+// MENU_SPEC both-scripts-refuse invariant extends to this gate. Locks
+// the authoring surface ([HELPER]/[QUICKYHUD] toggles, [NEW]/[DUMP]/
+// [SAVE], the ADJUSTMODE default-persist write) for EVERYONE, owner
+// included: the adjust ACL above answers "who of the sitters may
+// author", this answers "may this piece be authored at all".
+// qs:hud:authoring is written only by the licensed HUD side (hudadmin,
+// see STORAGE.md): "open" allows, "locked" refuses; an absent key fails
+// closed when the QuickyHUD pipeline is present (QPP_CFG:ADJUSTMODE key
+// existence, the established hudproxy-presence probe) so a wiped LSD
+// store degrades toward locked. No HUD in the linkset: absent = open
+// (plain OSS furniture keeps stock behavior). Personal pose offsets
+// (90262 path) are not authoring and stay available.
+integer authoring_locked()
+{
+    string v = llLinksetDataRead("qs:hud:authoring");
+    if (v == "open") return FALSE;
+    if (v == "locked") return TRUE;
+    return llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1)) > 0;
 }
 
 // ========================================================================
@@ -650,6 +671,11 @@ default
             {
                 if ((msg = llList2String(data, 1)) == "[DUMP]")
                 {
+                    // Authoring lock (1.26): silent gate, mirrors sitB's
+                    // render gate. The button is never rendered when
+                    // locked; a stale or forged 90100 must not dump the
+                    // AVpos content to a locked-out user.
+                    if (authoring_locked()) return;
                     if (id != llGetOwner())
                     {
                         llRegionSayTo(id, 0, "Dumping settings to Owner");
@@ -682,6 +708,8 @@ default
                 }
                 if (msg == "[NEW]")
                 {
+                    // Authoring lock (1.26): silent gate, see [DUMP] above.
+                    if (authoring_locked()) return;
                     controller = llList2Key(data, 2);
                     active_sitter = llList2Integer(data, 0);
                     // sitB ≥ 0.902 includes current_menu as field 3. Older
@@ -695,6 +723,10 @@ default
                 }
                 if (msg == "[SAVE]")
                 {
+                    // Authoring lock (1.26): silent gate, see [DUMP] above.
+                    // Blocks the pose-default write path; personal offsets
+                    // ([QS]offset, 90262) are unaffected.
+                    if (authoring_locked()) return;
                     for (i = 0; i < llGetListLength(SITTERS); i++)
                     {
                         if (llList2String(SITTER_POSES, i) != "")
@@ -780,6 +812,17 @@ default
                             ["OK"], -3675);
                         return;
                     }
+                    // Authoring lock (1.26): refuses even avatars passing
+                    // the adjust ACL, owner included. Explicit dialog (not
+                    // silent) because this handler is also reachable via
+                    // the '/5 helper' chat command, where the user never
+                    // saw a hidden button.
+                    if (authoring_locked()) {
+                        llDialog(id,
+                            "Authoring is locked by the creator of this furniture.",
+                            ["OK"], -3675);
+                        return;
+                    }
                     controller = id;
                     OLD_HELPER_METHOD = (integer)llList2String(data, 3);
                     toggle_helper_mode();
@@ -792,7 +835,9 @@ default
                     // globally. Mirrors the [HELPER] gate above; silent
                     // return matches sitB's dispatch-gate style (the
                     // button is never rendered for refused avatars).
-                    if (!adjust_allowed(id)) return;
+                    // Authoring lock (1.26): same silent style; locked
+                    // pieces refuse everyone, owner included.
+                    if (!adjust_allowed(id) || authoring_locked()) return;
                     controller = id;
                     // Arm the comm_channel listen so the [NEW] sub-flow's
                     // sub-dialogs (new_menu → [POSE]/[SYNC]/[PROP]/[FACE]/
@@ -856,7 +901,12 @@ default
                 // settings dialog stays consistent with the persistence
                 // behavior; helper_method is only the auto-Off-on-stand-up
                 // gate in end_helper_mode.
-                if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
+                // Authoring lock (1.26): a lock arriving while ADJUSTMODE
+                // is still On must not keep persisting new pose DEFAULTS
+                // off HUD nudges. Personal offsets (90262) are separate
+                // and stay writable.
+                if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On"
+                    && !authoring_locked())
                 {
                     qs_save_pose_offset(one,
                         llList2String(data, 0),

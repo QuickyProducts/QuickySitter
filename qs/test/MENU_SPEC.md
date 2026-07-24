@@ -139,6 +139,21 @@ written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
 (= pre-1.25 behavior). Missing either gate = the double-dialog / global-toggle
 regression. The rebuild must keep both.
 
+**Authoring-lock invariant (1.26):** when `authoring_locked()` is TRUE
+(`qs:hud:authoring` == `"locked"`, or the key is absent while the QuickyHUD
+pipeline is present via the `QPP_CFG:ADJUSTMODE` existence probe), the entire
+authoring surface MUST be refused for every avatar, the OWNER included:
+`[HELPER]`/`[QUICKYHUD]` render + dispatch, `[NEW]`/`[DUMP]`/`[SAVE]` render
+(sitB) and action (adjuster), and adjuster's ADJUSTMODE default-persist write
+(90055 path). sitB AND adjuster each check independently, exactly like the
+adjust-access invariant above; the same applies cross-repo to hudproxy
+(Switch-ADJUSTMODE settings entry) and hudadmin (90267 ADJUSTMODE confirm),
+which additionally allow a valid creator license (`isLicensed()`) to pass.
+`[DONE]` stays rendered in an already-active mode so the user can exit.
+Personal pose offsets (90262 path) are NOT authoring and MUST stay available.
+The adjust ACL (`qs:sec:adjust`) can never override the lock: ACL answers
+"who of the sitters", the lock answers "may this piece be authored at all".
+
 **`[DONE]` vs `[BACK]` (regression history):** `[DONE]` is *deliberately separate*
 from `[BACK]` so a user navigating up out of a deep pose-submenu doesn't
 accidentally tear down the mode ([sitB:256-279](../[QS]sitB.lsl) comment). Pre-0.992
