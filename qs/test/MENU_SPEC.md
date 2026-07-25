@@ -139,7 +139,7 @@ written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
 (= pre-1.25 behavior). Missing either gate = the double-dialog / global-toggle
 regression. The rebuild must keep both.
 
-**Authoring-lock invariant (1.26):** when `authoring_locked()` is TRUE
+**Authoring-lock invariant (1.255):** when `authoring_locked()` is TRUE
 (`qs:hud:authoring` == `"locked"`, seeded by boot from the AVpos
 `AUTHORING locked` line, the single source of truth), the entire
 authoring surface MUST be refused for every avatar, the OWNER included:

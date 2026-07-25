@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.26";
+string version = "1.255";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -108,7 +108,7 @@ integer adjust_allowed(key av)
     return FALSE;
 }
 
-// Authoring lock (1.26): mirror of [QS]sitB's authoring_locked(); the
+// Authoring lock (1.255): mirror of [QS]sitB's authoring_locked(); the
 // MENU_SPEC both-scripts-refuse invariant extends to this gate. Locks
 // the authoring surface ([HELPER]/[QUICKYHUD] toggles, [NEW]/[DUMP]/
 // [SAVE], the ADJUSTMODE default-persist write) for EVERYONE, owner
@@ -665,7 +665,7 @@ default
             {
                 if ((msg = llList2String(data, 1)) == "[DUMP]")
                 {
-                    // Authoring lock (1.26): silent gate, mirrors sitB's
+                    // Authoring lock (1.255): silent gate, mirrors sitB's
                     // render gate. The button is never rendered when
                     // locked; a stale or forged 90100 must not dump the
                     // AVpos content to a locked-out user.
@@ -702,7 +702,7 @@ default
                 }
                 if (msg == "[NEW]")
                 {
-                    // Authoring lock (1.26): silent gate, see [DUMP] above.
+                    // Authoring lock (1.255): silent gate, see [DUMP] above.
                     if (authoring_locked()) return;
                     controller = llList2Key(data, 2);
                     active_sitter = llList2Integer(data, 0);
@@ -717,7 +717,7 @@ default
                 }
                 if (msg == "[SAVE]")
                 {
-                    // Authoring lock (1.26): silent gate, see [DUMP] above.
+                    // Authoring lock (1.255): silent gate, see [DUMP] above.
                     // Blocks the pose-default write path; personal offsets
                     // ([QS]offset, 90262) are unaffected.
                     if (authoring_locked()) return;
@@ -806,7 +806,7 @@ default
                             ["OK"], -3675);
                         return;
                     }
-                    // Authoring lock (1.26): refuses even avatars passing
+                    // Authoring lock (1.255): refuses even avatars passing
                     // the adjust ACL, owner included. Explicit dialog (not
                     // silent) because this handler is also reachable via
                     // the '/5 helper' chat command, where the user never
@@ -829,7 +829,7 @@ default
                     // globally. Mirrors the [HELPER] gate above; silent
                     // return matches sitB's dispatch-gate style (the
                     // button is never rendered for refused avatars).
-                    // Authoring lock (1.26): same silent style; locked
+                    // Authoring lock (1.255): same silent style; locked
                     // pieces refuse everyone, owner included.
                     if (!adjust_allowed(id) || authoring_locked()) return;
                     controller = id;
@@ -895,7 +895,7 @@ default
                 // settings dialog stays consistent with the persistence
                 // behavior; helper_method is only the auto-Off-on-stand-up
                 // gate in end_helper_mode.
-                // Authoring lock (1.26): a lock arriving while ADJUSTMODE
+                // Authoring lock (1.255): a lock arriving while ADJUSTMODE
                 // is still On must not keep persisting new pose DEFAULTS
                 // off HUD nudges. Personal offsets (90262) are separate
                 // and stay writable.

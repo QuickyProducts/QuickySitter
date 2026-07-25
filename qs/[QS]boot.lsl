@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.26";
+string version = "1.255";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -582,7 +582,7 @@ start_boot()
     boot_failed = FALSE;
     reused_variable = 0;
     last_pct = -1;   // force first qs_loading_text() to paint
-    // Authoring lock (1.26) is notecard-derived like the qs:cfg:*
+    // Authoring lock (1.255) is notecard-derived like the qs:cfg:*
     // settings, but lives under qs:hud: (whose other keys belong to
     // hudadmin and must survive), so the re-seed wipe pattern doesn't
     // cover it. Clear it at parse start on BOTH re-seed paths (notecard
@@ -1366,7 +1366,7 @@ default
         }
         if (command == "AUTHORING")
         {
-            // QS extension (1.26): creator authoring lock, VERBOSE-style
+            // QS extension (1.255): creator authoring lock, VERBOSE-style
             // token -> LSD write. "AUTHORING locked" writes
             // qs:hud:authoring, which the authoring_locked() readers
             // (sitB, adjuster, cross-repo hudproxy/hudadmin) gate on;

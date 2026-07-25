@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.26";
+string version = "1.255";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -231,7 +231,7 @@ integer rlv_present()
         || llGetInventoryType("[AV]root-RLV") == INVENTORY_SCRIPT;
 }
 
-// Authoring lock (1.26). Creator-controlled lock that removes the whole
+// Authoring lock (1.255). Creator-controlled lock that removes the whole
 // authoring surface ([HELPER]/[QUICKYHUD] entries, the ADJUSTMODE
 // pose-menu enrichment [NEW]/[DUMP]/[SAVE]) even for the furniture
 // OWNER, so creators can ship customer furniture whose poses cannot be
@@ -347,7 +347,7 @@ integer animation_menu(integer animation_menu_function)
         // pose-offset re-write under qh_on is idempotent — same value.
         if (helper_mode || qh_on)
         {
-            // Authoring lock (1.26): a lock arriving while a mode is
+            // Authoring lock (1.255): a lock arriving while a mode is
             // already active strips [NEW]/[DUMP]/[SAVE] but keeps
             // [DONE], so the user can still exit the now-empty mode.
             if (!authoring_locked())
@@ -680,7 +680,7 @@ adjust_dialog()
     }
 
     list tail;
-    // Authoring lock (1.26): both authoring entries vanish for everyone,
+    // Authoring lock (1.255): both authoring entries vanish for everyone,
     // owner included, when the creator locked the piece. The licensed
     // creator's path stays HUD-side (settings toggle + ADJUSTMODE
     // switch, license-gated in hudproxy/hudadmin).
@@ -1449,7 +1449,7 @@ default
                 // warning as adjuster's gate: any future change here MUST
                 // preserve this check. data[2] is the controller key (the
                 // avatar who clicked [HELPER] in the ADJUST submenu).
-                // Authoring lock (1.26): locked pieces refuse everyone,
+                // Authoring lock (1.255): locked pieces refuse everyone,
                 // owner included, independent of the adjust ACL.
                 if (!adjust_allowed(llList2Key(data, 2)) || authoring_locked()) return;
                 menu_page = 0;

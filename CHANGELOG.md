@@ -4,7 +4,7 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
-## Version 1.26
+## Version 1.255
 - **Feature** — Authoring lock: creators can now lock the pose-authoring tools on furniture they sell with a single AVpos line, `AUTHORING locked`. On a locked piece the [HELPER] and [QUICKYHUD] menu entries, the HUD adjust mode and the [NEW]/[DUMP]/[SAVE] buttons are unavailable to everyone, including the buyer, so the pose setup cannot be changed or copied through the menus. Sitters keep the full pose menus and their personal pose offsets. Remove the line (and re-save the notecard) to unlock; furniture without the line behaves exactly as before
 
 ## Version 1.25

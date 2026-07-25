@@ -241,7 +241,7 @@ QSALIVE stays — but only for the **sitter count / version / caps** payload
 plugins need for SITTERS list-sizing. Presence is no longer part of it;
 the 90097 reply no longer triggers any presence re-announce.
 
-## Authoring lock: `qs:hud:authoring` (cross-repo, 1.26)
+## Authoring lock: `qs:hud:authoring` (cross-repo, 1.255)
 
 Creators can ship customer furniture where even the furniture OWNER cannot
 reach the authoring surface: the `[HELPER]`/`[QUICKYHUD]` adjust entries,
@@ -303,7 +303,7 @@ were deliberately dropped for this reason. What the design still gives:
 Nothing to migrate: the key only exists where a creator put the
 `AUTHORING locked` line into the AVpos. Existing furniture and plain OSS
 builds have no line, read as open, and behave exactly as before; pieces
-that never receive 1.26 scripts are untouched by construction.
+that never receive 1.255 scripts are untouched by construction.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 
