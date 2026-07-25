@@ -140,8 +140,9 @@ written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
 regression. The rebuild must keep both.
 
 **Authoring-lock invariant (1.255):** when `authoring_locked()` is TRUE
-(`qs:hud:authoring` == `"locked"`, seeded by boot from the AVpos
-`AUTHORING locked` line, the single source of truth), the entire
+(`qs:hud:authoring` == `"locked"`, mirrored by hudadmin ≥ 1.258 from the
+`AUTHORING locked` keyword line in the Pro kit's `hudconfig` notecard,
+the single source of truth), the entire
 authoring surface MUST be refused for every avatar, the OWNER included:
 `[HELPER]`/`[QUICKYHUD]` render + dispatch, `[NEW]`/`[DUMP]`/`[SAVE]` render
 (sitB) and action (adjuster), and adjuster's ADJUSTMODE default-persist write

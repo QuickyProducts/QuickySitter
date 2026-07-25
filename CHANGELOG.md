@@ -5,7 +5,7 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 Grouped by version, newest on top.
 
 ## Version 1.255
-- **Feature** — Authoring lock: creators can now lock the pose-authoring tools on furniture they sell with a single AVpos line, `AUTHORING locked`. On a locked piece the [HELPER] and [QUICKYHUD] menu entries, the HUD adjust mode and the [NEW]/[DUMP]/[SAVE] buttons are unavailable to everyone, including the buyer, so the pose setup cannot be changed or copied through the menus. Sitters keep the full pose menus and their personal pose offsets. Remove the line (and re-save the notecard) to unlock; furniture without the line behaves exactly as before
+- **Feature** — Authoring lock: creators building with the QuickySitter Pro kit can now lock the pose-authoring tools on furniture they sell with a single line, `AUTHORING locked`, in the kit's `hudconfig` notecard. On a locked piece the [HELPER] and [QUICKYHUD] menu entries, the HUD adjust mode and the [NEW]/[DUMP]/[SAVE] buttons are unavailable to everyone, including the buyer, so the pose setup cannot be changed or copied through the menus. Sitters keep the full pose menus and their personal pose offsets. Remove the line to unlock (the poses do not reload for this); furniture without the line behaves exactly as before
 
 ## Version 1.25
 *Version numbers of QuickySitter and the QuickySitter Pro creator kit are

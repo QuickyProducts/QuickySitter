@@ -254,58 +254,76 @@ Second member of the adjust-access family after the 1.25 Adjust ACL
 sitters may author", the lock answers "may this piece be authored at all"
 and can never be overridden by the ACL.
 
-### The AVpos token is the single source of truth
+### The hudconfig AUTHORING line is the single source of truth
 
 ```
 AUTHORING locked
 ```
 
-VERBOSE-style token: boot parses it at seed and writes the plain LSD key
-`qs:hud:authoring` (`"locked"`; `AUTHORING open` is accepted for
-explicitness and equals the default; any other value warns at `Out(0)`
-and is ignored). `start_boot` clears the key at parse start on both
-re-seed paths, so removing the line and re-saving the notecard unlocks.
-Every reader gates on the key directly and independently:
+Keyword line in the Pro kit's `hudconfig` notecard, on line 1 or below
+(line 0 stays the strict positional `RESERVE|ATTACHMODE|TEXTURE[|HUDOFFSET]`
+contract). hudadmin (external repo, since 1.258) parses it in
+`readConfig` and mirrors it to the plain LSD key `qs:hud:authoring`:
+`"locked"` writes the key, `AUTHORING open` (or no line, or no
+hudconfig) DELETES it, so removing the line unlocks. RESERVE-pattern
+precedent: hudconfig line → unprotected LSD key → cross-repo readers.
+The trigger moved here from an AVpos token (boot ≤ 1.255) so that
+flipping the lock re-reads instantly WITHOUT a full pose re-seed;
+boot no longer touches the key at all, and a leftover AVpos
+`AUTHORING` line is ignored as an unknown command.
+
+Backward compatibility of the hudconfig: hudadmins ≤ 1.257 only ever
+read line 0, so keyword lines are invisible to them by construction
+(config intact, lock simply inactive). Appending a 5th positional field
+instead would have made the old parser reject the WHOLE line
+(field-count validation) and drop RESERVE/ATTACHMODE with it — hence
+the keyword-line format. Unknown keywords on line 1+ are skipped
+silently, so future keys stay readable by 1.258 as well. A card whose
+line 0 is itself a keyword line works (positional part defaults).
+
+Readers gate on the key directly and independently:
 
 - sitB + adjuster `authoring_locked()` (render, dispatch, 90055
   default-persist write), per the MENU_SPEC invariant. That is the
   complete enforcement: since hudproxy 1.256 removed the
   Switch-ADJUSTMODE settings entry, ADJUSTMODE has exactly one entry
   path (the sitter-side `[QUICKYHUD]` flow, ACL- and lock-gated in both
-  scripts), so the HUD scripts carry no lock code at all. A forged
-  90266/90267 from a foreign script is out of scope per the threat
-  model below.
+  scripts). A forged 90266/90267 from a foreign script is out of scope
+  per the threat model below.
 
 Absent key or any other value = open; unlocked furniture behaves exactly
-as 1.25. Stock AVsitter parses `AUTHORING` as an unknown command and
-ignores it, so notecards stay portable.
+as 1.25. Consequence of the hudconfig anchoring: furniture without the
+QuickyHUD pair (plain OSS builds) has no lock feature — deliberate, the
+lock is a Pro-kit feature per the license split.
 
 ### Threat model (revised 2026-07-24)
 
 The lock aims at the MENU surface, not at scripted attackers. On modify
-furniture anyone who can edit or swap the AVpos can just as well replace
-the entire script set (or read the notecard from a script), so guarding
-the lock against notecard tampering buys nothing: earlier drafts with a
-protected anchor key, installer-gated adoption and linkset_data re-arm
-were deliberately dropped for this reason. What the design still gives:
+furniture anyone who can edit or swap the hudconfig can just as well
+replace the entire script set (or read the notecard from a script), so
+guarding the lock against notecard tampering buys nothing: earlier
+drafts with a protected anchor key, installer-gated adoption and
+mirror-tamper re-assertion were deliberately dropped for this reason.
+What the design still gives:
 
 - **Menus:** no path through pose menu, ADJUST submenu or `/5 helper`
   chat command reaches authoring on a locked piece, for the owner
   included (the HUD has no entry of its own since hudproxy 1.256).
-- **LSD wipe (`llLinksetDataReset`):** boot re-seeds everything from the
-  notecard, which restores the lock together with the pose data; no
-  extra machinery needed.
+- **LSD wipe (`llLinksetDataReset`):** hudadmin's `linkset_data`
+  handler re-writes the mirror from its config RAM immediately; after
+  a combined script-plus-store wipe, `readConfig` restores it from the
+  hudconfig on the next boot.
 - **`[DUMP]`:** unreachable on a locked piece (adjuster gate), so the
-  menu path never hands out the AVpos content. Boot's dump engine emits
-  the `AUTHORING locked` line (global settings section, next to
-  VERBOSE) so any dump taken of a locked piece round-trips the lock.
+  menu path never hands out the AVpos content. The AVpos itself carries
+  no lock state anymore, so dumps and pasted dumps are lock-neutral by
+  construction.
 
 ### Migration
 
 Nothing to migrate: the key only exists where a creator put the
-`AUTHORING locked` line into the AVpos. Existing furniture and plain OSS
-builds have no line, read as open, and behave exactly as before; pieces
-that never receive 1.255 scripts are untouched by construction.
+`AUTHORING locked` line into the hudconfig. Existing furniture has no
+line, reads as open, and behaves exactly as before; pieces that never
+receive the 1.255/1.258 scripts are untouched by construction.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 
