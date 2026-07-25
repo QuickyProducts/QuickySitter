@@ -9,6 +9,10 @@
  *     facial expressions only ever fire for slot 0.
  *   - get_number_of_scripts() now returns qs_sitter_count_cached
  *     (default 7 until first QSALIVE reply lands, then the real count).
+ *   - QSFACE_PICK (90214, since 1.251): the facial-anim picker dialog
+ *     moved here from [QS]adjuster (this plugin owns list, dialog and
+ *     storage; the adjuster no longer pays bytecode for an optional
+ *     feature). The stock 90172 wire stays as the store contract.
  *
  * Everything else is byte-identical to upstream. Stock hasn't shipped a
  * change since 2016, so the rebase risk is negligible.
@@ -55,7 +59,7 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string version = "1.25";
+string version = "1.251";
 string notecard_name = "AVpos";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
@@ -76,6 +80,20 @@ integer QS_ALIVE_CENSUS = 90079;
 // pattern. See qs/PROTOCOL.md § QSDUMP.
 integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
+
+// QSFACE_PICK — [QS]adjuster hands the facial-anim picker over to us
+// (1.251; the dialog used to live adjuster-side). msg =
+// "<slot>|<controller>|<sitterAv>", id = "". We render the paginated
+// picker to <controller>, store the pick via store_face() and reopen
+// the pose menu via 90005 with "<controller>|<sitterAv>". Stock
+// [AV]faces authoring is deliberately unsupported (that compat was
+// dropped with the qs:alive migration). See qs/PROTOCOL.md.
+integer QSFACE_PICK = 90214;
+integer face_chan;
+integer face_page;
+integer face_sitter;
+key     face_controller;
+key     face_return;      // seated avatar, tail of the 90005 reopen route
 key key_request;
 key notecard_key;
 key notecard_query;
@@ -102,9 +120,10 @@ integer get_number_of_scripts()
 }
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
-// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
-// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
-// state_entry below).
+// 2=runtime status, 3=debug. Set globally via AVpos `VERBOSE n` →
+// qs:cfg:verbose LSD key (read in state_entry below). No OutForce
+// here: faces has no never-suppress messages (dropped as dead code in
+// 1.251, same rationale as adjuster 1.2551 / sitB).
 integer verbose = 0;
 
 Out(integer level, string out)
@@ -113,10 +132,6 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
-}
-OutForce(string out)
-{
-    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 Readout_Say(string say, string SCRIPT_CHANNEL)
@@ -260,6 +275,71 @@ remove_sequences(key id)
     }
 }
 
+// Store (or clear, anim == "none") a facial anim for <sitter>'s current
+// pose. Extracted from the 90172 handler (1.251) so the QSFACE_PICK
+// picker below can share it: LSL never delivers a script's own
+// llMessageLinked back to itself, so the picker must call this directly
+// instead of sending 90172. The 90172 wire itself stays untouched as
+// the stock store contract.
+store_face(integer sitter, string anim)
+{
+    is_running = TRUE;
+    remove_sequences(llList2Key(SITTERS, sitter));
+    string trigger = (string)sitter + "|" + llList2String(SITTER_POSES, sitter);
+    integer i = llGetListLength(anim_triggers);
+    while (i > 0)
+    {
+        i--;
+        if (llList2String(anim_triggers, i) == trigger)
+        {
+            anim_triggers = llDeleteSubList(anim_triggers, i, i);
+            anim_animsequences = llDeleteSubList(anim_animsequences, i, i);
+        }
+    }
+    if (anim != "none")
+    {
+        anim_triggers += [trigger];
+        string seq = anim + "|1";
+        // Reuse existing entries to save data memory when possible
+        i = llListFindList(anim_animsequences, [seq]);
+        if (~i)
+            seq = llList2String(anim_animsequences, i);
+        anim_animsequences += seq;
+        start_sequence(llGetListLength(anim_animsequences) - 1, llList2Key(SITTERS, sitter));
+        llSay(0, "FACE added: '" + anim + "' to '" + llList2String(SITTER_POSES, sitter) + "' for SITTER " + (string)sitter + ".");
+    }
+}
+
+// QSFACE_PICK picker (1.251, moved here from [QS]adjuster's choice_menu).
+// "none" + the 19 stock expressions, 9 per page with numeric buttons,
+// mirroring the adjuster's old pagination UX. One picker at a time: a
+// new 90214 re-arms the single listener, an abandoned dialog window
+// stays on screen but its listen is dead (LSL cannot close dialogs).
+open_face_picker()
+{
+    list opts = ["none"] + facial_anim_list;
+    integer total = llGetListLength(opts);
+    integer pages = (total + 8) / 9;
+    if (face_page < 0) face_page = pages - 1;
+    if (face_page >= pages) face_page = 0;
+    integer start = face_page * 9;
+    string text = "\nChoose your facial anim (" + (string)(face_page + 1)
+        + "/" + (string)pages + "):\n";
+    list buttons;
+    integer i = start;
+    while (i < start + 9 && i < total)
+    {
+        text += "\n" + (string)(i - start + 1) + ". " + llList2String(opts, i);
+        buttons += (string)(i - start + 1);
+        ++i;
+    }
+    buttons += ["[<<]", "[>>]", "[CANCEL]"];
+    llListenRemove(listen_handle);
+    face_chan = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
+    listen_handle = llListen(face_chan, "", face_controller, "");
+    llDialog(face_controller, text, buttons, face_chan);
+}
+
 default
 {
     state_entry()
@@ -294,6 +374,30 @@ default
     {
         sequence();
         llSetTimerEvent(1);
+    }
+
+    listen(integer chan, string name, key id, string msg)
+    {
+        // QSFACE_PICK picker responses only (the sole listener in this
+        // script). Paging re-renders; a numeric pick stores and returns
+        // to the pose menu; [CANCEL] just returns.
+        if (chan != face_chan) return;
+        if (msg == "[<<]") { --face_page; open_face_picker(); return; }
+        if (msg == "[>>]") { ++face_page; open_face_picker(); return; }
+        llListenRemove(listen_handle);
+        integer pick = (integer)msg;
+        if ((string)pick == msg && pick >= 1 && pick <= 9)
+        {
+            list opts = ["none"] + facial_anim_list;
+            integer idx = face_page * 9 + pick - 1;
+            if (idx < llGetListLength(opts))
+                store_face(face_sitter, llList2String(opts, idx));
+        }
+        // Reopen the pose menu either way, mirroring the adjuster's old
+        // post-pick behavior ([CANCEL] included: the user came from a
+        // menu and should land back in one).
+        llMessageLinked(LINK_THIS, 90005, "",
+            llDumpList2String([face_controller, face_return], "|"));
     }
 
     on_rez(integer start)
@@ -340,6 +444,18 @@ default
                     init_sitters();
                 }
             }
+            return;
+        }
+        if (num == QSFACE_PICK)
+        {
+            // [QS]adjuster hands over the [FACE] picker. See the
+            // QSFACE_PICK declaration for the payload contract.
+            data = llParseString2List(msg, ["|"], []);
+            face_sitter     = (integer)llList2String(data, 0);
+            face_controller = (key)llList2String(data, 1);
+            face_return     = (key)llList2String(data, 2);
+            face_page       = 0;
+            open_face_picker();
             return;
         }
         if (num == 90100)
@@ -414,33 +530,9 @@ default
             }
             if (num == 90172)
             {
-                is_running = TRUE;
-                sitter = (integer)msg;
-                remove_sequences(llList2Key(SITTERS, sitter));
-                i = llGetListLength(anim_triggers);
-                while (i > 0)
-                {
-                    i--;
-                    if (llList2String(anim_triggers, i) == msg + "|" + llList2String(SITTER_POSES, sitter))
-                    {
-                        anim_triggers = llDeleteSubList(anim_triggers, i, i);
-                        anim_animsequences = llDeleteSubList(anim_animsequences, i, i);
-                    }
-                }
-                if (id != "none")
-                {
-                    anim_triggers += [msg + "|" + llList2String(SITTER_POSES, sitter)];
-
-                    msg = (string)id + "|1";
-                    // Reuse existing entries to save data memory when possible
-                    i = llListFindList(anim_animsequences, [msg]);
-                    if (~i)
-                        msg = llList2String(anim_animsequences, i);
-                    anim_animsequences += msg;
-
-                    start_sequence(llGetListLength(anim_animsequences) - 1, llList2Key(SITTERS, sitter));
-                    llSay(0, "FACE added: '" + (string)id + "' to '" + llList2String(SITTER_POSES, sitter) + "' for SITTER " + (string)sitter + ".");
-                }
+                // Body extracted to store_face() in 1.251 (shared with
+                // the QSFACE_PICK picker); wire semantics unchanged.
+                store_face((integer)msg, (string)id);
                 return;
             }
             if (num == 90020 && (string)id == llGetScriptName())

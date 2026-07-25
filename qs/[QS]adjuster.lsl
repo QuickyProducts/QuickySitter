@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2551";
+string version = "1.2552";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -227,51 +227,25 @@ list get_choices()
     integer i;
     integer start = my_number_per_page * menu_page;
     integer end = start + my_number_per_page;
-    if (adding == "[FACE]")
+    // The [FACE] branch (hardcoded facial_anim_list + pagination) moved
+    // to [QS]faces in 1.2552 — the plugin owns list, picker dialog and
+    // storage, so this script no longer pays for an optional feature.
+    // See PROTOCOL.md § 90214 (QSFACE_PICK).
+    integer type = INVENTORY_ANIMATION;
+    if (adding == "[PROP]")
     {
-        list facial_anim_list =
-            [ "none"
-            , "express_afraid_emote"
-            , "express_anger_emote"
-            , "express_laugh_emote"
-            , "express_bored_emote"
-            , "express_cry_emote"
-            , "express_embarrassed_emote"
-            , "express_sad_emote"
-            , "express_toothsmile"
-            , "express_smile"
-            , "express_surprise_emote"
-            , "express_worry_emote"
-            , "express_repulsed_emote"
-            , "express_shrug_emote"
-            , "express_wink_emote"
-            , "express_disdain"
-            , "express_frown"
-            , "express_kiss"
-            , "express_open_mouth"
-            , "express_tongue_out"
-            ];
-        i = llGetListLength(facial_anim_list);
-        options = llList2List(facial_anim_list, start, end - 1);
+        type = INVENTORY_OBJECT;
     }
-    else
+    i = start;
+    while (i < end && i < llGetInventoryNumber(type))
     {
-        integer type = INVENTORY_ANIMATION;
-        if (adding == "[PROP]")
+        if (llGetInventoryName(type, i) != helper_name)
         {
-            type = INVENTORY_OBJECT;
+            options += llGetInventoryName(type, i);
         }
-        i = start;
-        while (i < end && i < llGetInventoryNumber(type))
-        {
-            if (llGetInventoryName(type, i) != helper_name)
-            {
-                options += llGetInventoryName(type, i);
-            }
-            i++;
-        }
-        i = llGetInventoryNumber(type);
+        i++;
     }
+    i = llGetInventoryNumber(type);
     menu_pages = llCeil((float)i / my_number_per_page);
     return options;
 }
@@ -835,8 +809,9 @@ default
                     controller = id;
                     // Arm the comm_channel listen so the [NEW] sub-flow's
                     // sub-dialogs (new_menu → [POSE]/[SYNC]/[PROP]/[FACE]/
-                    // [CAMERA]/[SUBMENU], plus the prop/face choice_menu
-                    // and TextBox naming) land back in our listen handler.
+                    // [CAMERA]/[SUBMENU], plus the prop choice_menu and
+                    // TextBox naming; the face picker itself lives in
+                    // [QS]faces) land back in our listen handler.
                     // toggle_helper_mode() does this for the [HELPER] flow;
                     // [QUICKYHUD] needs the same arming since both paths
                     // share the new_menu() sub-dialogs (sitB renders [NEW]
@@ -1075,8 +1050,15 @@ default
             {
                 if (llLinksetDataRead("qs:alive:faces") != "")
                 {
-                    adding = msg;
-                    choice_menu(get_choices(), "Choose your facial anim:");
+                    // Picker lives in [QS]faces since 1.2552: hand over
+                    // slot, controller and the seated avatar (the 90005
+                    // reopen route). faces renders the anim list, stores
+                    // the pick and reopens the pose menu itself. `adding`
+                    // stays untouched so stray numeric clicks can't hit
+                    // a stale [FACE] state here.
+                    llMessageLinked(LINK_SET, 90214,
+                        llDumpList2String([active_sitter, controller,
+                            llList2String(SITTERS, active_sitter)], "|"), "");
                 }
                 else
                 {
@@ -1109,7 +1091,7 @@ default
             {
                 llRequestPermissions(id, PERMISSION_TRACK_CAMERA);
             }
-            else if (llListFindList(["[DONE]", "1", "2", "3", "4", "5", "6", "7", "8", "9"], [msg]) != -1 && llListFindList(["[POSE]", "[SYNC]", "[SYNC]2", "[PROP]", "[FACE]"], [adding]) != -1)
+            else if (llListFindList(["[DONE]", "1", "2", "3", "4", "5", "6", "7", "8", "9"], [msg]) != -1 && llListFindList(["[POSE]", "[SYNC]", "[SYNC]2", "[PROP]"], [adding]) != -1)
             {
                 string choice = llList2String(get_choices(), (integer)msg - 1);
                 if (adding == "[PROP]")
@@ -1123,11 +1105,6 @@ default
                     {
                         llMessageLinked(LINK_THIS, 90171, (string)active_sitter, choice);
                     }
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
-                }
-                else if (adding == "[FACE]")
-                {
-                    llMessageLinked(LINK_THIS, 90172, (string)active_sitter, choice);
                     llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
                 }
                 else if (msg == "[DONE]")
