@@ -270,9 +270,11 @@ Every reader gates on the key directly and independently:
   default-persist write), per the MENU_SPEC invariant
 - hudproxy (cross-repo): hides the Switch-ADJUSTMODE settings entry
   (except while ADJUSTMODE is On, so the instant-Off path stays
-  reachable) and refuses 90266 `"On"`
-- hudadmin (cross-repo): refuses the 90267 ADJUSTMODE confirm with a
-  notice dialog
+  reachable) and refuses 90266 `"On"`. This is the ENTIRE HUD-side
+  enforcement: hudadmin is deliberately untouched, its 90267 ADJUSTMODE
+  confirm is only reachable through the entry hidden here, and a forged
+  90267 from a foreign script is out of scope per the threat model
+  below.
 
 Absent key or any other value = open; unlocked furniture behaves exactly
 as 1.25. Stock AVsitter parses `AUTHORING` as an unknown command and
