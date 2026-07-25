@@ -267,14 +267,13 @@ re-seed paths, so removing the line and re-saving the notecard unlocks.
 Every reader gates on the key directly and independently:
 
 - sitB + adjuster `authoring_locked()` (render, dispatch, 90055
-  default-persist write), per the MENU_SPEC invariant
-- hudproxy (cross-repo): hides the Switch-ADJUSTMODE settings entry
-  (except while ADJUSTMODE is On, so the instant-Off path stays
-  reachable) and refuses 90266 `"On"`. This is the ENTIRE HUD-side
-  enforcement: hudadmin is deliberately untouched, its 90267 ADJUSTMODE
-  confirm is only reachable through the entry hidden here, and a forged
-  90267 from a foreign script is out of scope per the threat model
-  below.
+  default-persist write), per the MENU_SPEC invariant. That is the
+  complete enforcement: since hudproxy 1.256 removed the
+  Switch-ADJUSTMODE settings entry, ADJUSTMODE has exactly one entry
+  path (the sitter-side `[QUICKYHUD]` flow, ACL- and lock-gated in both
+  scripts), so the HUD scripts carry no lock code at all. A forged
+  90266/90267 from a foreign script is out of scope per the threat
+  model below.
 
 Absent key or any other value = open; unlocked furniture behaves exactly
 as 1.25. Stock AVsitter parses `AUTHORING` as an unknown command and
@@ -289,9 +288,9 @@ the lock against notecard tampering buys nothing: earlier drafts with a
 protected anchor key, installer-gated adoption and linkset_data re-arm
 were deliberately dropped for this reason. What the design still gives:
 
-- **Menus:** no path through pose menu, ADJUST submenu, `/5 helper` chat
-  command or HUD settings reaches authoring on a locked piece, for the
-  owner included.
+- **Menus:** no path through pose menu, ADJUST submenu or `/5 helper`
+  chat command reaches authoring on a locked piece, for the owner
+  included (the HUD has no entry of its own since hudproxy 1.256).
 - **LSD wipe (`llLinksetDataReset`):** boot re-seeds everything from the
   notecard, which restores the lock together with the pose data; no
   extra machinery needed.

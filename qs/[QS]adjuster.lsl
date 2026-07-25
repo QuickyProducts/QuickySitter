@@ -73,8 +73,11 @@ integer chat_channel = 5;
 integer helper_mode;
 // 0 = old [AV]helper bars, 1 = QuickyHUD ADJUSTMODE handoff. Tracks
 // whether end_helper_mode should also flip QuickyHUD off (auto-Off on
-// stand-up / [ADJUST] toggle / inventory change), so we never overwrite
-// a state the user enabled themselves via the HUD's own settings dialog.
+// stand-up / [ADJUST] toggle / inventory change). Historically this
+// also guarded against overwriting a state the user enabled via the
+// HUD settings dialog; that entry is gone since hudproxy 1.256 (the
+// [QUICKYHUD] flow here is the only On path), the guard stays as a
+// cheap safety net against other 90266 senders.
 integer helper_method;
 integer comm_channel;
 integer listen_handle;
@@ -348,7 +351,7 @@ new_menu()
 // [ADJUST] toggle in the main menu: the user wants to drop out of the
 // AVsitter helper overlay but keep QuickyHUD's ADJUSTMODE in whatever
 // state it's currently in — that's controlled separately via
-// [QUICKYHUD] → [ADJUST OFF] (or the HUD settings dialog). The
+// [QUICKYHUD] → [ADJUST OFF]. The
 // stand-up paths still go through end_helper_mode() so the
 // helper_method == 1 auto-Off safety net stays intact when the user
 // forgets to disable ADJUSTMODE before standing up.
@@ -891,10 +894,10 @@ default
                 // default — no separate [SAVE] step. Idempotent on regular
                 // pose changes / sit (same value rewritten). Gated on the
                 // unprotected LSD key (single source of truth) rather than
-                // helper_method, so a HUD-side toggle of ADJUSTMODE via the
-                // settings dialog stays consistent with the persistence
-                // behavior; helper_method is only the auto-Off-on-stand-up
-                // gate in end_helper_mode.
+                // helper_method, so persistence follows the actual mode
+                // state no matter which 90266 sender flipped it;
+                // helper_method is only the auto-Off-on-stand-up gate in
+                // end_helper_mode.
                 // Authoring lock (1.255): a lock arriving while ADJUSTMODE
                 // is still On must not keep persisting new pose DEFAULTS
                 // off HUD nudges. Personal offsets (90262) are separate

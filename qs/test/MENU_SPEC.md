@@ -146,10 +146,9 @@ authoring surface MUST be refused for every avatar, the OWNER included:
 `[HELPER]`/`[QUICKYHUD]` render + dispatch, `[NEW]`/`[DUMP]`/`[SAVE]` render
 (sitB) and action (adjuster), and adjuster's ADJUSTMODE default-persist write
 (90055 path). sitB AND adjuster each check independently, exactly like the
-adjust-access invariant above; cross-repo, hudproxy alone carries the
-HUD-side share (Switch-ADJUSTMODE settings entry, hidden except while
-ADJUSTMODE is On so the Off path stays reachable, plus the 90266 "On"
-refuse); hudadmin is deliberately not part of the enforcement.
+adjust-access invariant above. No HUD-side share exists: since hudproxy
+1.256 removed the Switch-ADJUSTMODE settings entry, ADJUSTMODE's only
+entry is the sitter-side `[QUICKYHUD]` flow, which both scripts gate.
 `[DONE]` stays rendered in an already-active mode so the user can exit.
 Personal pose offsets (90262 path) are NOT authoring and MUST stay available.
 The adjust ACL (`qs:sec:adjust`) can never override the lock: ACL answers
