@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.255";
+string version = "1.256";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -687,11 +687,19 @@ adjust_dialog()
     integer auth_locked = authoring_locked();
     if (!auth_locked && llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
         tail += "[HELPER]";
-    // [QUICKYHUD] — adjust-ACL-gated entry (owner-only by default),
+    // [HELPER HUD] — adjust-ACL-gated entry (owner-only by default),
     // gated on the unprotected
     // QPP_CFG:ADJUSTMODE LSD key (same probe sitA used pre-0.910).
     // HUDPROXY presence cleanup (90093) keeps the key from going stale
     // after the HUD is removed.
+    //
+    // Label vs wire (1.256): the button READS [HELPER HUD] — it is the
+    // HUD-flavored sibling of [HELPER], and "helper" is what 15 years of
+    // AVsitter taught people to look for when they want to adjust poses.
+    // The WIRE token stays [QUICKYHUD]: the dispatch below translates the
+    // label back before the 90100 broadcast, so [QS]adjuster, [QS]select
+    // and any creator script keep matching the string they always did.
+    // Never send the display label onto 90100.
     //
     // License gate (0.9935+): hudadmin writes `qs:hud:unlicensed` = "1"
     // when its protected isLicensed() check fails (Creator build with
@@ -704,7 +712,7 @@ adjust_dialog()
     if (!auth_locked && adjust_allowed(CONTROLLER) && llLinksetDataRead("qs:alive:adjuster") != ""
         && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1))
         && llLinksetDataRead("qs:hud:unlicensed") != "1")
-        tail += "[QUICKYHUD]";
+        tail += "[HELPER HUD]";
 
     if (!llGetListLength(builtins) && !llGetListLength(dyn) && !llGetListLength(tail))
     {
@@ -902,12 +910,15 @@ default
                 return;
             }
             // Built-in conditional buttons ([TEXTURE]/[FACES]/[SECURITY]/
-            // [HELPER]/[QUICKYHUD]): broadcast on 90100 — adjuster +
+            // [HELPER]/[HELPER HUD]): broadcast on 90100 — adjuster +
             // external plugins ([AV]texture / [AV]root-security) listen
             // there with their label strings. Same payload format sitA
             // used in its pre-0.910 catch-all (L810).
             in_adjust_menu = FALSE;
             adjust_page = 0;
+            // Display label -> canonical wire token (see the [HELPER HUD]
+            // render block above). Keeps the rename UI-only.
+            if (msg == "[HELPER HUD]") msg = "[QUICKYHUD]";
             llMessageLinked(LINK_SET, 90100,
                 (string)SCRIPT_CHANNEL + "|" + msg + "|" + (string)MY_SITTER
                 + "|" + (string)OLD_HELPER_METHOD, id);

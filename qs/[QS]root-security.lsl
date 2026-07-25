@@ -13,7 +13,7 @@
  *   3. Product string rebranded to "QuickySitter(TM) Security".
  *   4. QS extension (1.25): third ACL category "Adjust" (OWNER/GROUP/ALL,
  *      default OWNER) controlling who may enter the adjust workflows
- *      ([HELPER]/[QUICKYHUD] and owner-gated registered [ADJUST] entries).
+ *      ([HELPER]/[HELPER HUD] and owner-gated registered [ADJUST] entries).
  *      This script only manages the setting and publishes it to LSD as
  *      qs:sec:adjust — enforcement lives in [QS]sitB / [QS]adjuster,
  *      which read the key synchronously in their gates. The qs:sec:
@@ -35,7 +35,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.25";
+string version = "1.251";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -245,7 +245,7 @@ default
         }
         else if (msg == "Adjust")
         {
-            dialog("Adjust security — who may use the adjust tools\n([HELPER]/[QUICKYHUD] + owner-gated plugin entries):", ADJUST_TYPES);
+            dialog("Adjust security — who may use the adjust tools\n([HELPER]/[HELPER HUD] + owner-gated plugin entries):", ADJUST_TYPES);
             lastmenu = msg;
             return;
         }

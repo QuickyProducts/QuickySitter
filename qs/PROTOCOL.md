@@ -501,7 +501,11 @@ unprotected on its `state_entry`. `[QS]sitB` gates QuickyHUD-aware UI
 on the key's existence/value (both pieces moved from sitA in the 0.910
 ADJUST-dialog refactor):
 - the `[QUICKYHUD]` button in the Adjust dialog, rendered if the key
-  exists.
+  exists. Since sitB 1.256 the button *displays* as `[HELPER HUD]`
+  (sibling of `[HELPER]`, the wording users know from AVsitter when
+  they want to adjust poses); sitB translates the label back before
+  the 90100 broadcast, so `[QUICKYHUD]` stays the wire token
+  everywhere in this document and no listener changes.
 - the enriched main pose menu (`[NEW]`/`[DUMP]`/`[ADJUST OFF]`)
   if `value == "On"`.
 

@@ -125,7 +125,7 @@ in the first draft — they are the critical part.
 | Trigger | Rendered in | Effect |
 |---|---|---|
 | `[HELPER]` (adjust-access) | adjust_dialog tail (helper_object + qs:alive:adjuster) | **enter helper_mode**: sitB toggles `helper_mode` ([1133-1140](../[QS]sitB.lsl)), adjuster `toggle_helper_mode` rezzes bars ([726-755](../[QS]adjuster.lsl)) |
-| `[QUICKYHUD]` (adjust-access) | adjust_dialog tail (ADJUSTMODE key exists + licensed + qs:alive:adjuster + adjust_allowed) | **enter qh_on**: adjuster flips `QPP_CFG:ADJUSTMODE="On"` + 90005 re-menu ([756-778](../[QS]adjuster.lsl)). helper_mode stays FALSE — qh has no dedicated submenu |
+| `[QUICKYHUD]` (adjust-access) — displayed as `[HELPER HUD]` since sitB 1.256, translated back to this token before the 90100 broadcast | adjust_dialog tail (ADJUSTMODE key exists + licensed + qs:alive:adjuster + adjust_allowed) | **enter qh_on**: adjuster flips `QPP_CFG:ADJUSTMODE="On"` + 90005 re-menu ([756-778](../[QS]adjuster.lsl)). helper_mode stays FALSE — qh has no dedicated submenu |
 | **`[DONE]`** | pose menu (helper‖qh) | **unified exit**: sitB `helper_mode=FALSE` + opens adjust_dialog; broadcasts 90100`[DONE]`; adjuster tears down — de-rez helpers, 90266 "Off" if helper_method==1 ([sitB:812-828](../[QS]sitB.lsl), [adj:701-725](../[QS]adjuster.lsl)) |
 | `[ADJUST OFF]` | pose menu (qh_on branch) | qh-only exit: adjuster flips ADJUSTMODE off + clears helper_method ([adj:780+](../[QS]adjuster.lsl)) |
 | stand-up | — | auto-`end_helper_mode` (adjuster [329](../[QS]adjuster.lsl)): 90266 "Off" if helper_method==1, then cleanup; sitB CHANGED_LINK clears `helper_mode` (if !OLD_HELPER_METHOD) |

@@ -4,6 +4,9 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Version 1.256
+- **Feature** — The [QUICKYHUD] entry in the [ADJUST] menu is now called [HELPER HUD]. It sits right next to [HELPER] and does the same job with the HUD instead of the helper bars, so the name now says what the button is for. Nothing else changes: same access rules, same adjust mode, and creator scripts listening for the old name keep working
+
 ## Version 1.255
 - **Feature** — Authoring lock: creators building with the QuickySitter Pro kit can now lock the pose-authoring tools on furniture they sell with a single line, `AUTHORING locked`, in the kit's `hudconfig` notecard. On a locked piece the [HELPER] and [QUICKYHUD] menu entries, the HUD adjust mode and the [NEW]/[DUMP]/[SAVE] buttons are unavailable to everyone, including the buyer, so the pose setup cannot be changed or copied through the menus. Sitters keep the full pose menus and their personal pose offsets. Remove the line to unlock (the poses do not reload for this); furniture without the line behaves exactly as before
 
