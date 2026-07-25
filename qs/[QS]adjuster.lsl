@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.255";
+string version = "1.2551";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -391,19 +391,16 @@ end_helper_mode()
 // through 90100 to flip ADJUSTMODE off and re-show the pose menu.
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
-// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
-// Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
-// state_entry below).
+// 2=runtime status, 3=debug. Set globally via AVpos `VERBOSE n` →
+// qs:cfg:verbose LSD key (read in state_entry below). No OutForce
+// here: adjuster has no never-suppress messages (dropped as dead code
+// in 1.2551, same rationale as sitB's helper-less setup).
 integer verbose = 0;
 
 Out(integer level, string out)
 {
     if (verbose >= level)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
-}
-OutForce(string out)
-{
-    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 integer get_number_of_scripts()
