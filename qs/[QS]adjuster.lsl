@@ -136,6 +136,14 @@ integer authoring_locked()
     return llLinksetDataRead("qs:hud:authoring") == "locked";
 }
 
+// 90005 "<controller>|<sitter>" pair send (LINK_THIS). Deduplicates ten
+// verbatim call sites (1.2553 memory pass, the inlined llDumpList2String
+// expression cost ~40 B bytecode per site).
+send_pair(key k, string s)
+{
+    llMessageLinked(LINK_THIS, 90005, "", (string)k + "|" + s);
+}
+
 // ========================================================================
 // QuickySitter LSD persistence layer (adjuster side)
 // ------------------------------------------------------------------------
@@ -738,7 +746,7 @@ default
                             llSay(0, type + " Saved " + sitter_text(i) + ": {" + temp_pose_name + "}" + llList2String(POS_LIST, i) + llList2String(ROT_LIST, i));
                         }
                     }
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
+                    send_pair(id, llList2String(data, 2));
                 }
                 if (msg == "[DONE]")
                 {
@@ -848,7 +856,7 @@ default
                     // [SAVE] is needed for [PROP] in-world position
                     // persistence (90101[SAVE] → PROPSEARCH); pose
                     // offsets re-write idempotently under ADJUSTMODE.
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
+                    send_pair(id, llList2String(data, 2));
                 }
                 if (msg == "[ADJUST OFF]")
                 {
@@ -857,7 +865,7 @@ default
                     // doesn't double-fire 90266, re-show pose menu.
                     llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
                     helper_method = 0;
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([id, llList2String(data, 2)], "|"));
+                    send_pair(id, llList2String(data, 2));
                 }
                 if (msg == "[ADJUST]")
                 {
@@ -1029,7 +1037,7 @@ default
             }
             else if (msg == "[BACK]")
             {
-                llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                send_pair(controller, llList2String(SITTERS, active_sitter));
             }
             else if (msg == "[POSE]" || msg == "[SYNC]")
             {
@@ -1059,7 +1067,7 @@ default
                 else
                 {
                     llSay(0, "For this you need the prop plugin script.");
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
             }
             else if (msg == "[FACE]")
@@ -1079,7 +1087,7 @@ default
                 else
                 {
                     llSay(0, "For this you need the faces plugin script.");
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
             }
             else if (msg == "[CAMERA]")
@@ -1121,7 +1129,7 @@ default
                     {
                         llMessageLinked(LINK_THIS, 90171, (string)active_sitter, choice);
                     }
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
                 else if (msg == "[DONE]")
                 {
@@ -1149,7 +1157,7 @@ default
                 msg = llGetSubString(msg, 0, 22);
                 if (msg == "")
                 {
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
                 else if (adding == "[SUBMENU]")
                 {
@@ -1177,7 +1185,7 @@ default
                     llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "T:" + msg + "*" + "||||" + (string)ins);
                     llMessageLinked(LINK_THIS, 90300, (string)active_sitter, "M:" + msg + "*" + "||||" + (string)(ins + 1));
                     llSay(0, "MENU Added: '" + msg + "'" + sitter_text(active_sitter));
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
                 else if (adding == "[POSE]2" || adding == "[SYNC]2")
                 {
@@ -1222,7 +1230,7 @@ default
                 }
                 if (msg != "" && (adding == "[POSE]2" || adding == "[SYNC]2"))
                 {
-                    llMessageLinked(LINK_THIS, 90005, "", llDumpList2String([controller, llList2String(SITTERS, active_sitter)], "|"));
+                    send_pair(controller, llList2String(SITTERS, active_sitter));
                 }
             }
         }
