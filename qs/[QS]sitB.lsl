@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.256";
+string version = "1.2561";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -231,26 +231,11 @@ integer rlv_present()
         || llGetInventoryType("[AV]root-RLV") == INVENTORY_SCRIPT;
 }
 
-// Authoring lock (1.255). Creator-controlled lock that removes the whole
-// authoring surface ([HELPER]/[QUICKYHUD] entries, the ADJUSTMODE
-// pose-menu enrichment [NEW]/[DUMP]/[SAVE]) even for the furniture
-// OWNER, so creators can ship customer furniture whose poses cannot be
-// re-authored via the menus. Personal pose offsets (the HUD's normal
-// mode, 90262 path) are NOT authoring and stay available. State is the
-// qs:hud:authoring LSD key, seeded by [QS]boot from the AVpos
-// "AUTHORING locked" line (see STORAGE.md); absent or any other value
-// means open. The AVpos notecard is deliberately the single source of
-// truth: on modify furniture anyone who can swap the notecard can
-// replace the whole script set anyway, so the lock aims at the menu
-// surface, not at scripted attackers. After an LSD wipe boot re-seeds
-// from the notecard, which restores the lock with everything else.
-// MENU_SPEC invariant: sitB and adjuster refuse independently. Defined
-// above animation_menu (its first caller; LSL has no forward function
-// references).
-integer authoring_locked()
-{
-    return llLinksetDataRead("qs:hud:authoring") == "locked";
-}
+// Authoring lock removed in 1.2561: authoring availability is purely
+// presence-based, stock-style — without [QS]adjuster in the prim the
+// [HELPER]/[HELPER HUD] entries never render (qs:alive:adjuster gate
+// below) and the pose-menu enrichment never activates. Creators
+// finalize a build by removing the authoring tools ('/5 cleanup').
 
 integer animation_menu(integer animation_menu_function)
 {
@@ -347,16 +332,10 @@ integer animation_menu(integer animation_menu_function)
         // pose-offset re-write under qh_on is idempotent — same value.
         if (helper_mode || qh_on)
         {
-            // Authoring lock (1.255): a lock arriving while a mode is
-            // already active strips [NEW]/[DUMP]/[SAVE] but keeps
-            // [DONE], so the user can still exit the now-empty mode.
-            if (!authoring_locked())
+            menu_items2 += "[NEW]";
+            if (CURRENT_POSE_NAME != "")
             {
-                menu_items2 += "[NEW]";
-                if (CURRENT_POSE_NAME != "")
-                {
-                    menu_items2 = menu_items2 + "[DUMP]" + "[SAVE]";
-                }
+                menu_items2 = menu_items2 + "[DUMP]" + "[SAVE]";
             }
             menu_items2 += "[DONE]";
         }
@@ -680,12 +659,7 @@ adjust_dialog()
     }
 
     list tail;
-    // Authoring lock (1.255): both authoring entries vanish for everyone,
-    // owner included, when the creator locked the piece. The licensed
-    // creator's path stays HUD-side (settings toggle + ADJUSTMODE
-    // switch, license-gated in hudproxy/hudadmin).
-    integer auth_locked = authoring_locked();
-    if (!auth_locked && llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
+    if (llGetInventoryType(helper_object) == INVENTORY_OBJECT && llLinksetDataRead("qs:alive:adjuster") != "")
         tail += "[HELPER]";
     // [HELPER HUD] — adjust-ACL-gated entry (owner-only by default),
     // gated on the unprotected
@@ -709,7 +683,7 @@ adjust_dialog()
     // Creator builds never set the key, so the gate is a no-op for
     // the normal flow. Inverted polarity, see hudadmin's
     // ensureLicenseFlag header for the full rationale.
-    if (!auth_locked && adjust_allowed(CONTROLLER) && llLinksetDataRead("qs:alive:adjuster") != ""
+    if (adjust_allowed(CONTROLLER) && llLinksetDataRead("qs:alive:adjuster") != ""
         && llGetListLength(llLinksetDataFindKeys("^QPP_CFG:ADJUSTMODE$", 0, 1))
         && llLinksetDataRead("qs:hud:unlicensed") != "1")
         tail += "[HELPER HUD]";
@@ -1460,9 +1434,7 @@ default
                 // warning as adjuster's gate: any future change here MUST
                 // preserve this check. data[2] is the controller key (the
                 // avatar who clicked [HELPER] in the ADJUST submenu).
-                // Authoring lock (1.255): locked pieces refuse everyone,
-                // owner included, independent of the adjust ACL.
-                if (!adjust_allowed(llList2Key(data, 2)) || authoring_locked()) return;
+                if (!adjust_allowed(llList2Key(data, 2))) return;
                 menu_page = 0;
                 helper_mode = !helper_mode;
                 if (llList2Key(data, 2) == MY_SITTER && !OLD_HELPER_METHOD)

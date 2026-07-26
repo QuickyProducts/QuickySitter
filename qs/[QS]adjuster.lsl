@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2554";
+string version = "1.2555";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -111,20 +111,11 @@ integer adjust_allowed(key av)
     return FALSE;
 }
 
-// Authoring lock (1.255): mirror of [QS]sitB's authoring_locked(); the
-// MENU_SPEC both-scripts-refuse invariant extends to this gate. Locks
-// the authoring surface ([HELPER]/[QUICKYHUD] toggles, [NEW]/[DUMP]/
-// [SAVE], the ADJUSTMODE default-persist write) for EVERYONE, owner
-// included: the adjust ACL above answers "who of the sitters may
-// author", this answers "may this piece be authored at all".
-// qs:hud:authoring is seeded by [QS]boot from the AVpos "AUTHORING
-// locked" line (single source of truth, see the sitB header and
-// STORAGE.md); absent or any other value means open. Personal pose
-// offsets (90262 path) are not authoring and stay available.
-integer authoring_locked()
-{
-    return llLinksetDataRead("qs:hud:authoring") == "locked";
-}
+// Authoring lock removed in 1.2555: authoring availability is now purely
+// presence-based, stock-style — no [QS]adjuster in the prim means no
+// [HELPER]/[HELPER HUD] entries, no [NEW]/[DUMP]/[SAVE] and no
+// ADJUSTMODE entry point. Creators finalize a build by removing the
+// authoring tools ('/5 cleanup'), not by flipping a config lock.
 
 // 90005 "<controller>|<sitter>" pair send (LINK_THIS). Deduplicates ten
 // verbatim call sites (1.2553 memory pass, the inlined llDumpList2String
@@ -647,11 +638,6 @@ default
             {
                 if ((msg = llList2String(data, 1)) == "[DUMP]")
                 {
-                    // Authoring lock (1.255): silent gate, mirrors sitB's
-                    // render gate. The button is never rendered when
-                    // locked; a stale or forged 90100 must not dump the
-                    // AVpos content to a locked-out user.
-                    if (authoring_locked()) return;
                     if (id != llGetOwner())
                     {
                         llRegionSayTo(id, 0, "Dumping settings to Owner");
@@ -684,8 +670,6 @@ default
                 }
                 if (msg == "[NEW]")
                 {
-                    // Authoring lock (1.255): silent gate, see [DUMP] above.
-                    if (authoring_locked()) return;
                     controller = llList2Key(data, 2);
                     active_sitter = llList2Integer(data, 0);
                     // sitB ≥ 0.902 includes current_menu as field 3. Older
@@ -699,10 +683,6 @@ default
                 }
                 if (msg == "[SAVE]")
                 {
-                    // Authoring lock (1.255): silent gate, see [DUMP] above.
-                    // Blocks the pose-default write path; personal offsets
-                    // ([QS]offset, 90262) are unaffected.
-                    if (authoring_locked()) return;
                     for (i = 0; i < llGetListLength(SITTERS); i++)
                     {
                         if (llList2String(SITTER_POSES, i) != "")
@@ -788,18 +768,6 @@ default
                             ["OK"], -3675);
                         return;
                     }
-                    // Authoring lock (1.255): refuses even avatars passing
-                    // the adjust ACL, owner included. Explicit dialog as a
-                    // forged/stale-click telltale — the button is never
-                    // rendered when locked. (The '/5 helper' chat path does
-                    // NOT route through here since 1.2554; it checks the
-                    // lock itself, silently.)
-                    if (authoring_locked()) {
-                        llDialog(id,
-                            "Authoring is locked by the creator of this furniture.",
-                            ["OK"], -3675);
-                        return;
-                    }
                     controller = id;
                     OLD_HELPER_METHOD = (integer)llList2String(data, 3);
                     toggle_helper_mode();
@@ -812,9 +780,7 @@ default
                     // globally. Mirrors the [HELPER] gate above; silent
                     // return matches sitB's dispatch-gate style (the
                     // button is never rendered for refused avatars).
-                    // Authoring lock (1.255): same silent style; locked
-                    // pieces refuse everyone, owner included.
-                    if (!adjust_allowed(id) || authoring_locked()) return;
+                    if (!adjust_allowed(id)) return;
                     controller = id;
                     // Arm the comm_channel listen so the [NEW] sub-flow's
                     // sub-dialogs (new_menu → [POSE]/[SYNC]/[PROP]/[FACE]/
@@ -879,12 +845,7 @@ default
                 // state no matter which 90266 sender flipped it;
                 // helper_method is only the auto-Off-on-stand-up gate in
                 // end_helper_mode.
-                // Authoring lock (1.255): a lock arriving while ADJUSTMODE
-                // is still On must not keep persisting new pose DEFAULTS
-                // off HUD nudges. Personal offsets (90262) are separate
-                // and stay writable.
-                if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On"
-                    && !authoring_locked())
+                if (llLinksetDataRead("QPP_CFG:ADJUSTMODE") == "On")
                 {
                     qs_save_pose_offset(one,
                         llList2String(data, 0),
@@ -1001,11 +962,8 @@ default
                 // 0.910 refactor. Calling the helper flow directly also
                 // defines the semantics cleanly: the owner typing the
                 // command IS the authorization (stock parity, no adjust-ACL
-                // check for the slot-0 sitter), while the authoring lock
-                // still refuses, silently (no button was shown, chat gives
-                // no feedback channel worth a dialog per product decision).
-                if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) != ZERO_VECTOR
-                    && !authoring_locked())
+                // check for the slot-0 sitter).
+                if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) != ZERO_VECTOR)
                 {
                     controller = llList2Key(SITTERS, 0);
                     toggle_helper_mode();

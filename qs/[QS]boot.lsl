@@ -1346,12 +1346,11 @@ default
             llLinksetDataWrite("qs:cfg:verbose", part0);
             return;
         }
-        // No AUTHORING token here anymore (1.2551): the authoring-lock
-        // trigger moved to the Pro kit's hudconfig notecard (hudadmin
-        // 1.258 writes qs:hud:authoring), so flipping the lock no
-        // longer forces a full pose re-seed. A leftover AVpos AUTHORING
-        // line falls through as an unknown command, ignored like on
-        // stock. See PROTOCOL.md "Authoring lock".
+        // The authoring-lock mechanism (AVpos token in 1.255, then
+        // hudconfig keyword) was removed entirely in the 1.2552 era:
+        // authoring is presence-based (no [QS]adjuster = no authoring
+        // surface), stock-style. A leftover AUTHORING line falls
+        // through as an unknown command, ignored like on stock.
         if (command == "BRAND")  { BRAND = part0; return; }
         if (command == "ONSIT")  { onSit = part0; return; }
         if (command == "ROLES")  { RLVDesignations = (string)parts; return; }

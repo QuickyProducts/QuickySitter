@@ -242,88 +242,27 @@ QSALIVE stays — but only for the **sitter count / version / caps** payload
 plugins need for SITTERS list-sizing. Presence is no longer part of it;
 the 90097 reply no longer triggers any presence re-announce.
 
-## Authoring lock: `qs:hud:authoring` (cross-repo, 1.255)
+## Authoring availability is presence-based (lock removed, 1.2555/1.2561)
 
-Creators can ship customer furniture where even the furniture OWNER cannot
-reach the authoring surface: the `[HELPER]`/`[QUICKYHUD]` adjust entries,
-QuickyHUD ADJUSTMODE, and `[NEW]`/`[DUMP]`/`[SAVE]` (including adjuster's
-ADJUSTMODE default-persist write on the 90055 path). Personal pose offsets
-(the HUD's normal mode, 90262 path) are NOT authoring and stay available.
-Second member of the adjust-access family after the 1.25 Adjust ACL
-(`qs:sec:adjust`); the two are orthogonal: the ACL answers "who of the
-sitters may author", the lock answers "may this piece be authored at all"
-and can never be overridden by the ACL.
+The 1.255 authoring lock (`qs:hud:authoring`, hudconfig `AUTHORING`
+keyword, sitter-side `authoring_locked()` gates) was removed again in
+the 1.2555 era in favor of the stock-AVsitter model: **authoring exists
+exactly as long as `[QS]adjuster` is in the prim.** Without it,
+`[HELPER]`/`[HELPER HUD]` never render (`qs:alive:adjuster` gate in
+sitB), the pose-menu enrichment (`[NEW]`/`[DUMP]`/`[SAVE]`) can never
+activate, and ADJUSTMODE has no entry path (since hudproxy 1.256 the
+sitter-side `[QUICKYHUD]` flow is the only one). Creators finalize a
+customer build by REMOVING the authoring tools — `/5 cleanup` deletes
+`[QS]adjuster` and the `[AV]helper` object, mirroring the stock
+"remove before selling" step. The `[AV]helper` object alone only
+carries the classic bars path; removing just it leaves HUD authoring
+intact. Personal pose offsets (the HUD's normal mode, 90262 path) are
+not authoring and work without the adjuster.
 
-### The hudconfig AUTHORING line is the single source of truth
-
-```
-AUTHORING locked
-```
-
-Keyword line in the Pro kit's `hudconfig` notecard, on line 1 or below
-(line 0 stays the strict positional `RESERVE|ATTACHMODE|TEXTURE[|HUDOFFSET]`
-contract). hudadmin (external repo, since 1.258) parses it in
-`readConfig` and mirrors it to the plain LSD key `qs:hud:authoring`:
-`"locked"` writes the key, `AUTHORING open` (or no line, or no
-hudconfig) DELETES it, so removing the line unlocks. RESERVE-pattern
-precedent: hudconfig line → unprotected LSD key → cross-repo readers.
-The trigger moved here from an AVpos token (boot ≤ 1.255) so that
-flipping the lock re-reads instantly WITHOUT a full pose re-seed;
-boot no longer touches the key at all, and a leftover AVpos
-`AUTHORING` line is ignored as an unknown command.
-
-Backward compatibility of the hudconfig: hudadmins ≤ 1.257 only ever
-read line 0, so keyword lines are invisible to them by construction
-(config intact, lock simply inactive). Appending a 5th positional field
-instead would have made the old parser reject the WHOLE line
-(field-count validation) and drop RESERVE/ATTACHMODE with it — hence
-the keyword-line format. Unknown keywords on line 1+ are skipped
-silently, so future keys stay readable by 1.258 as well. A card whose
-line 0 is itself a keyword line works (positional part defaults).
-
-Readers gate on the key directly and independently:
-
-- sitB + adjuster `authoring_locked()` (render, dispatch, 90055
-  default-persist write), per the MENU_SPEC invariant. That is the
-  complete enforcement: since hudproxy 1.256 removed the
-  Switch-ADJUSTMODE settings entry, ADJUSTMODE has exactly one entry
-  path (the sitter-side `[QUICKYHUD]` flow, ACL- and lock-gated in both
-  scripts). A forged 90266/90267 from a foreign script is out of scope
-  per the threat model below.
-
-Absent key or any other value = open; unlocked furniture behaves exactly
-as 1.25. Consequence of the hudconfig anchoring: furniture without the
-QuickyHUD pair (plain OSS builds) has no lock feature — deliberate, the
-lock is a Pro-kit feature per the license split.
-
-### Threat model (revised 2026-07-24)
-
-The lock aims at the MENU surface, not at scripted attackers. On modify
-furniture anyone who can edit or swap the hudconfig can just as well
-replace the entire script set (or read the notecard from a script), so
-guarding the lock against notecard tampering buys nothing: earlier
-drafts with a protected anchor key, installer-gated adoption and
-mirror-tamper re-assertion were deliberately dropped for this reason.
-What the design still gives:
-
-- **Menus:** no path through pose menu, ADJUST submenu or `/5 helper`
-  chat command reaches authoring on a locked piece, for the owner
-  included (the HUD has no entry of its own since hudproxy 1.256).
-- **LSD wipe (`llLinksetDataReset`):** hudadmin's `linkset_data`
-  handler re-writes the mirror from its config RAM immediately; after
-  a combined script-plus-store wipe, `readConfig` restores it from the
-  hudconfig on the next boot.
-- **`[DUMP]`:** unreachable on a locked piece (adjuster gate), so the
-  menu path never hands out the AVpos content. The AVpos itself carries
-  no lock state anymore, so dumps and pasted dumps are lock-neutral by
-  construction.
-
-### Migration
-
-Nothing to migrate: the key only exists where a creator put the
-`AUTHORING locked` line into the hudconfig. Existing furniture has no
-line, reads as open, and behaves exactly as before; pieces that never
-receive the 1.255/1.258 scripts are untouched by construction.
+A leftover `qs:hud:authoring` LSD key from a 1.255-era build is inert
+(no reader) and disappears with the next full LSD cleanup; hudconfig
+`AUTHORING` lines are skipped as unknown keywords by hudadmin ≥ 1.259
+and were invisible to ≤ 1.257 anyway.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 

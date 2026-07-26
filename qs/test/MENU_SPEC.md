@@ -139,21 +139,14 @@ written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
 (= pre-1.25 behavior). Missing either gate = the double-dialog / global-toggle
 regression. The rebuild must keep both.
 
-**Authoring-lock invariant (1.255):** when `authoring_locked()` is TRUE
-(`qs:hud:authoring` == `"locked"`, mirrored by hudadmin ≥ 1.258 from the
-`AUTHORING locked` keyword line in the Pro kit's `hudconfig` notecard,
-the single source of truth), the entire
-authoring surface MUST be refused for every avatar, the OWNER included:
-`[HELPER]`/`[QUICKYHUD]` render + dispatch, `[NEW]`/`[DUMP]`/`[SAVE]` render
-(sitB) and action (adjuster), and adjuster's ADJUSTMODE default-persist write
-(90055 path). sitB AND adjuster each check independently, exactly like the
-adjust-access invariant above. No HUD-side share exists: since hudproxy
-1.256 removed the Switch-ADJUSTMODE settings entry, ADJUSTMODE's only
-entry is the sitter-side `[QUICKYHUD]` flow, which both scripts gate.
-`[DONE]` stays rendered in an already-active mode so the user can exit.
-Personal pose offsets (90262 path) are NOT authoring and MUST stay available.
-The adjust ACL (`qs:sec:adjust`) can never override the lock: ACL answers
-"who of the sitters", the lock answers "may this piece be authored at all".
+**Authoring presence invariant (1.2561, replaces the 1.255 lock):** the
+authoring surface exists only while `[QS]adjuster` is present:
+`[HELPER]`/`[HELPER HUD]` render MUST stay gated on `qs:alive:adjuster`
+(never an inventory name probe), and without the adjuster no path may
+reach `[NEW]`/`[DUMP]`/`[SAVE]` or ADJUSTMODE (since hudproxy 1.256 the
+sitter-side `[QUICKYHUD]` flow is ADJUSTMODE's only entry). Personal
+pose offsets (90262 path) are NOT authoring and MUST work without the
+adjuster.
 
 **`[DONE]` vs `[BACK]` (regression history):** `[DONE]` is *deliberately separate*
 from `[BACK]` so a user navigating up out of a deep pose-submenu doesn't
