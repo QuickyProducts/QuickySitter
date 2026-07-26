@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.2562";
+string version = "1.26";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -88,6 +88,12 @@ list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
 // [QUICKYHUD]). RAM registry, re-announced by the plugin on QSALIVE_REPLY, so it
 // survives a re-seed (qs_load_from_lsd rebuilds ADJUST_MENU, never ADJUST_DYN).
 integer QSADJ_REGISTER    = 90213;
+// Counterpart (1.2563): a plugin drops its own entry again before it
+// self-deletes. Needed because ADJUST_DYN is add/replace-only otherwise and
+// only empties on OUR reset, so a creator-only tool removed by '/5 cleanup'
+// (QS_FINALIZE 90215) left a dead button dispatching to a channel nobody
+// listens on, plus a phantom self-show [ADJUST] (see animation_menu).
+integer QSADJ_UNREGISTER  = 90216;
 list    ADJUST_DYN;             // [label, click_chan, scriptName, flags, ...] (strided 4)
 integer in_plugin_menu;         // TRUE while [OPTIONS] dialog is open;
                                 // flips listen() to plugin-flavored routing
@@ -1245,6 +1251,29 @@ default
                     [alabel, achan, asName, aflags], ari, ari + 3);
             else
                 ADJUST_DYN += [alabel, achan, asName, aflags];
+            return;
+        }
+        if (num == QSADJ_UNREGISTER)
+        {
+            // PROTOCOL.md § QSADJ_UNREGISTER — drop a registered [ADJUST]
+            // entry. msg = <scriptName>, the same identity QSADJ_REGISTER
+            // dedupes on, so a plugin unregisters exactly what it announced.
+            // Sent by creator-only tools right before they self-delete on
+            // QS_FINALIZE; a stale stride would otherwise survive until our
+            // own reset. Empty msg is dropped: the register handler refuses
+            // an empty scriptName, so no stride can legitimately match it.
+            if (msg == "") return;
+            integer ui = 0;
+            integer un = llGetListLength(ADJUST_DYN);
+            while (ui < un && llList2String(ADJUST_DYN, ui + 2) != msg)
+                ui += 4;
+            if (ui < un)
+            {
+                ADJUST_DYN = llDeleteSubList(ADJUST_DYN, ui, ui + 3);
+                // The button count shrank, so an open dialog's page index may
+                // now point past the end. Next render starts at page 0.
+                adjust_page = 0;
+            }
             return;
         }
         if (num == 90000 || num == 90010 || num == 90003 || num == 90008)
