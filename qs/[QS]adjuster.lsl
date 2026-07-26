@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2552";
+string version = "1.2553";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -70,6 +70,16 @@ list SITTERS;
 integer sitter_count;
 integer end_count;
 integer chat_channel = 5;
+// '/5 helper' owner authorization (1.2553). Armed by the owner-filtered
+// chat listen right before the 90100 send; lets the resulting [HELPER]
+// dispatch pass the adjust ACL once, within a short lag-tolerance
+// window, then gets consumed. Restores the stock-AVsitter semantic
+// (owner grants a helper session for slot 0 by typing the command)
+// that the 1.25 ACL had unintentionally broken for non-owner sitters.
+// RAM-only on purpose: a payload marker in 90100/90101 would be
+// forgeable by any script in the linkset (mod furniture). Does NOT
+// bypass authoring_locked() — that gate sits behind this one.
+float chat_auth = -9999.0;
 integer helper_mode;
 // 0 = old [AV]helper bars, 1 = QuickyHUD ADJUSTMODE handoff. Tracks
 // whether end_helper_mode should also flip QuickyHUD off (auto-Off on
@@ -773,13 +783,18 @@ default
                     // Don't fold the early-return into a single big
                     // if-statement — the explicit `return` keeps the
                     // intent visible during diff review.
-                    if (!adjust_allowed(id)) {
+                    //
+                    // chat_auth (1.2553): a fresh '/5 helper' from the
+                    // owner passes the ACL once (see global's comment);
+                    // 3 s = sim-lag tolerance for the 90100 roundtrip.
+                    if (!adjust_allowed(id) && llGetTime() - chat_auth > 3.0) {
                         llDialog(id,
                             "No adjust access — see [SECURITY] > Adjust. "
                             + "Owner nearby? Type '/5 helper' in chat.",
                             ["OK"], -3675);
                         return;
                     }
+                    chat_auth = -9999.0;
                     // Authoring lock (1.255): refuses even avatars passing
                     // the adjust ACL, owner included. Explicit dialog (not
                     // silent) because this handler is also reachable via
@@ -987,6 +1002,7 @@ default
             {
                 if (llGetAgentSize(llGetLinkKey(llGetNumberOfPrims())) != ZERO_VECTOR)
                 {
+                    chat_auth = llGetTime();
                     llMessageLinked(LINK_SET, 90100, "0|[HELPER]||" + (string)OLD_HELPER_METHOD, llList2Key(SITTERS, 0));
                 }
             }
