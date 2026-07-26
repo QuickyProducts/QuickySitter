@@ -133,11 +133,14 @@ in the first draft — they are the critical part.
 **Adjust-access invariant (1.25; formerly "owner-gate"):** `[HELPER]`/`[QUICKYHUD]`
 clicks from avatars failing `adjust_allowed()` MUST be refused — sitB AND adjuster
 each check independently (both define the same predicate). The predicate: owner
-always passes; non-owners pass per the `qs:sec:adjust` ACL level (`GROUP`/`ALL`)
-written by [QS]root-security's `[SECURITY]` → `Adjust` menu, guarded by
-`has_security` so a stale key after plugin removal falls back to owner-only
-(= pre-1.25 behavior). Missing either gate = the double-dialog / global-toggle
-regression. The rebuild must keep both.
+always passes; non-owners pass per the `qs:sec:adjust` ACL level (`GROUP`/`ALL`),
+written by [QS]root-security's `[SECURITY]` → `Adjust` menu or by adjuster's
+`/5 adjust` chat command (1.2556, routed through root-security via 90204 when
+that is present). Stale-key guard: the key counts only while one of its two
+writers is alive (`has_security` OR `qs:alive:adjuster`); otherwise owner-only
+(= pre-1.25 behavior). Both writers reset the key on CHANGED_OWNER. Missing
+either gate = the double-dialog / global-toggle regression. The rebuild must
+keep both.
 
 **Authoring presence invariant (1.2561, replaces the 1.255 lock):** the
 authoring surface exists only while `[QS]adjuster` is present:

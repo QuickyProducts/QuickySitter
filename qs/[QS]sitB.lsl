@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.2561";
+string version = "1.2562";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -611,14 +611,16 @@ plugin_dialog()
 // owner-gated entries (QSADJ_REGISTER flags bit 0), and the
 // [HELPER]/[QUICKYHUD] dispatch paths. The owner always passes — the
 // ACL can never lock the owner out (deliberate divergence from stock
-// pass_security, where GROUP can exclude even the owner). has_security
-// guards against a stale key after the security plugin was removed
-// (the 90201 probe resets it, 90202 re-arms). No plugin or no key ⇒
-// owner-only, i.e. the pre-1.25 behavior.
+// pass_security, where GROUP can exclude even the owner). Stale-key
+// guard (widened 1.2562): the key counts while EITHER of its writers is
+// present — [QS]root-security (has_security, 90201 probe resets / 90202
+// re-arms) or [QS]adjuster ('/5 adjust' since 1.2556, presence via
+// qs:alive:adjuster; its CHANGED_OWNER handler resets the key on sale).
+// No writer or no key ⇒ owner-only, i.e. the pre-1.25 behavior.
 integer adjust_allowed(key av)
 {
     if (av == llGetOwner()) return TRUE;
-    if (!has_security) return FALSE;
+    if (!has_security && llLinksetDataRead("qs:alive:adjuster") == "") return FALSE;
     string mode = llLinksetDataRead("qs:sec:adjust");
     if (mode == "ALL") return TRUE;
     if (mode == "GROUP") return llSameGroup(av);

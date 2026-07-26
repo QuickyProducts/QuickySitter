@@ -35,7 +35,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.251";
+string version = "1.2511";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -141,12 +141,23 @@ register_touch(key id, integer animation_menu_function, integer active_prim, int
 
 main_menu()
 {
-    list buttons = (list)"Sit" + "Menu" + "Adjust";
+    list buttons = (list)"Sit" + "Menu";
+    // The Adjust category only exists while [QS]adjuster is present
+    // (qs:alive presence flag, never an inventory name probe) — without
+    // the adjuster there is no adjust workflow to gate, so the entry
+    // would only confuse. 1.2511, part of the presence-based authoring
+    // model.
+    string adjust_line = "";
+    if (llLinksetDataRead("qs:alive:adjuster") != "")
+    {
+        buttons += "Adjust";
+        adjust_line = "\nAdjust access: " + llList2String(ADJUST_TYPES, ADJUST_INDEX);
+    }
     if (active_sitter) // OSS::if (osIsUUID(active_sitter) && active_sitter != NULL_KEY)
     {
         buttons = "[BACK]" + buttons;
     }
-    dialog("Sit access: " + llList2String(SIT_TYPES, SIT_INDEX) + "\nMenu access: " + llList2String(MENU_TYPES, MENU_INDEX) + "\nAdjust access: " + llList2String(ADJUST_TYPES, ADJUST_INDEX) + "\n\nChange security settings:", buttons);
+    dialog("Sit access: " + llList2String(SIT_TYPES, SIT_INDEX) + "\nMenu access: " + llList2String(MENU_TYPES, MENU_INDEX) + adjust_line + "\n\nChange security settings:", buttons);
     lastmenu = "";
 }
 
@@ -196,6 +207,20 @@ default
         else if (num == QS_ALIVE_CENSUS)
         {
             write_adjust_access();
+        }
+        else if (num == 90204)
+        {
+            // QSADJ_ACL_SET (1.2511): [QS]adjuster's '/5 adjust' chat
+            // command routes through us when we are present, so our RAM
+            // ADJUST_INDEX stays authoritative and the CENSUS re-stamp
+            // can't revert a chat-set level. Same validation as the
+            // dialog branch.
+            integer pick = llListFindList(ADJUST_TYPES, [msg]);
+            if (pick != -1)
+            {
+                ADJUST_INDEX = pick;
+                write_adjust_access();
+            }
         }
         else if (num == 90006)
         {

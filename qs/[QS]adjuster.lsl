@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2555";
+string version = "1.2556";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -98,13 +98,16 @@ list chosen_animations = [last_text]; //OSS::list chosen_animations; // Force er
 // Adjust-access ACL (1.25) — mirror of [QS]sitB's adjust_allowed; the
 // MENU_SPEC gate invariant requires BOTH scripts to refuse independently
 // (otherwise the double-dialog / global-toggle regression returns).
-// Level from qs:sec:adjust, written by [QS]root-security
-// ("OWNER"/"GROUP"/"ALL"); absent key or absent security plugin ⇒
-// owner-only, i.e. the pre-1.25 behavior.
+// Level from qs:sec:adjust; writers are [QS]root-security (dialog) and,
+// since 1.2556, this script's '/5 adjust' chat command. The stale-key
+// guard therefore accepts the key while EITHER writer is present
+// (root-security via has_security, adjuster via its own qs:alive flag —
+// trivially true here, but sitB's mirror does the real work). No writer
+// present ⇒ owner-only, i.e. the pre-1.25 behavior.
 integer adjust_allowed(key av)
 {
     if (av == llGetOwner()) return TRUE;
-    if (!has_security) return FALSE;
+    if (!has_security && llLinksetDataRead("qs:alive:adjuster") == "") return FALSE;
     string mode = llLinksetDataRead("qs:sec:adjust");
     if (mode == "ALL") return TRUE;
     if (mode == "GROUP") return llSameGroup(av);
@@ -886,6 +889,15 @@ default
                 end_helper_mode();
             }
         }
+        if (change & CHANGED_OWNER)
+        {
+            // A sale must not carry a widened Adjust level to the buyer
+            // (mirrors [QS]root-security's CHANGED_OWNER reset; needed
+            // here too since 1.2556 because '/5 adjust' can write the
+            // key on furniture without the security plugin). Absent key
+            // reads as OWNER everywhere.
+            llLinksetDataDelete("qs:sec:adjust");
+        }
         if (change & CHANGED_INVENTORY)
         {
             unsit_all();
@@ -967,6 +979,30 @@ default
                 {
                     controller = llList2Key(SITTERS, 0);
                     toggle_helper_mode();
+                }
+            }
+            else if (llGetSubString(msg, 0, 6) == "adjust ")
+            {
+                // '/5 adjust owner|group|all' (1.2556): owner shortcut for
+                // the [SECURITY] > Adjust level. Routed through
+                // [QS]root-security (90204) when present so its RAM state
+                // stays authoritative (its CENSUS re-stamp would revert a
+                // bare LSD write); written directly when the security
+                // plugin is absent (base-script furniture) — the widened
+                // adjust_allowed guard accepts the key while we are alive,
+                // and our CHANGED_OWNER handler resets it on sale.
+                string lvl = llToUpper(llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM));
+                if (llListFindList(["OWNER", "GROUP", "ALL"], [lvl]) != -1)
+                {
+                    if (has_security)
+                        llMessageLinked(LINK_SET, 90204, lvl, "");
+                    else
+                        llLinksetDataWrite("qs:sec:adjust", lvl);
+                    llRegionSayTo(llGetOwner(), 0, "Adjust access: " + lvl);
+                }
+                else
+                {
+                    llRegionSayTo(llGetOwner(), 0, "Use: /5 adjust owner|group|all");
                 }
             }
         }
