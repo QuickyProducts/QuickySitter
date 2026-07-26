@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2556";
+string version = "1.2557";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -953,6 +953,13 @@ default
         {
             if (msg == "cleanup")
             {
+                // QS_FINALIZE broadcast (90215, 1.2557): creator-only
+                // tools remove THEMSELVES on finalization — this script
+                // knows no Pro-kit inventory names (repo split). Today's
+                // subscriber: [QS]animesh (runs its [FINALIZE] teardown,
+                // bodies + notecard + both scripts + rezzed dummies).
+                // Sent first so it is out before our self-removal.
+                llMessageLinked(LINK_SET, 90215, "", "");
                 llRegionSay(comm_channel, "DONEA");
                 Out(1, "Cleaning \"" + llGetScriptName() + "\" and \"" + helper_name + "\" from prim " + (string)llGetLinkNumber());
                 if (llGetInventoryType(helper_name) == INVENTORY_OBJECT)
