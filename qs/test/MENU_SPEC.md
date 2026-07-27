@@ -145,11 +145,21 @@ keep both.
 **Authoring presence invariant (1.2561, replaces the 1.255 lock):** the
 authoring surface exists only while `[QS]adjuster` is present:
 `[HELPER]`/`[HELPER HUD]` render MUST stay gated on `qs:alive:adjuster`
-(never an inventory name probe), and without the adjuster no path may
-reach `[NEW]`/`[DUMP]`/`[SAVE]` or ADJUSTMODE (since hudproxy 1.256 the
-sitter-side `[QUICKYHUD]` flow is ADJUSTMODE's only entry). Personal
-pose offsets (90262 path) are NOT authoring and MUST work without the
-adjuster.
+(never an inventory name probe). Personal pose offsets (90262 path) are
+NOT authoring and MUST work without the adjuster.
+
+Two things this invariant does NOT claim, both stated in error in earlier
+revisions. ADJUSTMODE is **not** reachable only through the sitter-side
+`[QUICKYHUD]` flow: any holder of the `90266` wire flips it straight at
+hudproxy without the adjuster, and `[QS]animesh` is such a holder. And the
+`[NEW]`/`[DUMP]`/`[SAVE]` enrichment is **not** gated on the adjuster, it
+keys off `helper_mode || qh_on` alone in `animation_menu`, so whoever sets
+`QPP_CFG:ADJUSTMODE` brings those buttons back (`[NEW]`/`[DUMP]` inert
+without the adjuster, `[SAVE]` still live via `[QS]prop`). The invariant
+therefore survives finalization only because creator-only plugins tear
+THEMSELVES down on `QS_FINALIZE` (90215) and drop their `[ADJUST]` entry
+via `QSADJ_UNREGISTER` (90216). A rebuild MUST NOT assume the menu code
+enforces it.
 
 **`[DONE]` vs `[BACK]` (regression history):** `[DONE]` is *deliberately separate*
 from `[BACK]` so a user navigating up out of a deep pose-submenu doesn't

@@ -67,11 +67,12 @@ notice.
 | `90097` | same | `[QS]sitA` (slot 0) → plugin: QSALIVE reply / boot-announce |
 | `90098` | same | `[QS]adjuster` → `[QS]boot`: "start dump for channel". `id` is the mode marker (`"quiet"` → web-only output, anything else → stock-style loud chat). |
 | `90099` | same | `[QS]boot` → self: dump tick |
-| `90204` | stock-free slot inside the `90200` band | `[QS]adjuster` → `[QS]root-security`: `QSADJ_ACL_SET` — apply an Adjust-ACL level from the `/5 adjust` chat command. msg = `"OWNER"`/`"GROUP"`/`"ALL"` (validated by the receiver like a dialog pick). Sent only while root-security is present (`has_security`); without it the adjuster writes `qs:sec:adjust` itself. |
+| `90204` | stock-free slot inside the `90200` band | `[QS]adjuster` → `[QS]root-security`: `QSADJ_ACL_SET` — apply an Adjust-ACL level from the `/5 adjust` chat command. msg = `"OWNER"`/`"GROUP"`/`"ALL"` (validated by the receiver like a dialog pick). Sent unconditionally since adjuster 1.2559, alongside the adjuster's own `qs:sec:adjust` write: the receiver's census handler re-stamps the key from its RAM `ADJUST_INDEX`, so skipping the message would let the next census revert a chat-set level, and gating the send on the `has_security` mirror was unsafe because that mirror reads FALSE until the 90201/90202 round trip completes. Both writes carry the same validated value, and with no receiver present the message is simply unheard. |
 | `90215` | same free band | `[QS]adjuster` → creator-only plugins: `QS_FINALIZE` — broadcast by the `/5 cleanup` finalization right before the adjuster removes itself. Subscribers tear THEMSELVES down (the adjuster knows no Pro-kit inventory names, repo split); the owner-typed command counts as the confirmation. Current subscriber: `[QS]animesh` (external repo, runs its `[FINALIZE]` teardown without the dialog). Unheard when no such plugin is present. |
 | `90212` | between stock `90211` and `90230` | plugin → `[QS]sitB`: `QSPLUG_REGISTER` — register a button into the `[OPTIONS]` top-level menu. msg = `<label>\|<click_chan>\|<scriptName>`, id = `""`. sitB dedupes by scriptName so a plugin reset overwrites instead of duplicates. Click dispatched directly to `<click_chan>` (msg = label, id = controller key) — no adjuster hop. See [§ QSPLUG_REGISTER](#qsplug_register--dynamic-options-menu). |
-| `90213` | same free band | plugin → `[QS]sitB`: `QSADJ_REGISTER` — register a button into the `[ADJUST]` submenu (not `[OPTIONS]`). msg = `<label>\|<click_chan>\|<scriptName>\|<flags>`, id = `""`. `flags` bit 0 = owner-only (render + dispatch gated to `llGetOwner()`, like `[QUICKYHUD]`). sitB dedupes by scriptName; click dispatched to `<click_chan>` with the same `<controller>\|<sitter>` composite-id rule as the notecard `ADJUST` line. sitB ≥ 1.04. See [§ QSADJ_REGISTER](#qsadj_register--dynamic-adjust-submenu). |
-| `90214` | same free band | `[QS]adjuster` → `[QS]faces`: `QSFACE_PICK` — open the facial-anim picker for a sitter slot. msg = `<slot>\|<controller>\|<sitterAv>`, id = `""`. The picker dialog, the expression list and the storage all live plugin-side (faces ≥ 1.251, adjuster ≥ 1.2552): faces renders the paginated picker to `<controller>`, stores the pick via its stock-90172 logic and reopens the pose menu via `90005` with `<controller>\|<sitterAv>` ([CANCEL] included). The adjuster no longer carries any facial-anim code; the stock `90172` wire stays unchanged as the store contract. Stock `[AV]faces` cannot host the picker — its authoring compat was already dropped with the qs:alive migration and is deliberately not a goal. |
+| `90213` | same free band | plugin → `[QS]sitB`: `QSADJ_REGISTER` — register a button into the `[ADJUST]` submenu (not `[OPTIONS]`). msg = `<label>\|<click_chan>\|<scriptName>\|<flags>`, id = `""`. `flags` bit 0 = owner-only (render + dispatch gated to `llGetOwner()`, like `[QUICKYHUD]`). sitB dedupes by scriptName; click dispatched to `<click_chan>` with the same `<controller>\|<sitter>` composite-id rule as the notecard `ADJUST` line. sitB ≥ 1.04. Removal goes through `90216` (`QSADJ_UNREGISTER`). See [§ QSADJ_REGISTER](#qsadj_register--dynamic-adjust-submenu). |
+| `90216` | same free band | plugin → `[QS]sitB`: `QSADJ_UNREGISTER` — drop a previously registered `[ADJUST]` entry. msg = `<scriptName>` (the identity `QSADJ_REGISTER` dedupes on), id = `""`. Counterpart to `90213`, needed because `ADJUST_DYN` is a RAM registry with no other removal path: it only empties on a sitB reset. A creator-only tool that self-deletes on `QS_FINALIZE` (`90215`) MUST send this first, otherwise its button outlives it as a dead entry that dispatches to a channel nobody listens on and keeps the self-show `[ADJUST]` alive on a piece with `AMENU` off. Sent `LINK_SET` (sitB may be in another prim; each instance drops its own copy) and delivered even when the sender removes itself in the same event, since link messages are queued. sitB ≥ 1.2563; unknown scriptName and empty msg are no-ops. |
+| `90214` | same free band | `[QS]adjuster` → `[QS]faces`: `QSFACE_PICK` — open the facial-anim picker for a sitter slot. msg = `<slot>\|<controller>\|<sitterAv>`, id = `""`. **Prim-local**: sent `LINK_THIS` (adjuster ≥ 1.2558) and the receiver refuses a cross-prim sender (faces ≥ 1.2511), matching the reach of the `90172` store it replaced. `<slot>` indexes the receiving prim's own `SITTERS`, so a linkset-wide send would open one picker per faces instance and store against the wrong seat. The picker dialog, the expression list and the storage all live plugin-side (faces ≥ 1.251, adjuster ≥ 1.2552): faces renders the paginated picker to `<controller>`, stores the pick via its stock-90172 logic and reopens the pose menu via `90005` with `<controller>\|<sitterAv>` ([CANCEL] included). The adjuster no longer carries any facial-anim code; the stock `90172` wire stays unchanged as the store contract. Stock `[AV]faces` cannot host the picker — its authoring compat was already dropped with the qs:alive migration and is deliberately not a goal. |
 | `90260` | between stock `90230` and `90298` | `[QS]offset` → `[QS]sitA`: push personal offset |
 | `90261` | same | `[QS]sitA` → `[QS]offset`: request push |
 | `90262` | same | `[QS]sitA` → `[QS]offset`: save personal offset |
@@ -251,20 +252,36 @@ keyword, sitter-side `authoring_locked()` gates) was removed again in
 the 1.2555 era in favor of the stock-AVsitter model: **authoring exists
 exactly as long as `[QS]adjuster` is in the prim.** Without it,
 `[HELPER]`/`[HELPER HUD]` never render (`qs:alive:adjuster` gate in
-sitB), the pose-menu enrichment (`[NEW]`/`[DUMP]`/`[SAVE]`) can never
-activate, and ADJUSTMODE has no entry path (since hudproxy 1.256 the
-sitter-side `[QUICKYHUD]` flow is the only one). Creators finalize a
-customer build by REMOVING the authoring tools — `/5 cleanup` deletes
-`[QS]adjuster` and the `[AV]helper` object, mirroring the stock
-"remove before selling" step. The `[AV]helper` object alone only
-carries the classic bars path; removing just it leaves HUD authoring
-intact. Personal pose offsets (the HUD's normal mode, 90262 path) are
-not authoring and work without the adjuster.
+sitB). Creators finalize a customer build by REMOVING the authoring
+tools: `/5 cleanup` deletes `[QS]adjuster` and the `[AV]helper` object,
+mirroring the stock "remove before selling" step. The `[AV]helper`
+object alone only carries the classic bars path; removing just it
+leaves HUD authoring intact. Personal pose offsets (the HUD's normal
+mode, 90262 path) are not authoring and work without the adjuster.
+
+**ADJUSTMODE is not exclusive to the sitter-side `[QUICKYHUD]` flow, and
+the pose-menu enrichment is not gated on the adjuster.** Earlier revisions
+of this section claimed both; neither holds. Any plugin owning the `90266`
+wire can flip ADJUSTMODE straight at hudproxy without the adjuster, and
+`[QS]animesh` does exactly that. sitB's `[NEW]`/`[DUMP]`/`[SAVE]`
+enrichment keys off `helper_mode || QPP_CFG:ADJUSTMODE == "On"` alone, so
+whoever sets the key resurrects those buttons. On a finalized piece
+`[NEW]` and `[DUMP]` are then inert (only the adjuster consumed them)
+while `[SAVE]` still writes prop positions through `[QS]prop`.
+
+The presence model therefore rests on a **contract with creator-only
+plugins**, not on a structural property of the menu code: such a plugin
+MUST subscribe to `QS_FINALIZE` (`90215`), tear itself down on it, and
+drop its `[ADJUST]` entry via `QSADJ_UNREGISTER` (`90216`). Then a piece
+finalized with `/5 cleanup` genuinely has no ADJUSTMODE entry left,
+because no 90266 sender survives. A creator-only plugin that ignores
+`90215` breaks the invariant, and no sitter-side gate will catch it.
 
 A leftover `qs:hud:authoring` LSD key from a 1.255-era build is inert
-(no reader) and disappears with the next full LSD cleanup; hudconfig
-`AUTHORING` lines are skipped as unknown keywords by hudadmin ≥ 1.259
-and were invisible to ≤ 1.257 anyway.
+(no reader on the sitter side) and does not linger: hudadmin ≥ 1.2596
+deletes it in `readConfig()`, so it goes on the next config read.
+hudconfig `AUTHORING` lines are ignored, hudadmin ≥ 1.2596 reads only
+the positional line 0 again, and ≤ 1.257 never saw them anyway.
 
 ## QSPLUG_REGISTER — dynamic [OPTIONS] menu
 
