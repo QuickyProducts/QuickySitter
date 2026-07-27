@@ -15,7 +15,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.25";
+string version = "1.26";
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug.
