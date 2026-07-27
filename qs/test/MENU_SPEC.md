@@ -151,7 +151,11 @@ NOT authoring and MUST work without the adjuster.
 Two things this invariant does NOT claim, both stated in error in earlier
 revisions. ADJUSTMODE is **not** reachable only through the sitter-side
 `[QUICKYHUD]` flow: any holder of the `90266` wire flips it straight at
-hudproxy without the adjuster, and `[QS]animesh` is such a holder. And the
+hudproxy without the adjuster, and `[QS]animesh` is such a holder. It
+restrains itself, gating its entry on `qs:alive:adjuster` at render and at
+dispatch, because every way back out of ADJUSTMODE runs through the
+adjuster. Note that this is the plugin's own doing, not something sitB can
+enforce. And the
 `[NEW]`/`[DUMP]`/`[SAVE]` enrichment is **not** gated on the adjuster, it
 keys off `helper_mode || qh_on` alone in `animation_menu`, so whoever sets
 `QPP_CFG:ADJUSTMODE` brings those buttons back (`[NEW]`/`[DUMP]` inert

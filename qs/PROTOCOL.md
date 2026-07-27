@@ -282,8 +282,12 @@ mode, 90262 path) are not authoring and work without the adjuster.
 **ADJUSTMODE is not exclusive to the sitter-side `[QUICKYHUD]` flow, and
 the pose-menu enrichment is not gated on the adjuster.** Earlier revisions
 of this section claimed both; neither holds. Any plugin owning the `90266`
-wire can flip ADJUSTMODE straight at hudproxy without the adjuster, and
-`[QS]animesh` does exactly that. sitB's `[NEW]`/`[DUMP]`/`[SAVE]`
+wire can flip ADJUSTMODE straight at hudproxy without the adjuster.
+`[QS]animesh` is such a holder; it gates its own entry point on
+`qs:alive:adjuster` (render **and** dispatch, since a dialog opened before
+a cleanup can still deliver a click), because every way back OUT of
+ADJUSTMODE runs through the adjuster's `end_helper_mode`. That is
+self-restraint, not something sitB enforces. sitB's `[NEW]`/`[DUMP]`/`[SAVE]`
 enrichment keys off `helper_mode || QPP_CFG:ADJUSTMODE == "On"` alone, so
 whoever sets the key resurrects those buttons. On a finalized piece
 `[NEW]` and `[DUMP]` are then inert (only the adjuster consumed them)
