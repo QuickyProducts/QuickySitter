@@ -46,6 +46,12 @@ integer QS_ALIVE_CENSUS = 90079;
 // sitA only probes on its own state_entry/changed events.
 integer has_security;
 
+// TRUE from the first statement of the '/5 cleanup' teardown onwards.
+// Suppresses the QS_ALIVE_CENSUS re-stamp so a census that boot queues
+// during the teardown cannot resurrect qs:alive:adjuster after we have
+// deleted it and removed ourselves.
+integer cleanup_started;
+
 // QS_HUDPROXY_HELLO — bidirectional hudproxy presence check (see
 // PROTOCOL.md § HUDPROXY presence). Single number, msg-discriminated:
 // adjuster sends "PROBE", hudproxy answers "HELLO" (also broadcasts
@@ -573,6 +579,17 @@ default
             // boot wiped presence on a plugin add/remove or re-seed —
             // re-publish our own. Other plugins' flags are read on-demand,
             // so we only re-stamp ours here.
+            //
+            // Unless we are already tearing down. '/5 cleanup' removes the
+            // [AV]helper object one statement before it removes us, and
+            // that inventory change makes boot wipe + broadcast a census
+            // while we are still inside the listen handler. The census
+            // lands in our queue and gets processed AFTER the handler
+            // finishes, i.e. after our own flag delete and after
+            // llRemoveInventory — and this line then wrote the flag back
+            // from a script that no longer exists. Field symptom: the
+            // [HELPER]/[HELPER HUD] entries survived every cleanup.
+            if (cleanup_started) return;
             llLinksetDataWrite("qs:alive:adjuster", "1");
             return;
         }
@@ -953,6 +970,10 @@ default
         {
             if (msg == "cleanup")
             {
+                // Set BEFORE anything else: from here on our presence flag
+                // must never be re-stamped again, no matter which queued
+                // event still reaches us. See the QS_ALIVE_CENSUS handler.
+                cleanup_started = TRUE;
                 // QS_FINALIZE broadcast (90215, 1.2557): creator-only
                 // tools remove THEMSELVES on finalization — this script
                 // knows no Pro-kit inventory names (repo split). Today's
@@ -966,6 +987,21 @@ default
                 {
                     llRemoveInventory(helper_name);
                 }
+                // Retract our own presence flag explicitly instead of
+                // leaving it to boot's census. The census is a race here:
+                // this cleanup causes several inventory changes in a row
+                // (QS_FINALIZE subscribers tearing themselves down, the
+                // [AV]helper object, finally this script), and boot's
+                // changed() can fire while we are STILL ALIVE inside this
+                // handler. Our own QS_ALIVE_CENSUS handler then re-stamps
+                // qs:alive:adjuster right back to "1", and whether a
+                // further changed() lands after we are actually gone is
+                // timing-dependent. Observed on the Paloma sofa: the flag
+                // survived and sitB kept rendering [HELPER]/[HELPER HUD]
+                // pointing at a script that no longer exists. Deleting it
+                // ourselves removes the race instead of betting on it.
+                // Same pattern [QS]animesh uses in its own teardown.
+                llLinksetDataDelete("qs:alive:adjuster");
                 llRemoveInventory(llGetScriptName());
             }
             else if (msg == "targets")
