@@ -501,10 +501,27 @@ finalize_boot()
     // Tell sibling sitB scripts to refresh from LSD. They missed our
     // mid-boot writes if they were already past state_entry.
     llMessageLinked(LINK_SET, QS_BOOT_RELOAD, "", "");
-    // Re-stamp presence flags. Covers the rare full-LSD-reset path
-    // (wipe-retry) where qs:alive:* was cleared without the plugins
-    // resetting, and re-confirms any plugin that became ready only after
-    // its own state_entry write. Plugins re-write their flag on CENSUS.
+    // Re-CENSUS presence: wipe first, then let the survivors answer. The
+    // wipe is new in 1.26 and it matters. Until then this spot only
+    // broadcast, i.e. it re-STAMPED whoever was present and never noticed
+    // who had gone. Removal detection therefore hung entirely on the
+    // changed(CHANGED_INVENTORY) path below, which is single-shot: miss
+    // that one event and the stale flag was permanent, because no reset
+    // and no re-rez could ever clear it. Observed in the field as a
+    // [HELPER]/[HELPER HUD] entry that survived '/5 cleanup' and every
+    // reset afterwards, pointing at a [QS]adjuster that was long gone.
+    //
+    // Same wipe-then-broadcast order as changed() and race-free for the
+    // same reason: both happen synchronously inside this event, so every
+    // plugin's re-write is a strictly later event. All seven flag owners
+    // (adjuster, faces, prop, select, rlv, security, offset) re-stamp in
+    // their own QS_ALIVE_CENSUS handler, so a present plugin is back
+    // within the same cascade and only the absent ones stay cleared.
+    //
+    // Side effect worth having: a script reset is now a reliable repair
+    // for a presence flag that went stale for any reason at all.
+    llLinksetDataDeleteFound("^qs:alive:", "");
+    llLinksetDataDelete("qs:offset:alive");
     llMessageLinked(LINK_SET, QS_ALIVE_CENSUS, "", "");
     // Arm self-check timer — 10s safety net for probe replies. Replies
     // typically arrive in <1s on small notecards, but multi-prim builds

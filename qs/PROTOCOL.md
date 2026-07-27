@@ -228,16 +228,36 @@ because hudproxy in the QuickyHUD repo already reads it.
   after boot).
 - **Read:** consumers read on demand at menu-build time and never cache —
   caching would re-introduce the boot race.
-- **Re-census (`QS_ALIVE_CENSUS`, 90079):** `[QS]boot` broadcasts this on
-  a plugin add/remove and at the end of every `finalize_boot`. On
-  add/remove boot first wipes all `qs:alive:*` + `qs:offset:alive`, then
-  broadcasts — synchronously, so survivors' re-writes are strictly later
-  events (no clear-vs-rewrite race). A removed plugin can't re-write, so
-  its flag stays cleared: that is the removal detection (it replaced
-  sitB's old per-name inventory probe). The `finalize_boot` broadcast
-  re-stamps the flags after a full LSD reset (wipe-retry path) and
-  re-confirms any plugin that became ready only after its own
-  `state_entry` write.
+- **Re-census (`QS_ALIVE_CENSUS`, 90079):** `[QS]boot` runs this on a
+  plugin add/remove and at the end of every `finalize_boot`. **Both paths
+  wipe all `qs:alive:*` + `qs:offset:alive` first, then broadcast** —
+  synchronously, so survivors' re-writes are strictly later events (no
+  clear-vs-rewrite race). A removed plugin can't re-write, so its flag
+  stays cleared: that is the removal detection (it replaced sitB's old
+  per-name inventory probe).
+  Until 1.26 the `finalize_boot` path broadcast WITHOUT wiping, so it only
+  re-stamped whoever was present and could never notice a departure.
+  Removal detection hung entirely on the single-shot inventory event, and
+  missing that one event made a stale flag permanent: no reset and no
+  re-rez cleared it. Field symptom was a `[HELPER]`/`[HELPER HUD]` entry
+  that outlived `/5 cleanup` and every reset afterwards. Since the wipe
+  applies to both paths, **a script reset is a reliable repair for any
+  stale presence flag.**
+- **Self-removal:** a script that deletes ITSELF MUST delete its own flag
+  first and MUST NOT leave it to the census. The census is a race in that
+  situation: a self-removing script normally triggers several inventory
+  changes in a row (subscribers tearing down on `QS_FINALIZE`, an
+  `[AV]helper` object, finally the script), LSL coalesces the resulting
+  `changed()` events into one delivery, and that one delivery can reach
+  boot while the script is still alive inside its own handler. Its census
+  handler then re-stamps the flag it was supposed to lose, and no further
+  `changed()` follows to correct it. Shipped as a bug in `[QS]adjuster`'s
+  `/5 cleanup`: `[HELPER]`/`[HELPER HUD]` kept rendering against a script
+  that no longer existed, while `[ANIMESH]` (which unregisters over
+  `90216` and never touches the census) correctly disappeared in the same
+  dialog. `[QS]animesh` already had the explicit delete; `[QS]adjuster`
+  now does too, and those are the only two self-removing scripts in the
+  suite.
 
 ### Relationship to QSALIVE (90096/90097)
 
