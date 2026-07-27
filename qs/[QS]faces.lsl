@@ -59,7 +59,7 @@ integer IsInteger(string data)
     return data != "" && (string)((integer)("1" + data)) == "1" + data;
 }
 
-string version = "1.251";
+string version = "1.26";
 string notecard_name = "AVpos";
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
@@ -81,13 +81,19 @@ integer QS_ALIVE_CENSUS = 90079;
 integer QSDUMP_PROBE = 90094;
 integer QSDUMP_HELLO = 90095;
 
-// QSFACE_PICK — [QS]adjuster hands the facial-anim picker over to us
+// QSFACE_PICK: [QS]adjuster hands the facial-anim picker over to us
 // (1.251; the dialog used to live adjuster-side). msg =
 // "<slot>|<controller>|<sitterAv>", id = "". We render the paginated
 // picker to <controller>, store the pick via store_face() and reopen
 // the pose menu via 90005 with "<controller>|<sitterAv>". Stock
 // [AV]faces authoring is deliberately unsupported (that compat was
 // dropped with the qs:alive migration). See qs/PROTOCOL.md.
+//
+// Prim-local wire, like the 90172 store it replaced: the adjuster sends
+// LINK_THIS from our own prim (>= 1.2558) and the handler refuses any
+// other sender (1.2511). Both halves matter, because <slot> indexes OUR
+// SITTERS list: a linkset-wide broadcast would have every faces instance
+// open a picker and store against a different seat.
 integer QSFACE_PICK = 90214;
 integer face_chan;
 integer face_page;
@@ -449,7 +455,13 @@ default
         if (num == QSFACE_PICK)
         {
             // [QS]adjuster hands over the [FACE] picker. See the
-            // QSFACE_PICK declaration for the payload contract.
+            // QSFACE_PICK declaration for the payload contract and for why
+            // this wire is prim-local. Our own prim only: the slot in the
+            // payload indexes OUR SITTERS list, so a sender from another
+            // prim would have us pick and store for the wrong seat. Sits
+            // here rather than under the shared sender guard below because
+            // this handler returns early like the other typed wires above.
+            if (sender != llGetLinkNumber()) return;
             data = llParseString2List(msg, ["|"], []);
             face_sitter     = (integer)llList2String(data, 0);
             face_controller = (key)llList2String(data, 1);

@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.2557";
+string version = "1.26";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -991,20 +991,32 @@ default
             else if (llGetSubString(msg, 0, 6) == "adjust ")
             {
                 // '/5 adjust owner|group|all' (1.2556): owner shortcut for
-                // the [SECURITY] > Adjust level. Routed through
-                // [QS]root-security (90204) when present so its RAM state
-                // stays authoritative (its CENSUS re-stamp would revert a
-                // bare LSD write); written directly when the security
-                // plugin is absent (base-script furniture) — the widened
+                // the [SECURITY] > Adjust level.
+                //
+                // BOTH writes fire unconditionally (1.2559). The 90204 keeps
+                // [QS]root-security's RAM ADJUST_INDEX in sync, which is not
+                // optional: its CENSUS handler re-stamps qs:sec:adjust FROM
+                // that RAM without reading the key first, and boot fires a
+                // census on every script add/remove, so a bare LSD write
+                // would be silently reverted. The direct write covers
+                // furniture with no security plugin at all (the widened
                 // adjust_allowed guard accepts the key while we are alive,
-                // and our CHANGED_OWNER handler resets it on sale.
+                // and our CHANGED_OWNER handler resets it on sale).
+                //
+                // Until 1.2558 the two were an if/else on has_security, and
+                // that was wrong: has_security is a cached 90202 reply, so it
+                // reads FALSE in the window between our state_entry 90201
+                // probe and root-security's answer. A '/5 adjust' in that gap
+                // took the LSD-only branch, left the plugin's RAM stale and
+                // the next census reverted the level with no output. Doing
+                // both is idempotent instead: root-security validates against
+                // the same three levels and writes the same value, and with
+                // no plugin present nobody hears the 90204.
                 string lvl = llToUpper(llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM));
                 if (llListFindList(["OWNER", "GROUP", "ALL"], [lvl]) != -1)
                 {
-                    if (has_security)
-                        llMessageLinked(LINK_SET, 90204, lvl, "");
-                    else
-                        llLinksetDataWrite("qs:sec:adjust", lvl);
+                    llMessageLinked(LINK_SET, 90204, lvl, "");
+                    llLinksetDataWrite("qs:sec:adjust", lvl);
                     llRegionSayTo(llGetOwner(), 0, "Adjust access: " + lvl);
                 }
                 else
@@ -1078,7 +1090,16 @@ default
                     // the pick and reopens the pose menu itself. `adding`
                     // stays untouched so stray numeric clicks can't hit
                     // a stale [FACE] state here.
-                    llMessageLinked(LINK_SET, 90214,
+                    //
+                    // LINK_THIS (1.2558): prim-local, exactly the reach of
+                    // the 90172 wire this replaced. Under LINK_SET a single
+                    // [FACE] click made EVERY faces instance in the linkset
+                    // open its own picker, each resolving <slot> against its
+                    // own SITTERS list: duplicate dialogs plus a store on
+                    // the wrong seat on multi-prim furniture. faces refuses
+                    // a cross-prim sender since 1.2511, this is the other
+                    // half of that pair.
+                    llMessageLinked(LINK_THIS, 90214,
                         llDumpList2String([active_sitter, controller,
                             llList2String(SITTERS, active_sitter)], "|"), "");
                 }
