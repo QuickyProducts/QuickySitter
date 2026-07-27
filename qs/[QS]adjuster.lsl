@@ -982,7 +982,15 @@ default
                 // Sent first so it is out before our self-removal.
                 llMessageLinked(LINK_SET, 90215, "", "");
                 llRegionSay(comm_channel, "DONEA");
-                Out(1, "Cleaning \"" + llGetScriptName() + "\" and \"" + helper_name + "\" from prim " + (string)llGetLinkNumber());
+                // Unconditional, not Out(1): '/5 cleanup' is a command the
+                // owner just typed, and it is irreversible. Staying silent
+                // at the default verbose level left them wondering whether
+                // anything happened at all, while the QS_FINALIZE
+                // subscribers reported in (observed in the field). Same
+                // form the '/5 adjust' branch below already uses, and the
+                // same form [QS]animesh uses for its own teardown line.
+                llRegionSayTo(llGetOwner(), 0, llGetScriptName()
+                    + ": Authoring tools removed.");
                 if (llGetInventoryType(helper_name) == INVENTORY_OBJECT)
                 {
                     llRemoveInventory(helper_name);
