@@ -35,7 +35,7 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.2511";
+string version = "1.26";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -189,6 +189,13 @@ default
         integer idx = llListFindList(ADJUST_TYPES, [llLinksetDataRead("qs:sec:adjust")]);
         if (idx != -1) ADJUST_INDEX = idx;
         write_adjust_access();
+        // Publish presence like every other QS plugin (1.2512). We were the
+        // only one not doing it, which forced readers onto the 90201/90202
+        // event mirror: a cached reply that is FALSE until the probe round
+        // trip completes. The flag is readable synchronously instead. boot's
+        // census wipes it and the handler below re-stamps it, so a removed
+        // plugin stays cleared. See PROTOCOL.md § qs:alive.
+        llLinksetDataWrite("qs:alive:security", "1");
         llMessageLinked(LINK_SET, 90202, (string)check_for_RLV(), "");
     }
 
@@ -206,6 +213,10 @@ default
         }
         else if (num == QS_ALIVE_CENSUS)
         {
+            // boot wiped every qs:alive flag before this broadcast, so
+            // re-stamp ours (1.2512). A removed plugin cannot answer and
+            // its flag stays cleared: that IS the removal detection.
+            llLinksetDataWrite("qs:alive:security", "1");
             write_adjust_access();
         }
         else if (num == 90204)
