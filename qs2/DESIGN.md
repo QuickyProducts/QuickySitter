@@ -307,6 +307,18 @@ The preferred option depends directly on section 5 holding: **if conversion is
 genuinely fully automatic, the dual parser is unnecessary** and legacy support
 moves out of the furniture into a tool, where bytes are free.
 
+**The server side moves first, whichever option wins.** `[DUMP]` has to emit the
+new format, and the grouping is done in `settings.php` rather than in `boot`, so
+a format change is also a PHP change. The existing rule already says the PHP
+deploys ahead of the boot that depends on it. Concretely the order is:
+
+1. `settings.php` learns the new layout, with the old one still working.
+2. `boot` and the engine ship.
+3. The offline converter ships, if option 2 is chosen.
+
+Getting this backwards means creators press `[DUMP]` and receive a notecard the
+new `boot` cannot read.
+
 ---
 
 ## 6. Block inventory of the current scripts
@@ -319,12 +331,12 @@ that matters.
 
 | Block | Where | ~Lines | Per seat? | Target |
 |---|---|---|---|---|
-| Boot and config | globals, `qs_load_from_lsd()` 140-284, 90024/90023 | 250 | no | `core` |
-| Sit targets | `sittargets()` 324-399, `set_sittarget()` 430-463, `primcount_error()`, `IsInteger()`, desc parsing | 130 | no | `core`, shrinks |
-| Occupancy and lifecycle | `changed()` 1252-1557, `release_sitter()`, `end_sitter()`, `run_time_permissions()` 1558-1629, 90060/90065/90070 | 430 | **partly** | split |
-| Play animation | `apply_current_anim()` 528-593, `update_current_anim_name()`, `sit_using_prim_params()`, `is_sync_pose()`, `do_resync_tick()`, `timer()` | 190 | **only the start/stop calls** | split |
-| Personal offsets | `lookup_personal_offset()`, `dialog()`, `adjust_pose_menu()`, `listen()` 776-888, 90260/90265/90263 | 300 | no | `core` or `offset` plugin |
-| Swap | 90030/90031 | 80 | no | `core`, becomes a table swap |
+| Boot and config | globals, `qs_load_from_lsd()` 140-284, 90024/90023 | 250 | no | `core` and `seat`, each reads its own keys |
+| Sit targets | `sittargets()` 324-399, `set_sittarget()` 430-463, `primcount_error()`, `IsInteger()`, desc parsing | 130 | no | `seat`, shrinks |
+| Occupancy and lifecycle | `changed()` 1252-1557, `release_sitter()`, `end_sitter()`, `run_time_permissions()` 1558-1629, 90060/90065/90070 | 430 | **partly** | `seat` + `anim` |
+| Play animation | `apply_current_anim()` 528-593, `update_current_anim_name()`, `sit_using_prim_params()`, `is_sync_pose()`, `do_resync_tick()`, `timer()` | 190 | **only the start/stop calls** | `core` resolves, `seat` dispatches, `anim` plays |
+| Personal offsets | `lookup_personal_offset()`, `dialog()`, `adjust_pose_menu()`, `listen()` 776-888, 90260/90265/90263 | 300 | no | UI to `offset`, lookup to `core` (6.5) |
+| Swap | 90030/90031 | 80 | no | `seat`, becomes a table swap |
 | Inter instance protocol | 90045 broadcast, 90150, 90070, 90055/56/57, `SITTERS` replication, `one == SCRIPT_CHANNEL` checks | 180 | no | **disappears** |
 | Legacy and debug | 90075/90076 (`OLD_HELPER_METHOD`), `OLD_SYNC`, `HASKEYFRAME`, 90298, 90011/90033/90001/90002 | 90 | no | product decision |
 | Camera | 90202, `llSetLinkCamera` | 15 | no | `core` |
@@ -338,7 +350,7 @@ together 41% of the file.
 |---|---|---|---|---|
 | Menu rendering | `animation_menu()` 246-468, `reorder_dialog_buttons()`, `qs_pose_data()`, `page_map`/`nav_stack` | 260 | no, but needs **per operator state** | `menu` |
 | Dialog dispatch | `listen()` 768-1076 | 309 | no, same | `menu` |
-| Adjust UI | `adjust_dialog()` 644-738, `adjust_allowed()`, `in_adjust_menu` branch, QSADJ_REGISTER/UNREGISTER, `ADJUST_DYN`/`ADJUST_MENU` | 270 | no | `menu`, or dropped |
+| Adjust UI | `adjust_dialog()` 644-738, `adjust_allowed()`, `in_adjust_menu` branch, QSADJ_REGISTER/UNREGISTER, `ADJUST_DYN`/`ADJUST_MENU` | 270 | no | `offset` plugin (6.5) |
 | Plugin registry | `plugin_dialog()` 573-625, QSPLUG_REGISTER, 90201/90202/90203 | 120 | no | `menu` |
 | Pose dispatch | 90000/90050/90005, POSE vs SYNC decision, `send_anim_info()`, 90045 receive, 90055 | 150 | no | `core`, shrinks |
 | Boot and config | `qs_load_from_lsd()` 507-572, QS_BOOT_WIPE/RELOAD, QSALIVE, `memory()` | 120 | no | **merges with 6.1 row 1** |
@@ -510,6 +522,62 @@ pose start, and the pose would visibly jump into place.
 Moving dialog work into `seat` is the one thing that does not help. Rendering
 and dispatch need a `listen` and `llDialog`, and giving those to `seat` rebuilds
 exactly the entanglement that was just removed from the seat engine.
+
+### 6.5 The authoring path
+
+Two different things are called "the adjuster menu" and they are affected
+differently. Both survive.
+
+#### The creator tool, `[QS]adjuster`
+
+Unchanged in concept. It is already a separate script that only sits in the
+furniture while building and is removed with `/5 cleanup`, and its presence
+gates (`qs:alive:adjuster`, `[HELPER]`, `[QUICKYHUD]`) are LSD based and
+therefore indifferent to the singleton split.
+
+Two things it has to learn:
+
+**Addressing.** It writes to `qs:p:<ch>:<i>` today with `<ch>` as the slot index
+([adjuster.lsl:146]). The address becomes `<item>/<seat>`. Mechanical, but it
+touches every read and write site.
+
+**`[DUMP]` emits the new format**, and that has a consequence outside the
+furniture: the grouping is done server side in `settings.php`, not in `boot`. A
+format change is therefore **also a PHP change**, and by the existing rule the
+PHP has to be deployed before the boot that depends on it. This belongs in the
+rollout order, not in the follow-up work. See 5.4.
+
+One small thing gets better: "which slot am I adjusting" becomes "which seat",
+and seats have readable names.
+
+#### The end-user personal-offset menu
+
+`adjust_dialog()`, `adjust_allowed()`, the `in_adjust_menu` branch and
+`ADJUST_DYN` in `sitB`, plus `adjust_pose_menu()` with the X+/Y+/Z+ buttons in
+`sitA`. Unchanged as a feature, but it changes address:
+
+| Part | Today | v2 |
+|---|---|---|
+| Dialog and buttons | sitB + sitA | `[QS]offset` |
+| Lookup and apply | sitA | `core`, direct LSD read |
+| Saving | 90260/90262 to sitA | `[QS]offset` writes it itself |
+
+This is the same move that takes `menu` from 59 KB to 46 KB, and it is not
+arbitrary: `[QS]offset` already owns the data, it has simply never edited it.
+
+#### Plugin authors are unaffected
+
+`QSADJ_REGISTER` (90213) and `QSADJ_UNREGISTER` (90216) are broadcast with
+`LINK_SET`. Relocating the receiver from `sitB` to `[QS]offset` is invisible to
+the sender, so `[QS]objectadjust` and third-party adjust plugins keep working as
+long as the numbers stay.
+
+#### What disappears
+
+`sitB` runs **two paging state machines side by side** today, `adjust_page`
+next to `menu_page`, with the attendant question of whether a `[<<]` is paging
+the pose menu or the adjust menu. Once the two live in different scripts, that
+question cannot be asked. That is worth more than the lines it saves.
 
 ---
 
