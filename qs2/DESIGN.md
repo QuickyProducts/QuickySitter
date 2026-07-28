@@ -126,6 +126,9 @@ register "[HELPER]"      -> top level
 register "Mein Werkzeug" -> "Extras/Werkzeuge"
 ```
 
+**Specified in [REGISTRY.md](REGISTRY.md)**, including the backward compatible
+payload that keeps existing plugins running unchanged.
+
 `[QS]adjuster` registers its own entries, `[QS]offset` registers the personal
 adjust entry, the HUD registers its own. No base script carries a literal for
 any of them.
@@ -724,7 +727,7 @@ what the convention has been arguing against since the RLV rename broke the old
 |---|---|---|
 | 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (section 6.4); unverified. | The whole memory projection in section 2 |
 | 1b | Whether `menu` fits. Estimated ~760 lines / 38 KB after the adjust UI moves to `[QS]offset` and the authoring literals leave, with a documented relief order if not. | Sections 2 and 6.4 |
-| 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. | The section 2 principle |
+| 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. See [REGISTRY.md](REGISTRY.md) section 8. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
