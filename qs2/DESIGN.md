@@ -719,6 +719,44 @@ parsed out of the script name ([sitA.lsl:706], [sitB.lsl:747]). That is exactly
 what the convention has been arguing against since the RLV rename broke the old
 `[AV]root-RLV` name probe.
 
+### 7.5 Stock AVsitter compatibility
+
+**Decided 2026-07-28.** Keep it where it can be kept. If it ever stands in the
+way of a gamechanger feature, that specific conflict gets decided on its own
+merits rather than by the general rule.
+
+It turns out the rule costs very little, because the conflict everyone expects
+does not materialise.
+
+**Wire addressing stays integer.** The 900xx messages keep slot indices.
+`<item>/<seat>` is the naming and storage layer above it, and `seat` holds the
+mapping, which it has anyway in its seat table. Nothing a stock plugin sends or
+receives changes, including on multi-item furniture, because the seats of all
+items still enumerate into one index space on the wire.
+
+Separating the two layers is what keeps the compatibility promise and the
+multi-item capability from colliding. Storage isolation between items
+(`qs:<item>:...`) is unaffected: it is a different layer.
+
+**What stays because of this decision**, and is therefore still counted in the
+line estimates:
+
+* `OLD_HELPER_METHOD` and the 90075 / 90076 helper path
+* the `select_present()` and `rlv_present()` name-probe fallbacks (7.1)
+* the legacy block in 6.1
+
+**Verified, not assumed:** the only script-name probe for `sitA` anywhere in
+stock is in `[AV]object` ([avstock/Plugins/AVprop/[AV]object.lsl:83]), and it
+inspects the **prop's own inventory** rather than the furniture's. The singleton
+split does not touch it. That was the most dangerous candidate, since
+`[AV]object` is experience-compiled and must not be forked.
+
+**The one residual limitation.** A stock plugin in a multi-item linkset is
+**item-blind**: it sees seat 5, not "the chair's seat". For plugins reacting to
+"pose X started on slot 5" this is invisible. Anything needing item context is a
+v2-aware plugin by definition. This is a documented limitation, not a break, and
+it only arises on furniture shapes that cannot exist today.
+
 ---
 
 ## 8. Open questions and measurements needed
@@ -732,7 +770,7 @@ what the convention has been arguing against since the RLV rename broke the old
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
 | 5 | LSD budget after de-duplication. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
-| 6 | Does v2 keep stock AVsitter compatibility. Product decision, not technical. | The `select_present()` / `rlv_present()` name-probe fallbacks in 7.1, and the legacy blocks in 6.1 |
+| 6 | ~~Does v2 keep stock AVsitter compatibility.~~ **Decided 2026-07-28: yes, see 7.5.** Kept where it can be kept, with any specific conflict against a gamechanger feature decided on its own merits. | Resolved. The legacy blocks stay and remain counted in the estimates. |
 
 Question 4 is the key one for the whole rebuild, not a side issue: it decides
 whether legacy support can leave the furniture entirely.
