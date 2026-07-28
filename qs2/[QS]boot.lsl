@@ -250,9 +250,24 @@ parse(string raw)
         return;
     }
 
-    // Everything else is a carried-over token. Item-scope ones are stored
-    // per item, the file-global ones under the empty item. Which is which
-    // is FORMAT.md §4; no v2 script consumes them yet.
+    // Repeatable content tokens. These occur many times per item, so they
+    // are stored indexed. Collapsing them into one key each, as an earlier
+    // draft of this parser did, silently loses every line but the last.
+    // Stored but NOT consumed by any v2 script yet — see qs2/STATUS.md.
+    if (llListFindList(["BUTTON", "SEQUENCE", "PROP1", "PROP2", "PROP3"], [tok]) != -1)
+    {
+        ensure_item();
+        string ck = "qs:x:" + cur_item + ":" + tok + ":count";
+        integer at = (integer)llLinksetDataRead(ck);
+        llLinksetDataWrite("qs:x:" + cur_item + ":" + tok + ":" + (string)at,
+            cur_menu + "|" + rest);
+        llLinksetDataWrite(ck, (string)(at + 1));
+        return;
+    }
+
+    // Single-valued carried-over tokens. File-global ones go under the
+    // empty item, item-scope ones under their item (FORMAT.md §4). Parsed
+    // and stored, consumed by nothing yet.
     if (llListFindList(["BRAND", "WARN", "KFM", "HELPER"], [tok]) != -1)
     {
         llLinksetDataWrite("qs:cfg::" + tok, rest);
