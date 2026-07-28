@@ -363,29 +363,55 @@ enough for a second notecard dialect. So the choice is:
 
 * **Runtime first.** The singleton split removes code from sitA/sitB and leaves
   boot untouched, but builds the runtime against a format that is then replaced.
-* **Format first, with an offline converter** (preferred). `boot` learns only
-  the new dialect; legacy files are converted ahead of time in the
-  `quicky-web-tools` path that already exists for DUMP. Costs boot nothing, but
+* **Format first, with an offline converter.** `boot` learns only the new
+  dialect; legacy files are converted ahead of time. Costs boot nothing, but
   existing customers must run their notecard through a tool once. That is a
   support question, not a technical one.
 * **Format first, with a dual parser in boot.** Seamless for customers, but
   someone has to show the 8220 bytes are enough first.
 
-The preferred option depends directly on section 5 holding: **if conversion is
-genuinely fully automatic, the dual parser is unnecessary** and legacy support
-moves out of the furniture into a tool, where bytes are free.
+**Decided 2026-07-28: the converter, no dual parser.** Legacy support leaves the
+furniture entirely and moves into a tool, where bytes are free.
+
+Three things follow.
+
+**A dialect detector is still required.** Not a parser, ten lines: if `boot`
+sees a `SITTER` token it is looking at a v1 notecard, and it must say so with
+the converter's address rather than quietly building empty furniture. Somebody
+will drop v2 scripts into existing furniture on day one. Cheap insurance
+against the worst support case, and it is what makes "no dual parser" safe
+rather than merely cheaper.
+
+**Client side rather than server side.** Unlike `[DUMP]`, conversion is a pure
+text transform with no server requirement. Running it in the browser means a
+creator's pose list never leaves their machine, there is no service to operate,
+and it keeps working if the site is down. With content of this kind that is a
+trust argument, not a technical one.
+
+**The converter inherits the reporting duty.** It resolves the divergence
+classes in question 4b, per-sitter menu flags and differing pose order, but it
+has to state what it chose. Same for the internal pose IDs it assigns on label
+collision (5.2).
+
+**Scope note against 7.5.** Stock AVsitter compatibility is kept for the
+**wire**, so stock plugins keep working. It is deliberately *not* kept for the
+**notecard dialect**, because reading both would cost `boot` bytes it does not
+have. This is the "decided on its own merits" clause of 7.5 being exercised
+once, not a reversal of it.
+
+### Revised order
+
+1. The converter ships, and `settings.php` learns the new `[DUMP]` layout.
+2. `boot`, the engine and the dialect detector ship.
+
+The converter has to exist first, because with no dual parser it is the only
+migration path there is.
 
 **The server side moves first, whichever option wins.** `[DUMP]` has to emit the
 new format, and the grouping is done in `settings.php` rather than in `boot`, so
 a format change is also a PHP change. The existing rule already says the PHP
-deploys ahead of the boot that depends on it. Concretely the order is:
-
-1. `settings.php` learns the new layout, with the old one still working.
-2. `boot` and the engine ship.
-3. The offline converter ships, if option 2 is chosen.
-
-Getting this backwards means creators press `[DUMP]` and receive a notecard the
-new `boot` cannot read.
+deploys ahead of the boot that depends on it. Getting this backwards means
+creators press `[DUMP]` and receive a notecard the new `boot` cannot read.
 
 ---
 
