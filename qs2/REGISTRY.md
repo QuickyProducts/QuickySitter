@@ -101,6 +101,38 @@ entry lives at it, and disappears with the last one. This is what makes
 `/5 cleanup` a real removal rather than a hidden state: the menu is gone because
 nobody is holding it open.
 
+### One new level, and why that is the whole cost
+
+**Decided 2026-07-28.** A registration may create **at most one** menu level:
+
+| Path | Result |
+|---|---|
+| points at a menu that exists, any depth | entry lands there |
+| last segment missing | `menu` creates it, one new level |
+| more than one segment missing | registration rejected, with a warning |
+
+The product owner asked for plugin-created menus **provided they cost nothing**,
+and this cap is what makes that true rather than approximately true.
+
+Notecard menus are pre-indexed by `boot` into `qs:nm` / `qs:nt`. A runtime
+registration cannot go into that index, so dynamic entries live in an overlay
+inside `menu` that is merged in at render time.
+
+* **With arbitrary depth** the overlay is a **tree**: an entry can create
+  intermediate menus, which need buttons in their parents, which may themselves
+  be dynamic. Estimated 50 to 90 lines beyond today's flat handling, so 2.5 to
+  4.5 KB in `menu`.
+* **With one level** the overlay stays a **flat list**, because the parent
+  always already exists. The difference from fixed anchors is then one string
+  field per entry and a string compare instead of an enum compare at render
+  time. That is genuinely nothing.
+
+The cap also bounds how much disorder a third-party plugin can create in
+somebody else's furniture: it can add a menu, not a menu landscape.
+
+The synthesized parent button follows the ordering rule above, appearing after
+the notecard entries of its parent menu.
+
 **Ordering inside a menu:** notecard entries first, in notecard order, then
 registered entries in registration order. No sort keys are offered. Determinism
 matters more here than control, and a creator who wants a specific position has
@@ -243,12 +275,10 @@ llMessageLinked(LINK_SET, 90212,
 
 ## 8. Open points
 
-1. **Placement vocabulary.** Is a free-form path right, or should registrants
-   pick from a small set of named anchors? Free form is proposed because it
-   needs no new concept, but it lets a plugin author invent menus in someone
-   else's furniture.
-2. **Depth limit for auto-created paths.** Unbounded nesting from a registration
-   is probably not wanted.
+1. ~~Placement vocabulary.~~ **Decided 2026-07-28: free-form path.** A plugin
+   may create a menu. See section 4.
+2. ~~Depth limit for auto-created paths.~~ **Decided 2026-07-28: one new level**,
+   which is what keeps point 1 free of cost. See section 4.
 3. ~~Collision between a registered label and a notecard pose label.~~
    **Decided 2026-07-28**, see section 4: the registered entry wins and a
    warning is emitted at registration. Still open underneath it: whether the
