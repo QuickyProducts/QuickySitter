@@ -11,7 +11,7 @@ but adds a concept, the rule loses.
 A creator needs **four words** for a normal piece of furniture:
 
 ```
-SEAT   MENU   POSE   POS
+SEAT   MENU   POSE   OFFSETS
 ```
 
 `ITEM` appears only when someone actually puts two pieces of furniture into one
@@ -28,7 +28,8 @@ linkset.
    nothing structural may depend on it.
 4. **Order matters only for display order** and for `SEAT` (fill order). A
    directive never depends on how far it is from another one, only on which
-   `MENU` or `ITEM` was most recently opened.
+   `MENU`, `ITEM` or `OFFSETS` block was most recently opened. `PRIM` is the
+   one directive that attaches to the line directly above it.
 5. Lines starting with `#` are comments. Empty lines are ignored.
 6. Token names are upper case and matched exactly. (Deliberately strict: the
    1.26 measurement showed lenient matching cost over 600 bytes for one token.)
@@ -52,7 +53,7 @@ Fields after the name are optional and positional: gender, then RLV designation
 structures indexed by slot number, which have to be kept in step with the seat
 list by hand.
 
-The name is the key that `POSE` and `POS` lines reference. It is local to its
+The name is the key that `POSE` lines and `OFFSETS` blocks reference. It is local to its
 `ITEM`, so `Links` in `Bett` and `Links` in `Sofa` are different seats.
 
 Declaring seats rather than inferring them from the pose lines buys four things:
@@ -119,29 +120,44 @@ That is acceptable because the failure is loud rather than silent: once a second
 error with a line number. Anyone adding a seat also has to set offsets for every
 pose on it, so it was never a five-minute edit.
 
-### `POS <pose> | <seat> | <position> | <rotation>`
+### `OFFSETS <seat>` and `{pose}<position><rotation>`
 
-The position of one seat in one pose.
+The positions, grouped by seat. The seat is named once per block, not once per
+line.
 
 ```
-POS Löffel | Links  | <0.0,0.2,0.4>  | <0,0,90>
-POS Löffel | Rechts | <0.0,-0.2,0.4> | <0,0,90>
-POS Lesen  | Links  | <0.0,0.0,0.42> | <0,0,0>
+OFFSETS Links
+{Löffel}<0.0,0.2,0.4><0,0,90>
+{Lesen}<0.0,0.0,0.42><0,0,0>
+
+OFFSETS Rechts
+{Löffel}<0.0,-0.2,0.4><0,0,90>
 ```
 
-**Written by the adjuster, not by hand.** Every line is self-contained: it
-repeats the pose name instead of inheriting it from the line above. That is
-verbose, but the verbosity costs a human nothing (nobody types these) and it
-means the block survives reordering, partial copy-paste and a machine appending
-to the end.
+**Written by the adjuster, not by hand.** The offset line keeps v1's exact
+shape, braces and angle brackets with no separators, because those delimiters
+already delimit.
 
-Self-contained means *within its item*. Like every other directive, a `POS` line
-belongs to the most recently opened `ITEM` (section 3), which is what keeps seat
-names local and unambiguous.
+**This is the only place where a line's meaning depends on a line above it**,
+and that is a deliberate exception to the "one directive per line" rule. The
+reason is bytes, measured rather than assumed:
 
-**The single-seat shorthand does not apply here.** A `POS` line always names its
-seat, even when the item has only one. The shorthand exists to spare a human
-typing; nobody types these.
+| form | per line | on the "BED ENGINE 2026" sample |
+|---|---|---|
+| v1 `{Cross legs}<…><…>` | 41 chars | 14.1 KB |
+| self-contained `POS Cross legs \| Sitz \| <…> \| <…>` | 56 chars | 19.3 KB |
+| grouped, as specified above | 41 chars | 14.1 KB |
+
+The self-contained form was specified first and cost **+37 %** on the largest
+part of a real notecard, which would have made the whole format change a net
+size increase (section 5). The exception is affordable because this block is
+machine written and machine rewritten *whole*: the reordering that self-contained
+lines protect against does not happen to it.
+
+Offset blocks belong to the most recently opened `ITEM`, like everything else.
+
+**The single-seat shorthand does not apply.** An `OFFSETS` line is required even
+for a one-seat item; it costs one line per item.
 
 Both `<pose>` and `<seat>` are resolvable names from the structure above, so a
 typo is a parse error with a line number. Today a mistyped `{Name}` is a silent
@@ -176,21 +192,24 @@ MENU Kuscheln
 POSE Löffel | Links=sleep_spoonA | Rechts=sleep_spoonB
 POSE Lesen  | Links=read_sit
 
-POS Löffel | Links  | <0.0,0.2,0.4>  | <0,0,90>
-POS Löffel | Rechts | <0.0,-0.2,0.4> | <0,0,90>
-POS Lesen  | Links  | <0.0,0.0,0.42> | <0,0,0>
+OFFSETS Links
+{Löffel}<0.0,0.2,0.4><0,0,90>
+{Lesen}<0.0,0.0,0.42><0,0,0>
+
+OFFSETS Rechts
+{Löffel}<0.0,-0.2,0.4><0,0,90>
 
 ITEM Stuhl
 SEAT Sitz
 
 POSE Sitzen | chair_idle
 
-POS Sitzen | Sitz | <0.0,0.0,0.42> | <0,0,0>
+OFFSETS Sitz
+{Sitzen}<0.0,0.0,0.42><0,0,0>
 ```
 
 Item scoping is what makes seat names local. Two items may both have a seat
-called `Sitz` without colliding, and a `POS` line naming `Sitz` is unambiguous
-because it belongs to exactly one item.
+called `Sitz` without colliding, and an `OFFSETS Sitz` block is unambiguous because it belongs to exactly one item.
 
 **`ITEM` is optional.** A notecard without it describes one piece of furniture
 that binds to the whole linkset, which is exactly what every classic AVpos
@@ -234,7 +253,7 @@ All 27 tokens the current parser accepts, with their disposition.
 | `SITTER` | `SEAT` | named, item-local, no global slot numbering |
 | `POSE` | `POSE` | new syntax, names its seats |
 | `MENU` | `MENU` | path-based nesting |
-| `{Pose}<p><r>` | `POS` | self-contained line, resolvable names |
+| `{Pose}<p><r>` | `OFFSETS` + `{}` | grouped by seat, resolvable names |
 
 ### Removed without replacement
 
@@ -363,9 +382,12 @@ MENU Kuscheln
 POSE Löffel | Links=sleep_spoonA | Rechts=sleep_spoonB
 POSE Lesen  | Links=read_sit
 
-POS Löffel | Links  | <0.0,0.2,0.4>  | <0,0,90>
-POS Löffel | Rechts | <0.0,-0.2,0.4> | <0,0,90>
-POS Lesen  | Links  | <0.0,0.0,0.42> | <0,0,0>
+OFFSETS Links
+{Löffel}<0.0,0.2,0.4><0,0,90>
+{Lesen}<0.0,0.0,0.42><0,0,0>
+
+OFFSETS Rechts
+{Löffel}<0.0,-0.2,0.4><0,0,90>
 ```
 
 At this size the two are about the same length. The difference appears with
@@ -393,25 +415,54 @@ and 179 in seat 1:
 | | today | v2 |
 |---|---|---|
 | structure lines | 444 | 214 |
-| `POS` / `{}` lines | 372 | 372 |
+| offset lines | 372 | 372 |
 | **total** | **816** | **586** |
 
-Structure saves factor 2.07, again exactly the sitter count. **Offsets save
-nothing**, being inherently one per pose per seat. The real-world saving is
-therefore **28 %**, not a factor of six.
+Structure saves factor 2.07, again exactly the sitter count. Offsets save
+nothing, being inherently one per pose per seat.
 
-**And that reorders the priorities.** If the offsets leave the notecard
-altogether and live only in LSD, the same file drops to **214 lines, a 74 %
-saving**. Moving them out is worth more than the entire structure
-de-duplication. What section 2 lists as a direction of travel is in fact the
-main lever on the notecard editor limit.
+### Lines are the wrong metric
+
+**Corrected 2026-07-29.** The notecard editor limit is measured in bytes, and
+bytes behave differently:
+
+| | v1 | v2 |
+|---|---|---|
+| structure | ~12.0 KB | ~10.7 KB |
+| offsets | ~14.1 KB | ~14.1 KB |
+| **total** | **~26.1 KB** | **~24.8 KB** |
+
+Halving the line count does **not** halve the bytes, because merging two pose
+lines into one only removes a repeated *label*, not content:
+
+```
+SYNC Blowjob 10|Blowjob-10-F          29 chars   (sitter 0)
+SYNC Blowjob 10|Blowjob-10-M          29 chars   (sitter 1)
+POSE Blowjob 10|Links=…-F|Rechts=…-M  54 chars   (v2)
+```
+
+Four characters saved out of 58. The genuine byte saving is the duplicated menu
+skeleton, which on this file is about 1 KB.
+
+**The honest summary: the format change is roughly size-neutral.** It is not a
+fix for the notecard editor limit, and two earlier figures in this document
+claiming a factor of six and then 28 % were both line counts presented as if
+they were sizes.
+
+What the change does buy is unchanged: fewer concepts, structural coupling
+instead of coupling by coincidence of naming, several pieces of furniture in one
+linkset, and typos that surface as parse errors instead of silent no-ops.
+
+Size neutrality depends on the grouped offset form in section 2. The
+self-contained variant that preceded it would have made the converted file
+about 1.7 KB **larger** than the original.
 
 ---
 
 ## 6. Open points
 
 1. ~~Single-seat shorthand.~~ **Decided 2026-07-28: allowed**, for `POSE` only
-   and never for `POS`. See section 2.
+   and never inside an `OFFSETS` block. See section 2.
 2. ~~Scoping of the carried-over tokens.~~ **Done 2026-07-28**, see section 4.
    Three of the assignments are flagged as judgement calls rather than
    derivations: `ONSIT`, `ADJUST` and `DFLT`.
@@ -425,7 +476,7 @@ main lever on the notecard editor limit.
    simply had none because its second sitter had no `POSE` lines at all.
 
    They are still not ambiguous: the identity is the pair **(label,
-   participating seat)**, and both `POS <pose> | <seat>` and a pose request from
+   participating seat)**, and both an `OFFSETS <seat>` block and a pose request from
    a seated operator carry the seat. No ID concept is needed, but every lookup
    **must** pass the seat. `[QS]core` did not, and would have handed the second
    sitter the first sitter's pose; fixed 2026-07-29.

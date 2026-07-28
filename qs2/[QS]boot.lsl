@@ -20,17 +20,19 @@
  *   PRIM <primName>          binds the most recent SEAT to a named prim
  *   MENU <path>[|hidden]     "/" nests; the parent button is automatic
  *   POSE <label> | <seat>=<anim> | …
- *   POS  <pose> | <seat> | <pos> | <rot>
+ *   OFFSETS <seat>           opens an offset block for one seat
+ *   {label}<pos><rot>        offset line, v1-shaped, no separators
  *
  * Indentation and blank lines carry no meaning. Order matters only for
- * display and for SEAT (fill order).
+ * display, for SEAT (fill order), and for offset lines (they belong to
+ * the OFFSETS block above them).
  *
  * WHY POSE LABELS ARE HELD IN RAM WHILE PARSING
  *
- * A POS line addresses its pose by label, so it needs a label→index
- * lookup. Doing that as an LSD scan costs O(poses) per POS line, and a
- * real notecard has hundreds of both. The transient list is dropped at
- * the end of each item.
+ * An offset line addresses its pose by label, so it needs a label→index
+ * lookup, and an LSD scan would cost O(poses) per line with hundreds of
+ * both. Two parallel lists, not one, because a label is not unique: the
+ * seat has to be matched too. Dropped at the end of each item.
  *
  * NOT BUILT YET, deliberately:
  *   - the [DUMP] path (server side moves first, DESIGN.md §5.4)
@@ -59,8 +61,32 @@ integer seat_total;
 integer pose_n;
 integer menu_n;
 string  cur_menu;
-list    POSE_LABELS;      // transient, current item only
+// Transient, current item only. Two parallel lists rather than one:
+// a label is NOT unique (the "Lalou" notecard has a slot-local POSE
+// named "Sit" for each sitter), so an offset line has to be matched on
+// label AND seat or it lands on the wrong pose.
+list    POSE_LABELS;
+list    POSE_SEATS;       // comma-joined seat names per pose
+string  cur_off_seat;     // set by the most recent OFFSETS line
 integer failed;
+
+integer find_pose(string label, string seatName)
+{
+    integer i = 0;
+    integer n = llGetListLength(POSE_LABELS);
+    while (i < n)
+    {
+        if (llList2String(POSE_LABELS, i) == label)
+        {
+            if (seatName == "") return i;
+            if (llListFindList(llParseString2List(
+                    llList2String(POSE_SEATS, i), [","], []), [seatName]) != -1)
+                return i;
+        }
+        ++i;
+    }
+    return -1;
+}
 
 integer verbose = 0;
 
@@ -90,6 +116,7 @@ close_item()
     llLinksetDataWrite("qs:p:" + cur_item + ":count", (string)pose_n);
     llLinksetDataWrite("qs:m:" + cur_item + ":count", (string)menu_n);
     POSE_LABELS = [];
+    POSE_SEATS = [];
     ++item_idx;
 }
 
@@ -102,6 +129,7 @@ open_item(string name)
     pose_n = 0;
     menu_n = 0;
     cur_menu = "";
+    cur_off_seat = "";
 }
 
 // An absent ITEM means one unnamed item covering the whole linkset,
@@ -116,6 +144,33 @@ parse(string raw)
     string s = llStringTrim(raw, STRING_TRIM);
     if (s == "") return;
     if (llGetSubString(s, 0, 0) == "#") return;
+
+    // Offset line, kept in v1's shape on purpose: "{label}<pos><rot>",
+    // no separators, because the braces and angle brackets already
+    // delimit. The seat comes from the OFFSETS line above rather than
+    // from the line itself, which is what makes this byte-identical to
+    // v1 instead of ~37% longer. See FORMAT.md §2.
+    if (llGetSubString(s, 0, 0) == "{")
+    {
+        integer close = llSubStringIndex(s, "}");
+        if (close < 2) return;
+        string label = llGetSubString(s, 1, close - 1);
+        string v = llGetSubString(s, close + 1, -1);
+        integer split = llSubStringIndex(v, "><");
+        if (split == -1) return;
+        integer at = find_pose(label, cur_off_seat);
+        if (at == -1)
+        {
+            // v1 swallowed this silently, and the creator met it in-world
+            // as "the pose sits wrong". Now it is a line number.
+            Fail("line " + (string)line_no + ": offset names pose \"" + label
+               + "\" for seat \"" + cur_off_seat + "\", which is not declared.");
+            return;
+        }
+        llLinksetDataWrite("qs:o:" + cur_item + ":" + (string)at + ":" + cur_off_seat,
+            llGetSubString(v, 0, split) + "|" + llGetSubString(v, split + 1, -1));
+        return;
+    }
 
     integer sp = llSubStringIndex(s, " ");
     string tok;
@@ -185,6 +240,7 @@ parse(string raw)
         integer n = llGetListLength(f);
         string label = "";
         string row = "";
+        string seats = "";
         while (i < n)
         {
             string part = llStringTrim(llList2String(f, i), STRING_TRIM);
@@ -211,35 +267,25 @@ parse(string raw)
                     }
                 }
                 row += "|" + part;
+                if (seats != "") seats += ",";
+                seats += llGetSubString(part, 0, llSubStringIndex(part, "=") - 1);
             }
             ++i;
         }
         llLinksetDataWrite("qs:p:" + cur_item + ":" + (string)pose_n, label + row);
         llLinksetDataWrite("qs:pm:" + cur_item + ":" + (string)pose_n, cur_menu);
         POSE_LABELS += label;
+        POSE_SEATS += seats;
         ++pose_n;
         return;
     }
 
-    if (tok == "POS")
+    if (tok == "OFFSETS")
     {
-        // <pose> | <seat> | <pos> | <rot>
-        list f = llParseString2List(rest, ["|"], []);
-        string label = llStringTrim(llList2String(f, 0), STRING_TRIM);
-        integer at = llListFindList(POSE_LABELS, [label]);
-        if (at == -1)
-        {
-            // A typo here used to be a silent no-op that the creator only
-            // met in-world as "the pose sits wrong". Now it is a line
-            // number.
-            Fail("line " + (string)line_no + ": POS names pose \"" + label
-               + "\", which this item does not declare.");
-            return;
-        }
-        llLinksetDataWrite("qs:o:" + cur_item + ":" + (string)at + ":"
-            + llStringTrim(llList2String(f, 1), STRING_TRIM),
-            llStringTrim(llList2String(f, 2), STRING_TRIM) + "|"
-          + llStringTrim(llList2String(f, 3), STRING_TRIM));
+        // Opens a block of offset lines for one seat. The seat is named
+        // once here instead of once per line, which is the whole reason
+        // this section costs the same as v1 rather than a third more.
+        cur_off_seat = rest;
         return;
     }
 
