@@ -98,6 +98,64 @@ the names read as a set: `boot`, `core`, `seat`, `menu`, `anim`.
 `seat` is a singleton despite the singular name; it manages all seats. The
 per-seat script is `anim`.
 
+### Principle: no authoring code in the base scripts
+
+**Stated as a requirement by the product owner, 2026-07-28.** Nothing a creator
+needs while building may live in a base script, including the code that builds
+its menu entries. `/5 cleanup` must be able to remove everything that normal
+operation does not need.
+
+> `menu` knows how to render a registry. It does not know what an adjuster is.
+
+Today the gate is presence based but the bytes are permanent. `sitB` names
+`[HELPER]`, `[HELPER HUD]`, `[QUICKYHUD]`, `[NEW]`, `[SAVE]`, `[DUMP]` and
+`[ADJUST]` literally, and threads `OLD_HELPER_METHOD` through five handlers
+([sitB.lsl:671], [sitB.lsl:697], [sitB.lsl:903], [sitB.lsl:1455]). Removing the
+adjuster hides the entries; it does not reclaim anything.
+
+**The mechanism already exists, three times over.** `QSPLUG_REGISTER` lands in
+`[OPTIONS]`, `QSADJ_REGISTER` lands in `[ADJUST]`, and hudadmin's `menuplus`
+mode registers its own entry. Three ways to do one thing, each with a fixed
+destination.
+
+v2 has **one** registration wire with a **placement** field, and the placement
+is a menu path of the kind the notecard format already uses:
+
+```
+register "[HELPER]"      -> top level
+register "Mein Werkzeug" -> "Extras/Werkzeuge"
+```
+
+`[QS]adjuster` registers its own entries, `[QS]offset` registers the personal
+adjust entry, the HUD registers its own. No base script carries a literal for
+any of them.
+
+Three consequences:
+
+1. **`/5 cleanup` becomes real removal.** The entries do not exist because
+   nobody registered them, rather than existing and being hidden. Removing the
+   script removes its bytes with it.
+2. **`menu` gets smaller**, by an estimated 80 to 110 lines of literals, tail
+   building and `OLD_HELPER_METHOD` plumbing, plus 40 to 60 from collapsing
+   three registries into one. That puts it near **760 lines, about 38 KB**, and
+   settles the concern in 6.4 about `menu` being the tight one.
+3. **Third-party creator tools become first class.** `[QS]objectadjust` has been
+   public since 1.25 and would use the same path as the in-house adjuster
+   instead of a second-class one.
+
+Two costs, stated plainly:
+
+* **A race class.** A registry-driven menu is complete only once the
+  registrations have arrived. That is already true for `[OPTIONS]` and the
+  re-announce pattern exists, but a missing **top level** entry is far more
+  visible than a missing one inside a submenu.
+* **Ordering.** Notecard entries and registered entries in the same menu need a
+  deterministic order. Proposal: notecard entries first, registered ones after
+  in registration order, with no sort keys offered.
+
+The principle is broader than the adjuster. `/5 targets` (90298) sits in `sitA`
+today and is a pure debugging tool; it belongs in `[QS]debug`.
+
 ### Why not fewer scripts
 
 `core` and `menu` cannot be one script. That fails on exactly the arithmetic
@@ -500,10 +558,16 @@ Taken whole, `menu` would be the tightest of the singletons: rendering (260)
 plus dispatch (309) plus adjust UI (270) plus plugin registry (120) plus HUD
 wire (120), plus new per operator state, is roughly **1180 lines, about 59 KB**.
 
-The first move fixes it. The personal-offset adjust UI belongs with the data
-that `[QS]offset` already owns, and **`[QS]offset` has 38960 bytes free**
-(measured). Moving those 270 lines there puts `menu` at **~910 lines, about
-46 KB**, which is comfortable and comparable to `core` plus `seat` combined.
+Two moves fix it, and both are required by decisions taken elsewhere rather
+than chosen for size:
+
+1. The personal-offset adjust UI belongs with the data that `[QS]offset` already
+   owns, and **`[QS]offset` has 38960 bytes free** (measured). Minus 270 lines.
+2. The authoring literals and the three-way registry collapse, per the principle
+   in section 2. Minus a further 120 to 170.
+
+That leaves `menu` at roughly **760 lines, about 38 KB**, which is the most
+headroom of any of the singletons.
 
 Only the **editing UI** moves. Lookup and application stay in `core` as direct
 LSD reads. Routing them through the plugin would add a wire round trip to every
@@ -530,12 +594,16 @@ differently. Both survive.
 
 #### The creator tool, `[QS]adjuster`
 
-Unchanged in concept. It is already a separate script that only sits in the
-furniture while building and is removed with `/5 cleanup`, and its presence
-gates (`qs:alive:adjuster`, `[HELPER]`, `[QUICKYHUD]`) are LSD based and
-therefore indifferent to the singleton split.
+Unchanged in concept, but it takes over work that `sitB` does for it today. Per
+the principle in section 2 it now **registers its own menu entries** (`[HELPER]`,
+`[HELPER HUD]`, `[QUICKYHUD]`, `[NEW]`, `[SAVE]`, `[DUMP]`) instead of `menu`
+knowing they exist. The presence flag `qs:alive:adjuster` stays as the gate for
+things other scripts must decide, but it no longer gates hidden code.
 
-Two things it has to learn:
+That makes `/5 cleanup` do what its name says: the entries disappear because
+their owner is gone, not because a flag was retracted.
+
+Three things it has to learn:
 
 **Addressing.** It writes to `qs:p:<ch>:<i>` today with `<ch>` as the slot index
 ([adjuster.lsl:146]). The address becomes `<item>/<seat>`. Mechanical, but it
@@ -655,7 +723,8 @@ what the convention has been arguing against since the RLV rename broke the old
 | # | Question | Blocks what |
 |---|---|---|
 | 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (section 6.4); unverified. | The whole memory projection in section 2 |
-| 1b | Whether `menu` fits after the adjust UI moves to `[QS]offset`. Estimated ~910 lines / 46 KB, with a documented relief order if not. | Section 6.4 |
+| 1b | Whether `menu` fits. Estimated ~760 lines / 38 KB after the adjust UI moves to `[QS]offset` and the authoring literals leave, with a documented relief order if not. | Sections 2 and 6.4 |
+| 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
