@@ -715,6 +715,70 @@ next to `menu_page`, with the attendant question of whether a `[<<]` is paging
 the pose menu or the adjust menu. Once the two live in different scripts, that
 question cannot be asked. That is worth more than the lines it saves.
 
+### 6.6 Per-operator dialog state in `menu`
+
+The one place the singleton split needs new logic rather than moved logic.
+
+Today every `sitB` instance serves exactly one operator, so `menu_page`,
+`nav_stack`, `current_menu`, `menu_handle`, `menu_channel`, `page_map` and
+`CONTROLLER` can be plain globals. A singleton serves several at once: two
+people on a bed both browsing, plus an owner touching the furniture without
+sitting, plus a HUD user.
+
+#### Rejected: one shared listen channel
+
+Dispatching by the avatar key from the `listen` event would save N handles and N
+channel allocations. It is unsafe. `sitB` draws a fresh random negative channel
+per dialog ([sitB.lsl:605]), and since a dialog cannot be closed
+programmatically, a click on a stale window lands on a channel nobody listens to
+any more and is silently dropped. On a long-lived shared channel that same click
+would be **accepted** and executed against whatever state exists now. The random
+per-dialog channel is the protection, not an implementation detail.
+
+#### The record
+
+```
+OPS = [avatar, channel, handle, seat, curMenu, page, navCSV, lastAct]   strided 8
+```
+
+Two LSL-shaped decisions in there:
+
+* **`navCSV` is a string**, because lists cannot nest. The back-navigation stack
+  becomes a comma-separated list of menu indices.
+* **`page_map` is not stored at all.** It is a render cache today; the singleton
+  re-derives it from `curMenu` and `page` when a click arrives. One LSD read per
+  click, once per click, and the nesting problem disappears with it.
+
+`CONTROLLER` and `MY_SITTER`, which are two globals today, become the `avatar`
+and `seat` fields of one record. That is a clearer split than the current pair,
+where the difference only matters when `[QS]root-control` hands the menu to
+somebody else.
+
+#### Lifetime
+
+A record is dropped, with `llListenRemove`, on any of:
+
+1. **Standup**, for a seated operator.
+2. **Re-open**, when the same avatar opens a new dialog. The old listen goes, a
+   new channel is drawn. This is what `sitB` already does.
+3. **Timeout**, for operators who walk away. Unavoidable: a dialog cannot be
+   closed, so nothing signals that the window is dead.
+4. **Cap exceeded**, evicting the least recently active. Proposed cap is seat
+   count plus two, since every seat can have an occupant and a non-seated owner
+   or HUD user can be operating as well.
+
+**A deviation from the project's timer convention, stated openly.** The
+event-driven preference cannot cover case 3, because there is no event. The
+compromise is a sweep timer that is armed only while `OPS` is non-empty and
+disarmed the moment it drains, so an idle piece of furniture still runs no
+timer.
+
+#### Cost
+
+Record management, add, find by channel, evict and sweep, is an estimated 60 to
+100 lines. That takes `menu` from the ~760 lines in 6.4 to roughly 840, still
+the most headroom of the singletons.
+
 ---
 
 ## 7. Presence and counting
@@ -832,7 +896,7 @@ it only arises on furniture shapes that cannot exist today.
 | 1b | Whether `menu` fits. Estimated ~760 lines / 38 KB after the adjust UI moves to `[QS]offset` and the authoring literals leave, with a documented relief order if not. | Sections 2 and 6.4 |
 | 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. See [REGISTRY.md](REGISTRY.md) section 8. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
-| 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
+| 3 | ~~Per operator dialog state in a singleton `menu`.~~ **Designed 2026-07-28, see 6.6.** Still unproven in-world: the sweep timeout for operators who walk away, and whether the proposed cap of seats plus two is enough. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. **First real data point 2026-07-28: zero** in "BED ENGINE 2026", where seat 1 has no `POSE` lines at all and every coupled pose is correctly authored as `SYNC`. One well-built file is not a rate; more of the stock still needs counting. | Section 5, and therefore the sequencing choice in 5.4 |
 | 4b | Divergence classes found in the same file that the converter must report: a menu carrying different flags per sitter (`MENU PRONE\|V` against `MENU PRONE`), and identical pose sets in different order within a menu. | Section 5.1 assumption 5 |
 | 5 | LSD budget after de-duplication. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
