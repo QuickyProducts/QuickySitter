@@ -208,6 +208,21 @@ Two things follow, and the second one is easy to miss:
 The per-script limits above are estimates with headroom over the line counts in
 section 6.4, not measurements. `anim` at 8 KB is the least certain of them.
 
+**How wrong the `anim` estimate can be without changing anything**, since it is
+the one figure multiplied by seat count:
+
+| `anim` actually is | Four seater | against today's 512 KB |
+|---|---|---|
+| 8 KB (estimate) | 148 KB | factor 3.5 |
+| 16 KB | 180 KB | factor 2.8 |
+| 24 KB, triple the estimate | 212 KB | factor 2.4 |
+
+The conclusion survives a threefold error. Open question 1 therefore sharpens
+this projection rather than gating it, and an earlier phrasing calling it a
+blocker on "the whole memory projection" overstated the case. What genuinely
+gates it is question 2: without `llSetMemoryLimit` none of these rows apply at
+all.
+
 ---
 
 ## 3. Rejected: one script cycling permissions
@@ -892,8 +907,8 @@ it only arises on furniture shapes that cannot exist today.
 
 | # | Question | Blocks what |
 |---|---|---|
-| 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (section 6.4); unverified. | The whole memory projection in section 2 |
-| 1b | Whether `menu` fits. Estimated ~760 lines / 38 KB after the adjust UI moves to `[QS]offset` and the authoring literals leave, with a documented relief order if not. | Sections 2 and 6.4 |
+| 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (6.4). **Cheaply measurable before any rebuild:** it needs a script that *compiles*, not one that works, since the mechanism is already proven by the shipping sitA instances. Write it, drop it in a prim, read `llGetFreeMemory`. Not throwaway work either, it is the script that would ship. | Sharpens the projection in section 2; does not gate it, see below |
+| 1b | Whether `menu` fits. Estimated ~840 lines / 42 KB after the adjust UI moves to `[QS]offset`, the authoring literals leave and per-operator state arrives, with a documented relief order if not. Not cheaply spikeable; the risk is in the line count, not the bytes-per-line, which is measured twice. | Sections 2, 6.4 and 6.6 |
 | 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. See [REGISTRY.md](REGISTRY.md) section 8. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
 | 3 | ~~Per operator dialog state in a singleton `menu`.~~ **Designed 2026-07-28, see 6.6.** Still unproven in-world: the sweep timeout for operators who walk away, and whether the proposed cap of seats plus two is enough. | Section 6.3 |
