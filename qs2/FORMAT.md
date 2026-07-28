@@ -114,6 +114,10 @@ verbose, but the verbosity costs a human nothing (nobody types these) and it
 means the block survives reordering, partial copy-paste and a machine appending
 to the end.
 
+Self-contained means *within its item*. Like every other directive, a `POS` line
+belongs to the most recently opened `ITEM` (section 3), which is what keeps seat
+names local and unambiguous.
+
 Both `<pose>` and `<seat>` are resolvable names from the structure above, so a
 typo is a parse error with a line number. Today a mistyped `{Name}` is a silent
 no-op that the creator discovers in-world as "the pose sits wrong".
@@ -133,20 +137,33 @@ section 4.3.
 
 ### `ITEM <name>`
 
-Starts a new piece of furniture. Everything after it (seats, menus, poses)
-belongs to it, until the next `ITEM`.
+Starts a new piece of furniture. **Everything after it belongs to it** until the
+next `ITEM`: seats, menus, poses and position lines alike.
 
 ```
 ITEM Bett
-SEAT Links   | PRIM bett_l
-SEAT Rechts  | PRIM bett_r
+SEAT Links|F  | PRIM bett_l
+SEAT Rechts|M | PRIM bett_r
+
 MENU Kuscheln
 POSE Löffel | Links=sleep_spoonA | Rechts=sleep_spoonB
+POSE Lesen  | Links=read_sit
+
+POS Löffel | Links  | <0.0,0.2,0.4>  | <0,0,90>
+POS Löffel | Rechts | <0.0,-0.2,0.4> | <0,0,90>
+POS Lesen  | Links  | <0.0,0.0,0.42> | <0,0,0>
 
 ITEM Stuhl
 SEAT Sitz
+
 POSE Sitzen | chair_idle
+
+POS Sitzen | Sitz | <0.0,0.0,0.42> | <0,0,0>
 ```
+
+Item scoping is what makes seat names local. Two items may both have a seat
+called `Sitz` without colliding, and a `POS` line naming `Sitz` is unambiguous
+because it belongs to exactly one item.
 
 **`ITEM` is optional.** A notecard without it describes one piece of furniture
 that binds to the whole linkset, which is exactly what every classic AVpos

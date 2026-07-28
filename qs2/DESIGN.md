@@ -334,6 +334,103 @@ split that is new logic rather than moved logic, and the HUD side has a known
 precedent: the per operator race in the hudproxy migration was deliberately
 left open there, which would no longer be an option here.
 
+### 6.4 Where it lands: target script contents
+
+Line counts in this section are **estimates** derived from the inventory above,
+not measurements. Nothing has been written.
+
+#### `[QS]station`
+
+Defined as much by what it does not contain as by what it does:
+
+| Gone | To |
+|---|---|
+| `listen()` and every `llDialog` | `menu` |
+| `run_time_permissions()` and every `llStartAnimation` / `llStopAnimation` | `anim` |
+| The inter instance protocol | nothing, it disappears |
+
+`station` holds no listener at all, which removes channel allocation, listener
+teardown and the whole orphaned-listener failure class.
+
+**Data model.** One strided seat table in RAM, plus a public view in LSD so
+plugins can read state instead of asking for it:
+
+```
+SEATS = [item, name, primLink, occupant, poseId, animHandle, ...]
+ITEMS = [name, firstSeat, seatCount, ...]
+
+qs:occ:<item>/<seat> = <avkey>     occupancy
+qs:cur:<item>/<seat> = <poseId>    what is currently playing
+```
+
+This replaces the `SITTERS` list replicated into every instance today, and the
+messages that keep those copies in sync.
+
+**Functions.** `resolve_bindings()` (prim names to items, seats to prims,
+`PRIM` overrides), `place_sittargets()`, `seat_of_link()` / `seat_of_avatar()`,
+`start_pose()`, `release_seat()` / `end_seat()`, `apply_offsets()` (plain LSD
+reads, default from `qs:p` and personal from `QSO`), `swap_seats()`.
+
+**Events.** `state_entry`, `changed(CHANGED_LINK)` as the occupancy engine,
+`changed(REGION_START / INVENTORY / OWNER)`, `touch_start` (resolve the touched
+prim to an item, then ask `menu` to open it), `link_message`, `timer` for
+sequences and the resync tick. No `listen`, no `run_time_permissions`.
+
+| Block | ~Lines |
+|---|---|
+| Boot and config, merged from both sources | 200 |
+| Sit targets and binding | 80 |
+| Occupancy and lifecycle | 250 |
+| Play pose | 130 |
+| Offset lookup and apply | 40 |
+| Pose dispatch, from sitB | 80 |
+| Security and access | 90 |
+| Swap | 30 |
+| Camera | 15 |
+| **Total** | **~915, roughly 46 KB** |
+
+#### `[QS]anim`
+
+Reactive only. Announces itself on `state_entry` (section 7.3), then acts on
+instructions: take permission for this avatar, start this animation, stop. It
+reports back when permission has landed. It needs no `changed()` of its own,
+because `station` drives it. Estimated 120 to 150 lines.
+
+#### Division of labour when someone sits
+
+1. `changed(CHANGED_LINK)`: `station` sees avatar K on seat `Bett/Links`.
+2. `station` assigns a free animator and tells it to acquire permission for K.
+3. Animator: `llRequestPermissions`, `run_time_permissions`, reports ready.
+4. `station` picks the start pose, computes position and rotation, sets the sit
+   target.
+5. `station` sends one `LINK_SET` message: all participating animators start
+   their animation.
+
+Step 5 is why `SYNC` is unaffected. Every animator already holds its permission,
+so they all fire in the same frame, exactly as the per-seat scripts do today.
+
+Step 2 assumes nothing new. The current `sitA` instances all live in **one**
+prim and animate avatars sitting on other prims, because permission binds to the
+linkset rather than to the prim. That is demonstrated by the shipping product,
+not an assumption to verify.
+
+#### The finding: `menu` is tighter than `station`
+
+Running the same arithmetic for `menu` reverses the expected concern. Rendering
+(260) plus dispatch (309) plus adjust UI (270) plus plugin registry (120) plus
+HUD wire (120), plus the new per operator state, comes to roughly **1180 lines,
+about 59 KB**. That is tighter than `sitB` is today, and `sitB` is not the
+script anyone worries about.
+
+The relief is sitting in plain view: the personal-offset adjust UI belongs with
+the data that `[QS]offset` already owns, and **`[QS]offset` has 38960 bytes
+free** (measured). Moving those 270 lines there puts `menu` at ~910 lines and
+gives both singletons comparable headroom.
+
+Only the **editing UI** moves. Lookup and application stay in `station` as
+direct LSD reads. Routing them through the plugin would add a wire round trip to
+every pose start, and the pose would visibly jump into place.
+
 ---
 
 ## 7. Presence and counting
@@ -409,7 +506,8 @@ what the convention has been arguing against since the RLV rename broke the old
 
 | # | Question | Blocks what |
 |---|---|---|
-| 1 | Real size of `[QS]anim`. Estimated at 8 KB from ~150 lines; unverified. | The whole memory projection in section 2 |
+| 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (section 6.4); unverified. | The whole memory projection in section 2 |
+| 1b | Whether `menu` fits after the adjust UI moves to `[QS]offset`. The estimate is ~910 lines, but it is the tightest of the three. | Section 6.4 |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
