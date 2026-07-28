@@ -304,6 +304,13 @@ This block is the largest part of a real notecard and is entirely machine
 written, which makes it the first candidate to live only in LSD and appear in
 the notecard as export only.
 
+**Measured 2026-07-28, and it moves this from a nice-to-have to the main
+lever.** On the real "BED ENGINE 2026" notecard, offsets are 372 of 816 lines.
+Structure de-duplication alone saves 28 %; taking the offsets out of the
+notecard entirely saves 74 %. The earlier factor-of-six figure came from a
+synthetic stress file with six offset lines and measured only the structure
+half. See [FORMAT.md](FORMAT.md) section 5.
+
 ---
 
 ## 5. Migration from classic AVpos
@@ -768,7 +775,8 @@ it only arises on furniture shapes that cannot exist today.
 | 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. See [REGISTRY.md](REGISTRY.md) section 8. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
-| 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
+| 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. **First real data point 2026-07-28: zero** in "BED ENGINE 2026", where seat 1 has no `POSE` lines at all and every coupled pose is correctly authored as `SYNC`. One well-built file is not a rate; more of the stock still needs counting. | Section 5, and therefore the sequencing choice in 5.4 |
+| 4b | Divergence classes found in the same file that the converter must report: a menu carrying different flags per sitter (`MENU PRONE\|V` against `MENU PRONE`), and identical pose sets in different order within a menu. | Section 5.1 assumption 5 |
 | 5 | LSD budget after de-duplication. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
 | 6 | ~~Does v2 keep stock AVsitter compatibility.~~ **Decided 2026-07-28: yes, see 7.5.** Kept where it can be kept, with any specific conflict against a gamechanger feature decided on its own merits. | Resolved. The legacy blocks stay and remain counted in the estimates. |
 

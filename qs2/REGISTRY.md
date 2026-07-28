@@ -172,9 +172,17 @@ lifetime and once per census, which bounds it to creator-triggered moments.
 The warning goes out at the always-on verbosity level, not behind a debug flag.
 It reports a real misconfiguration, not diagnostics.
 
-**Creator control is the notecard itself.** There is no registration token in
-the notecard, and none is needed. A creator who wants registered entries inside
-a menu of their own simply declares that menu:
+**There is already a static counterpart in the notecard.** The `ADJUST` token
+fills the `[ADJUST]` buttons from label and channel pairs
+([boot.lsl:1379]), as in `ADJUST BENTOFACES|-31450010` from the "BED ENGINE
+2026" sample. It is carried over unchanged (see [FORMAT.md](FORMAT.md) section
+4) and is the static sibling of this wire: the notecard declares entries that
+are always there, the wire declares entries that come and go with their owner.
+Nothing here replaces it.
+
+**Creator control over placement is the notecard itself.** No *new* registration
+token is introduced and none is needed. A creator who wants registered entries
+inside a menu of their own simply declares that menu:
 
 ```
 MENU Extras

@@ -71,6 +71,16 @@ and it disappears here.
 
 Poses declared before the first `MENU` belong to the top level.
 
+**`MENU <path>|hidden` suppresses the button.** The menu exists and can be
+reached from a `SEQUENCE` or by a plugin, but nothing links to it.
+
+This is a special case and it is here because a real notecard needs it. In the
+"BED ENGINE 2026" sample, `MENU HIDDEN BJ` carries no `TOMENU` in either sitter
+block and is reached only through `SEQUENCE Propped`. Deliberately unreachable
+menus are a real authoring technique, and the automatic parent button would
+otherwise expose them. A converter without this flag silently changes the menu
+a customer sees.
+
 ### `POSE <label> | <seat>=<anim> [| <seat>=<anim> ...]`
 
 One line per pose, naming every participating seat.
@@ -293,12 +303,29 @@ scale, because the menu skeleton stops being repeated per seat.
 | `TOMENU` | 156 | 0 |
 | **structure lines** | **3432** | **546** |
 
-Factor 6.3, which is exactly the sitter count.
+Factor 6.3, which is exactly the sitter count. **That file is synthetic and has
+6 offset lines**, so it measures the structure saving and nothing else.
 
-**Two honest caveats.** That file has identical blocks across sitters; a real
-file whose menus diverge saves less. And `POS` lines do not de-duplicate at all,
-being inherently per pose per seat, so in a fully adjusted notecard they come to
-dominate. Which is the argument for moving them out of the notecard entirely.
+### Measured on a real notecard
+
+"BED ENGINE 2026", 2 sitters, 193 poses in seat 0 (179 coupled plus 14 solo)
+and 179 in seat 1:
+
+| | today | v2 |
+|---|---|---|
+| structure lines | 444 | 214 |
+| `POS` / `{}` lines | 372 | 372 |
+| **total** | **816** | **586** |
+
+Structure saves factor 2.07, again exactly the sitter count. **Offsets save
+nothing**, being inherently one per pose per seat. The real-world saving is
+therefore **28 %**, not a factor of six.
+
+**And that reorders the priorities.** If the offsets leave the notecard
+altogether and live only in LSD, the same file drops to **214 lines, a 74 %
+saving**. Moving them out is worth more than the entire structure
+de-duplication. What section 2 lists as a direction of travel is in fact the
+main lever on the notecard editor limit.
 
 ---
 
