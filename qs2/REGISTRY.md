@@ -124,8 +124,13 @@ like one of their poses, and a pose quietly stops working.
 ```
 [QS]menu: "Lesen" in menu "Entspannen" is registered by [QS]myplugin and is
 also a pose in the notecard. The registered entry wins and the pose is not
-reachable here. Rename one of them.
+reachable here. Rename the pose.
 ```
+
+"Rename the pose" and not "rename one of them": the notecard is the only side
+the creator can act on, which is the same asymmetry the precedence rule is
+built on. Naming the registrant is what makes the message useful, since that
+tells the creator which plugin to keep or drop.
 
 **Emitted at registration, never at render.** This matters: rendering happens
 every time somebody opens a menu, and a per-render owner-say multiplies across
