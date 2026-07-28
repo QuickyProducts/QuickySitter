@@ -313,6 +313,7 @@ dominate. Which is the argument for moving them out of the notecard entirely.
    two same-named `POSE` entries in different sitter blocks are independent
    today. The converter emits internal IDs on collision. This spec has not yet
    settled how such an ID is written in the notecard. See DESIGN.md section 5.2.
-4. **The engine script name.** DESIGN.md calls the singleton `[QS]station`,
-   which no longer matches `ITEM`. Proposal: `[QS]sit`, since it is the
-   successor of `sitA` and owns the seat lifecycle. Not decided.
+4. ~~The engine script name.~~ **Decided 2026-07-28.** The seat engine is split
+   into `[QS]core` (what gets played) and `[QS]seat` (who sits where);
+   `[QS]control` was rejected because "control" already means *who operates the
+   menu* in this codebase. See DESIGN.md section 2.
