@@ -94,7 +94,7 @@ See section 3.
 ### Projected sim memory
 
 Estimated, since the `anim` size is not yet built. Assumes `llSetMemoryLimit`
-is actually called (see section 7).
+is actually called (see section 8).
 
 | | today (measured) | target (estimated) |
 |---|---|---|
@@ -346,7 +346,76 @@ left open there, which would no longer be an option here.
 
 ---
 
-## 7. Open questions and measurements needed
+## 7. Presence and counting
+
+Two mechanisms that are easily conflated. Only one of them breaks.
+
+### 7.1 Plugin presence is unaffected
+
+`qs:alive:<name>` plus the boot CENSUS (90079) is LSD based and therefore
+instance independent. The `menu` singleton reads exactly the same keys `sitB`
+reads today. The split changes nothing here.
+
+Two name probes do survive as fallbacks in `sitB`:
+
+```lsl
+integer select_present()  { ... || llGetInventoryType("[AV]select")   == INVENTORY_SCRIPT; }
+integer rlv_present()     { ... || llGetInventoryType("[AV]root-RLV") == INVENTORY_SCRIPT; }
+```
+
+These are deliberate: stock AVsitter furniture has no QS broadcaster to write
+`qs:alive`, so the flag alone would never fire. In v2 they are not a technical
+question but a product one, tied to whether v2 keeps stock AVsitter
+compatibility. If that is dropped, the fallbacks go with it.
+
+### 7.2 The probe that does break
+
+```lsl
+integer get_number_of_scripts()          // [QS]sitA.lsl:285
+{
+    integer i;
+    while (llGetInventoryType(main_script + " " + (string)(++i)) == INVENTORY_SCRIPT)
+        ;
+    return i;
+}
+```
+
+This counts `[QS]sitA 1`, `[QS]sitA 2`, ... and is the **canonical seat count**
+([sitA.lsl:660]), travelling to `sitB` as field 2 of the QSALIVE 90097 payload,
+where it drives swap and select gating as `number_of_sitters`
+([sitB.lsl:386]).
+
+In v2 there is no `sitA <n>` left to count. The seat count comes from the
+notecard via LSD, which is where it belongs. This is strictly better than today:
+a forgotten `[QS]sitA 3` currently shrinks the furniture silently, whereas a
+declared-seats versus present-animators mismatch is detectable and reportable.
+
+### 7.3 How `station` learns about its animators
+
+Per the project convention: **they announce, they are not probed.** Either a
+`qs:alive:anim:*` flag or a census reply, the same pattern the plugins already
+use. Never `llGetInventoryType("[QS]anim 3")`.
+
+### 7.4 Consequence: animators need no name suffix
+
+Permission is bound to the avatar, not to the prim, so `llStartAnimation` does
+not care which animator serves which seat. The only real constraint is that the
+animations must live in the same prim as the animator script, and the QS scripts
+all sit in one prim anyway.
+
+The N animators are therefore **interchangeable and anonymous**. `station`
+assigns seats at runtime and addresses each animator by the handle it reports
+itself (`llGetScriptName()`), not by an index someone derives from a name. The
+creator drops N identical copies and is done.
+
+This removes the last name-derived identity in the system, `SCRIPT_CHANNEL`
+parsed out of the script name ([sitA.lsl:706], [sitB.lsl:747]). That is exactly
+what the convention has been arguing against since the RLV rename broke the old
+`[AV]root-RLV` name probe.
+
+---
+
+## 8. Open questions and measurements needed
 
 | # | Question | Blocks what |
 |---|---|---|
@@ -355,6 +424,7 @@ left open there, which would no longer be an option here.
 | 3 | Per operator dialog state in a singleton `menu`. Design, not measurement. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. This is the only place a naive converter breaks. | Section 5, and therefore the sequencing choice in 5.4 |
 | 5 | LSD budget after de-duplication. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
+| 6 | Does v2 keep stock AVsitter compatibility. Product decision, not technical. | The `select_present()` / `rlv_present()` name-probe fallbacks in 7.1, and the legacy blocks in 6.1 |
 
 Question 4 is the key one for the whole rebuild, not a side issue: it decides
 whether legacy support can leave the furniture entirely.
