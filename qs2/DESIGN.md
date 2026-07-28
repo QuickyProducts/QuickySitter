@@ -1,8 +1,10 @@
 # QuickySitter v2 engine, design draft
 
-**Status: exploratory.** Not part of any release, not scheduled, no code in this
-folder yet. This is the accumulated reasoning from the design sessions of
-2026-07-27 and 2026-07-28, written down so the thread survives.
+**Status: exploratory.** Not part of any release and not scheduled. The
+reasoning here comes from the design sessions of 2026-07-27 and 2026-07-28.
+
+**First code landed 2026-07-29:** [`[QS]anim.lsl`](%5BQS%5Danim.lsl), written to
+answer open question 1 (see section 8). Nothing else is built.
 
 Everything marked **measured** comes from the reference furniture (see
 Measurement basis). Everything else is derived from the code or from LSL
@@ -614,7 +616,12 @@ loader to copy.
 Reactive only. Announces itself on `state_entry` (section 7.3), then acts on
 instructions: take permission for this avatar, start this animation, stop. It
 reports back when permission has landed. It needs no `changed()` of its own,
-because `seat` drives it. Estimated 120 to 150 lines.
+because `seat` drives it.
+
+**Written 2026-07-29**, [`[QS]anim.lsl`](%5BQS%5Danim.lsl): **100 code lines**
+against an estimate of 120 to 150, so ~5 KB at the project's 50 bytes per line,
+against an estimated 8 KB. Predicted, not measured; the script exists so that
+the figure can stop being predicted.
 
 #### Division of labour when someone sits
 
@@ -907,7 +914,7 @@ it only arises on furniture shapes that cannot exist today.
 
 | # | Question | Blocks what |
 |---|---|---|
-| 1 | Real size of `[QS]anim`. Estimated at 8 KB from 120 to 150 lines (6.4). **Cheaply measurable before any rebuild:** it needs a script that *compiles*, not one that works, since the mechanism is already proven by the shipping sitA instances. Write it, drop it in a prim, read `llGetFreeMemory`. Not throwaway work either, it is the script that would ship. | Sharpens the projection in section 2; does not gate it, see below |
+| 1 | Real size of `[QS]anim`. **Written 2026-07-29**, 100 code lines, so ~5 KB predicted against the 8 KB estimate. Awaiting the one thing that cannot be done here: drop it in a prim and read the `used=` figure it prints at `state_entry`. Nothing else has to work for that. | Sharpens the projection in section 2; does not gate it, see below |
 | 1b | Whether `menu` fits. Estimated ~840 lines / 42 KB after the adjust UI moves to `[QS]offset`, the authoring literals leave and per-operator state arrives, with a documented relief order if not. Not cheaply spikeable; the risk is in the line count, not the bytes-per-line, which is measured twice. | Sections 2, 6.4 and 6.6 |
 | 1c | Placement vocabulary and ordering for the unified registration wire, and how visible the top-level registration race is in practice. See [REGISTRY.md](REGISTRY.md) section 8. | The section 2 principle |
 | 2 | `llSetMemoryLimit` appears in **no** script in the repo. Without it every instance books the full 64 KB and the projection is void. Needs a peak measurement per script plus headroom, otherwise stack-heap collisions. | Section 2, and it is a win available today without any rebuild |
