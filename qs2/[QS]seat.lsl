@@ -50,9 +50,16 @@ integer QSS_SEATED   = 90413;
 integer QSS_SWAP     = 90414;
 
 integer QSC_APPLY   = 90421;
+integer QSC_RESYNC  = 90423;
 
 integer QSB_READY   = 90430;
 integer QSB_RELOAD  = 90431;
+
+// Stock AVsitter numbers, emitted alongside the v2 wire so stock plugins
+// keep working. They carry the slot integer, which is why this script
+// owns the name↔slot mapping (DESIGN.md §7.5).
+integer AV_NEWSITTER = 90060;
+integer AV_SITTERGONE = 90065;
 
 // ITEMS strided 3: name, firstSeat, seatCount
 list ITEMS;
@@ -319,6 +326,7 @@ seat_taken(integer seat, key av)
     // (QSA_READY), because a QSA_PLAY before that is dropped, not queued.
     llMessageLinked(LINK_SET, QSA_BIND, llList2String(SEATS, row + 4), av);
     llMessageLinked(LINK_SET, QSS_OCCUPIED, addr, av);
+    llMessageLinked(LINK_SET, AV_NEWSITTER, (string)seat, av);
 }
 
 seat_freed(integer seat, key was)
@@ -331,6 +339,7 @@ seat_freed(integer seat, key was)
     llLinksetDataDelete("qs:occ:" + addr);
     llLinksetDataDelete("qs:cur:" + addr);
     llMessageLinked(LINK_SET, QSS_VACATED, addr, was);
+    llMessageLinked(LINK_SET, AV_SITTERGONE, (string)seat, was);
 }
 
 // One pass over every seat prim, diffed against the occupancy column.
@@ -383,6 +392,14 @@ swap_seats(integer a, integer b)
     else            llLinksetDataDelete("qs:occ:" + addrA);
     if (occA != "") llLinksetDataWrite("qs:occ:" + addrB, occA);
     else            llLinksetDataDelete("qs:occ:" + addrB);
+
+    // Rows and sit targets have swapped; the running animations have not.
+    // Ask core to re-resolve, which reapplies both with the new occupants
+    // and their own personal offsets.
+    integer it = item_of_seat(a);
+    if (it >= 0)
+        llMessageLinked(LINK_SET, QSC_RESYNC,
+            llList2String(ITEMS, it * ITEM_STRIDE), "");
 }
 
 boot_up()
@@ -414,9 +431,18 @@ default
         }
         if (change & (CHANGED_REGION_START | CHANGED_OWNER))
         {
-            // Sit targets do not always survive a region restart.
+            // Sit targets do not always survive a region restart, and the
+            // occupants keep their seats but lose their animation, so the
+            // targets have to be replaced AND the poses re-applied.
             place_sittargets();
             rescan_occupancy();
+            integer i = 0;
+            integer n = llGetListLength(ITEMS);
+            while (i < n)
+            {
+                llMessageLinked(LINK_SET, QSC_RESYNC, llList2String(ITEMS, i), "");
+                i += ITEM_STRIDE;
+            }
         }
     }
 

@@ -415,19 +415,28 @@ main lever on the notecard editor limit.
 2. ~~Scoping of the carried-over tokens.~~ **Done 2026-07-28**, see section 4.
    Three of the assignments are flagged as judgement calls rather than
    derivations: `ONSIT`, `ADJUST` and `DFLT`.
-3. ~~Pose identity versus display label.~~ **Dropped 2026-07-28.** There is no
-   ID concept and no separation of label from identity.
+3. ~~Pose identity versus display label.~~ **Dropped 2026-07-28, and a second
+   real notecard confirms the decision on 2026-07-29** for a reason the first
+   one did not show.
 
-   The case it existed for: a label that maps to more than one pose *for the
-   same seat*, which can only arise if a slot-local `POSE` shares a name with a
-   `SYNC` the same seat takes part in. That already produces two identically
-   labelled buttons in the old notecard, and it occurs zero times in the "BED
-   ENGINE 2026" sample.
+   The "Lalou" sample carries a slot-local `POSE Sit` in **both** sitter blocks
+   with different animations, and the same for `Phone call` and `Dance`. So
+   same-label collisions across seats are common, not rare — the first sample
+   simply had none because its second sitter had no `POSE` lines at all.
 
-   Resolution: **the converter renames the second one and says so** in its
-   report, so the creator can name it properly afterwards. Every label is then
-   unique within its item and seat, `POS <pose> | <seat>` always resolves, and
-   the format carries one special case fewer.
+   They are still not ambiguous: the identity is the pair **(label,
+   participating seat)**, and both `POS <pose> | <seat>` and a pose request from
+   a seated operator carry the seat. No ID concept is needed, but every lookup
+   **must** pass the seat. `[QS]core` did not, and would have handed the second
+   sitter the first sitter's pose; fixed 2026-07-29.
+
+   The genuinely ambiguous case remains a label mapping to two poses for the
+   **same** seat, which needs a slot-local `POSE` sharing a name with a `SYNC`
+   that seat takes part in. Neither sample has one. The converter renames the
+   second and says so.
+
+   Residual: an operator who is **not** seated has no seat to disambiguate with,
+   so they see both `Sit` buttons and get the first. Cosmetic, unresolved.
 4. ~~The engine script name.~~ **Decided 2026-07-28.** The seat engine is split
    into `[QS]core` (what gets played) and `[QS]seat` (who sits where);
    `[QS]control` was rejected because "control" already means *who operates the
