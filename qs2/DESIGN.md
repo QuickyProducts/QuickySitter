@@ -77,6 +77,9 @@ ship separately and be rolled back separately.
 | `menu` | 1 | Dialog rendering and dispatch, plugin registry, HUD wire |
 | `anim` | N | Holds `PERMISSION_TRIGGER_ANIMATION` for its occupant. Starts and stops animations on request. Nothing else. |
 
+The name `[QS]station` predates the `ITEM` naming and is under review; see
+[FORMAT.md](FORMAT.md) open point 4.
+
 ### Why not fewer scripts
 
 `station` and `menu` cannot be one script. That fails on exactly the arithmetic
@@ -145,62 +148,41 @@ limitation. If cycling worked, it would have been done in 2015.
 
 ## 4. Notecard format
 
-### 4.1 Structure
+**The syntax lives in [FORMAT.md](FORMAT.md)**, which is the single source of
+truth for tokens and parser rules. This section records only the ideas behind
+it, so the two documents cannot drift.
 
-```
-STATION Bett
-  SEAT Links   PRIM bett_l
-  SEAT Rechts  PRIM bett_r
-  MENU Kuscheln
-    POSE Loeffel | Links=sleep_spoonA | Rechts=sleep_spoonB
-    POSE Lesen   | Links=read_sit
-STATION Stuhl
-  SEAT Sitz    PRIM stuhl
-    POSE Sitzen       | Sitz=chair_idle
-    POSE Zuruecklehnen | Sitz=chair_lean
-```
+The unit of furniture is called `ITEM` (named by the product owner on
+2026-07-28; earlier drafts and the Google Doc say "station").
 
-Three things change fundamentally:
+### 4.1 What changes conceptually
 
 * **A pose is one line, not a name repeated across blocks.** Coupling becomes
   structural: whoever appears in the line takes part, whoever does not is not
   touched. Independence is the default, coupling the special case. The
   `POSE` versus `SYNC` distinction disappears.
-* **The menu exists once per station, not once per seat.** This is the fix for
+* **The menu exists once per item, not once per seat.** This is the fix for
   1.1.
 * **Seats have names.** `Links` exists only inside `Bett`. The address of an
   occupant is the pair `Bett/Links`, which is at the same time the LSD key and
   the address plugins use. Today's `SCRIPT_CHANNEL`, which is simultaneously
   slot index, LSD namespace, script name suffix and message filter, collapses
   into a single name.
+* **The parent menu button is implicit.** `TOMENU` disappears, removing the
+  most reported "my menu does not appear" failure.
 
 ### 4.2 Prim binding
 
-A station binds by default to every prim carrying its name. `PRIM` on a `SEAT`
-is the override, needed only where the order would be ambiguous, that is on
-multi seat stations. Rez stable and relink stable, unlike link numbers and prim
-UUIDs.
+An item binds by default to every prim carrying its name; `PRIM` on a `SEAT` is
+the override for the ambiguous multi seat case. Prim name and prim description
+are the only rez stable and relink stable identifiers available, unlike link
+numbers and prim UUIDs.
 
 `SET` is not removed, it cannot arise in the first place: two independent pieces
-of furniture in one linkset are two stations, isolated by construction because
-the storage namespace is `qs:<station>:...` instead of `qs:*:<slot>`.
+of furniture in one linkset are two items, isolated by construction because the
+storage namespace is `qs:<item>:...` instead of `qs:*:<slot>`.
 
 ### 4.3 Position data
-
-Kept as a separate section, because the upper half belongs to the human and the
-lower half is written by the adjuster. Grouped by pose, one line per seat,
-following lines inherit the pose name:
-
-```
-OFFSETS Bett
-  Loeffel  Links   <0.00000,0.20000,0.40000>  <0,0,90>
-           Rechts  <0.00000,-0.20000,0.40000> <0,0,90>
-  Lesen    Links   <0.00000,0.00000,0.42000>  <0,0,0>
-```
-
-Both `Loeffel` and `Links` are now resolvable names from the upper half, so a
-typo is a parse error with a line number instead of the silent no-op it is today
-([boot.lsl:1426], [boot.lsl:1427]).
 
 **One frame of reference.** If a seat owns exactly one prim, the only sensible
 answer is that the offset is local to that seat's prim. That removes the
@@ -208,9 +190,17 @@ answer is that the offset is local to that seat's prim. That removes the
 ([sitA.lsl:445]), and it makes "does my pose move if I relink" answerable with
 a plain no.
 
+Both the pose name and the seat name become resolvable, so a typo is a parse
+error with a line number instead of the silent no-op it is today
+([boot.lsl:1426], [boot.lsl:1427]).
+
 Personal offsets inherit the address unchanged: `QSO:<user>:<slot>:<pose>`
-becomes `QSO:<user>:<station>/<seat>:<pose>`. The `M#T!` all-poses fallback
-stays a reserved pose name in the same key shape.
+becomes `QSO:<user>:<item>/<seat>:<pose>`. The `M#T!` all-poses fallback stays a
+reserved pose name in the same key shape.
+
+This block is the largest part of a real notecard and is entirely machine
+written, which makes it the first candidate to live only in LSD and appear in
+the notecard as export only.
 
 ---
 
@@ -221,7 +211,7 @@ that prim binding and menu divergence would need hand work.
 
 ### 5.1 The six assumptions that make it total
 
-1. One legacy file becomes exactly **one** station. A classic AVpos describes
+1. One legacy file becomes exactly **one** item. A classic AVpos describes
    one piece of furniture by definition.
 2. **No `PRIM` lines are emitted.** The fallback rule "no binding given, assign
    seats in link order" reproduces today's `sittargets()` behaviour exactly.
@@ -234,7 +224,7 @@ that prim binding and menu divergence would need hand work.
    appended in first-appearance order. Visibility is derived: a pose is offered
    to a seat if and only if that seat appears in the pose line.
 6. Per-sitter configuration (camera, MTYPE/ETYPE, gender) moves to the seat.
-   Hoisting to the station where all seats agree is optional cosmetics.
+   Hoisting to the item where all seats agree is optional cosmetics.
 
 ### 5.2 The trap that assumption 3 and 4 defuse
 
@@ -311,7 +301,7 @@ together 41% of the file.
 | Plugin registry | `plugin_dialog()` 573-625, QSPLUG_REGISTER, 90201/90202/90203 | 120 | no | `menu` |
 | Pose dispatch | 90000/90050/90005, POSE vs SYNC decision, `send_anim_info()`, 90045 receive, 90055 | 150 | no | `station`, shrinks |
 | Boot and config | `qs_load_from_lsd()` 507-572, QS_BOOT_WIPE/RELOAD, QSALIVE, `memory()` | 120 | no | **merges with 6.1 row 1** |
-| Menu sidecar index | `qs_rebuild_sidecar()` 469-506, writes `qs:nm`/`qs:nt` | 38 | no | `boot`, built once per station |
+| Menu sidecar index | `qs_rebuild_sidecar()` 469-506, writes `qs:nm`/`qs:nt` | 38 | no | `boot`, built once per item |
 | Security and access | `changed()` 1077-1141, `llUnSit`, `has_security`, `select_present()`, `rlv_present()` | 90 | no | `station` |
 | HUD wire | 90100/90101, 90271 re-sync, 90299/90300/90301 | 120 | no | `menu` |
 
@@ -333,8 +323,8 @@ are instantiated N times so that 50 of them can exist N times.
 * Inter instance protocol in sitA, ~180 lines, no replacement needed.
 * **Boot and config exists twice**, once in sitA and once in sitB, both reading
   `qs:cfg`. Together 370 lines for one job.
-* The sidecar index is rebuilt **per sitter** today. With the station format,
-  once per piece of furniture.
+* The sidecar index is rebuilt **per sitter** today. With the v2 format, once
+  per piece of furniture.
 
 **One block carries the risk:** menu rendering plus dialog dispatch, 570 lines
 that implicitly assume exactly one operator. `sitB` gets that for free today
