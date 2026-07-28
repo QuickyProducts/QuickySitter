@@ -289,9 +289,17 @@ llMessageLinked(LINK_SET, 90212,
    which is what keeps point 1 free of cost. See section 4.
 3. ~~Collision between a registered label and a notecard pose label.~~
    **Decided 2026-07-28**, see section 4: the registered entry wins and a
-   warning is emitted at registration. Still open underneath it: whether the
-   warning should also be recorded somewhere durable, so a creator who was not
-   in-world when it fired can still find it. `boot`'s existing self-check report
-   is the obvious host, at the cost of an LSD key.
+   warning is emitted at registration.
+
+   Durable logging of that warning was considered and **dropped**. Registration
+   fires on rez and on reset, and the warning goes to the *owner*. While
+   building, that is the creator, who can act on it. After sale it is the
+   customer, who can change neither the plugin nor the notecard. A durable log
+   therefore reaches exactly the person who cannot use it, and costs an LSD key
+   for it.
+
+   The residual is accepted rather than solved: after sale the customer gets a
+   warning at every rez that they cannot resolve. A silently shadowed pose is
+   the worse outcome.
 4. **Top-level registration race**, see section 6 and DESIGN.md question 1c.
    Needs an in-world look before this is called done.

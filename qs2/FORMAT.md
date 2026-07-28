@@ -345,11 +345,19 @@ main lever on the notecard editor limit.
    and never for `POS`. See section 2.
 2. **Scoping of the carried-over tokens** to `SEAT` versus `ITEM`. Mechanical,
    not done.
-3. **Pose identity versus display label.** The migration path requires that a
-   pose is identified by (label, seat set) rather than by label alone, because
-   two same-named `POSE` entries in different sitter blocks are independent
-   today. The converter emits internal IDs on collision. This spec has not yet
-   settled how such an ID is written in the notecard. See DESIGN.md section 5.2.
+3. ~~Pose identity versus display label.~~ **Dropped 2026-07-28.** There is no
+   ID concept and no separation of label from identity.
+
+   The case it existed for: a label that maps to more than one pose *for the
+   same seat*, which can only arise if a slot-local `POSE` shares a name with a
+   `SYNC` the same seat takes part in. That already produces two identically
+   labelled buttons in the old notecard, and it occurs zero times in the "BED
+   ENGINE 2026" sample.
+
+   Resolution: **the converter renames the second one and says so** in its
+   report, so the creator can name it properly afterwards. Every label is then
+   unique within its item and seat, `POS <pose> | <seat>` always resolves, and
+   the format carries one special case fewer.
 4. ~~The engine script name.~~ **Decided 2026-07-28.** The seat engine is split
    into `[QS]core` (what gets played) and `[QS]seat` (who sits where);
    `[QS]control` was rejected because "control" already means *who operates the

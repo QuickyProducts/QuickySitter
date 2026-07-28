@@ -367,10 +367,17 @@ Coupling in the old format is **the token, not the name**
 only), `SYNC` with `channel = ""` (broadcast). So `POSE Sitzen|animA` in
 sitter 0 and `POSE Sitzen|animB` in sitter 1 are two independent poses that
 merely share a label. A converter grouping by label would silently couple them,
-and the partner would stand up when you sit down. Pose identity in the new
-format must therefore be the pair (label, seat set), not the label alone. This
-propagates into the `OFFSETS` block, which addresses by ID rather than by
-display name.
+and the partner would stand up when you sit down. They must therefore become two
+lines with disjoint seats, which stays unambiguous because `POS` addresses by
+pose **and** seat.
+
+**No ID concept is introduced.** An earlier draft gave poses an identity
+separate from their label (`Sitzen@0`); dropped 2026-07-28. The only genuinely
+ambiguous case is a label mapping to two poses *for the same seat*, which
+requires a slot-local `POSE` sharing a name with a `SYNC` that same seat takes
+part in. That already yields two identically labelled buttons in the old
+notecard, and it occurs zero times in the real sample. The converter renames the
+second one and reports it. See [FORMAT.md](FORMAT.md) open point 3.
 
 `SEQUENCE` follows the same rule.
 
@@ -415,7 +422,7 @@ trust argument, not a technical one.
 
 **The converter inherits the reporting duty.** It resolves the divergence
 classes in question 4b, per-sitter menu flags and differing pose order, but it
-has to state what it chose. Same for the internal pose IDs it assigns on label
+has to state what it chose. Same for any pose it renames to break a label
 collision (5.2).
 
 **Scope note against 7.5.** Stock AVsitter compatibility is kept for the
