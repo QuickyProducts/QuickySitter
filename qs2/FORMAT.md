@@ -146,10 +146,10 @@ no-op that the creator discovers in-world as "the pose sits wrong".
 exactly one frame and therefore no `LROT` / `REFERENCE` token, and no inter-frame
 conversion at runtime. Rotating or relinking the furniture does not move poses.
 
-**Direction of travel:** this block is 100 % machine written and is by far the
-largest part of a real notecard. It is the natural first candidate to live only
-in LSD, with the notecard carrying it as export and backup only. See DESIGN.md
-section 4.3.
+**Offsets stay in the notecard. Decided 2026-07-28.** Moving them into LSD alone
+was considered and rejected; the notecard remains the source of truth and LSD
+remains a derived cache. See DESIGN.md section 4.3 for the reasoning, which is
+about durability rather than size.
 
 ---
 

@@ -301,15 +301,40 @@ becomes `QSO:<user>:<item>/<seat>:<pose>`. The `M#T!` all-poses fallback stays a
 reserved pose name in the same key shape.
 
 This block is the largest part of a real notecard and is entirely machine
-written, which makes it the first candidate to live only in LSD and appear in
-the notecard as export only.
+written. On the real "BED ENGINE 2026" notecard it is 372 of 816 lines, so
+structure de-duplication alone saves 28 % while removing the offsets would save
+74 %. The earlier factor-of-six figure came from a synthetic stress file with
+six offset lines and measured only the structure half.
 
-**Measured 2026-07-28, and it moves this from a nice-to-have to the main
-lever.** On the real "BED ENGINE 2026" notecard, offsets are 372 of 816 lines.
-Structure de-duplication alone saves 28 %; taking the offsets out of the
-notecard entirely saves 74 %. The earlier factor-of-six figure came from a
-synthetic stress file with six offset lines and measured only the structure
-half. See [FORMAT.md](FORMAT.md) section 5.
+#### Offsets stay in the notecard
+
+**Decided 2026-07-28.** Living in LSD alone was considered for the size win and
+rejected. The notecard stays the source of truth and LSD stays a derived cache.
+The reasoning is durability, and it is written down here so the idea is not
+re-proposed on the size argument alone:
+
+* **A notecard change wipes them.** [boot.lsl:1545] deletes
+  `^qs:(meta|cfg|sitter|p|nm|nt|boot):` whenever the notecard asset key changes,
+  and `qs:p` is where offsets live. With LSD as the only home, adding one pose
+  would destroy every adjusted position in the furniture.
+* **Making that wipe selective reintroduces what it exists to prevent.** It is
+  blunt precisely so that renamed or deleted poses cannot leave orphaned offsets
+  behind.
+* **A sibling reset would become unrecoverable.** `llLinksetDataReset()` called
+  by a non-QS script in the same object is a documented incident class. Today it
+  is repaired by re-seeding from the notecard. With LSD as primary store it
+  would be total loss of the creator's adjustment work.
+* **Text backup, versioning and hand-off disappear**, unless every creator runs
+  `[DUMP]` with discipline.
+* **Unverified either way:** whether LSD survives take-to-inventory and re-rez
+  unchanged. For a primary store that would need proof rather than assumption.
+
+**The size win is therefore 28 %, not 74 %.** The editor limit can still be
+addressed without touching durability, by splitting structure and offsets across
+**two notecards**: the hand-edited one holds 214 lines and the machine-written
+one is never opened. The limit is per notecard, not per object, and both remain
+assets that re-seed LSD exactly as today. That option is open; whether it is
+worth `boot` reading a second card is not decided.
 
 ---
 
