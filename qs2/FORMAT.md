@@ -44,8 +44,13 @@ order in the seat picker and swap menu.
 
 ```
 SEAT Links|F
-SEAT Rechts|M
+SEAT Rechts|M|D
 ```
+
+Fields after the name are optional and positional: gender, then RLV designation
+(see section 4, `ROLES`). Both are per-seat data that today live in parallel
+structures indexed by slot number, which have to be kept in step with the seat
+list by hand.
 
 The name is the key that `POSE` and `POS` lines reference. It is local to its
 `ITEM`, so `Links` in `Bett` and `Links` in `Sofa` are different seats.
@@ -231,31 +236,86 @@ All 27 tokens the current parser accepts, with their disposition.
 | `SET` | two items are two items |
 | `LROT` | one frame of reference per seat |
 
-### Carried over, semantics unchanged
+### Carried over, with a scope
 
-These are not part of this draft's redesign. They are listed so the spec cannot
-be mistaken for complete.
+Semantics unchanged; only the scope is assigned. Scoping pass done 2026-07-28.
+
+**Correction to an earlier note in this spec:** these are **not** scoped to the
+current `SITTER` block today. `qs_cfg_pack()` runs once in `finalize_boot()` and
+the same packed string is written to every channel ([boot.lsl:486]), so a
+`MTYPE` line inside `SITTER 1` applies to sitter 0 as well. All of them are
+file-global today. The question below is therefore not where to move them, but
+which of them should gain a **narrower** scope than they have.
+
+#### Content, not configuration
+
+These are positional and belong to the menu and item they appear in, exactly as
+`POSE` does. There is nothing to scope.
 
 | Token | What it is |
 |---|---|
 | `BUTTON` | menu entry that fires a link channel |
-| `SEQUENCE` | pose sequences; follows the same coupling rule as `POSE` |
+| `SEQUENCE` | pose sequence; follows the same coupling rule as `POSE` |
 | `PROP1` `PROP2` `PROP3` | prop rows (11 fields since 1.25) |
-| `MTYPE` `ETYPE` | menu and click modes |
-| `SWAP` | seat swap behaviour |
-| `AMENU` `ONSIT` `DFLT` | menu and sit behaviour flags |
-| `SELECT` `ADJUST` `HELPER` | feature and access gates |
-| `ROLES` | RLV designations |
-| `TEXT` | floating text |
-| `KFM` | keyframed-motion flag |
-| `BRAND` | branding string |
-| `VERBOSE` `WARN` | diagnostics |
 
-**Open, needs a pass through the parser:** several of these are today scoped to
-the current `SITTER` block. Each one has to be assigned to either the `SEAT` or
-the `ITEM`. That is mechanical but it has not been done, and the semantics of
-`ADJUST`, `AMENU`, `DFLT`, `ONSIT`, `ROLES` and `SELECT` were not revisited for
-this draft.
+#### File-global, one per notecard
+
+| Token | What it is | Why global |
+|---|---|---|
+| `BRAND` | branding string | one product name per notecard |
+| `VERBOSE` | diagnostics floor | already global, written to `qs:cfg:verbose` and read by every QS script including plugins |
+| `WARN` | gates the prim-count warning ([sitA.lsl:328], [sitA.lsl:1596]) | a diagnostics toggle, not furniture behaviour |
+| `KFM` | keyframed-motion flag | keyframed motion is a property of the whole linkset; half an object cannot be keyframed |
+| `HELPER` | legacy AVsitter helper path (`OLD_HELPER_METHOD`) | compatibility mode for the object as a whole |
+
+#### `ITEM` scope
+
+| Token | What it is | Why per item |
+|---|---|---|
+| `MTYPE` `ETYPE` | click and menu modes (`llPassTouches`, menu-on-touch) | a bed and a chair in one linkset can reasonably differ |
+| `SWAP` | seat swap behaviour | swapping happens between seats of one item |
+| `SELECT` | seat picker | same |
+| `AMENU` | menu flag | menus are per item now |
+| `ONSIT` | what happens on sit, e.g. `ASK` | belongs to the furniture being sat on |
+| `TEXT` | floating text | per piece of furniture |
+| `ADJUST` | static `[ADJUST]` buttons | it is a menu declaration, and menus are per item |
+| `DFLT` | default-pose restore policy ([sitA.lsl:1497]) | per piece of furniture |
+
+#### `SEAT` scope
+
+| Token | Today | Proposal |
+|---|---|---|
+| `ROLES` | one character per sitter in a single string, indexed by `SCRIPT_CHANNEL` ([sitB.lsl:392]) | fold into the `SEAT` line |
+
+This is the one entry that is more than bucketing. `ROLES` is a parallel
+positional structure that has to be kept in step with the seat list by hand,
+exactly like gender is today in `SITTER n|Name|M`. Both belong on the seat:
+
+```
+SEAT Sie | F | D
+SEAT Er  | M | S
+```
+
+Fields after the name are optional: gender, then RLV designation. Deleting a
+seat can no longer silently shift everybody else's designation by one.
+
+#### Debatable
+
+Flagged rather than hidden, since these were judgement calls:
+
+* **`ONSIT` could be per seat.** A bed whose left side asks and whose right side
+  starts immediately is conceivable. Proposed as `ITEM` because no real notecard
+  seen so far wants it.
+* **`ADJUST` could be file-global.** One set of authoring tools per object is the
+  normal case. Proposed as `ITEM` for consistency with menus.
+* **`DFLT`** works either way; `ITEM` chosen for consistency with the other
+  behaviour flags.
+
+#### Consequence for the converter
+
+Almost none. Everything global stays global, and a converted legacy file has
+exactly one item, so the `ITEM`-scope tokens land at file level anyway. Only
+`ROLES` has to be split character by character onto the `SEAT` lines.
 
 Note there is **no** `CAMERA` token; camera is driven at runtime over 90202, not
 from the notecard.
@@ -343,8 +403,9 @@ main lever on the notecard editor limit.
 
 1. ~~Single-seat shorthand.~~ **Decided 2026-07-28: allowed**, for `POSE` only
    and never for `POS`. See section 2.
-2. **Scoping of the carried-over tokens** to `SEAT` versus `ITEM`. Mechanical,
-   not done.
+2. ~~Scoping of the carried-over tokens.~~ **Done 2026-07-28**, see section 4.
+   Three of the assignments are flagged as judgement calls rather than
+   derivations: `ONSIT`, `ADJUST` and `DFLT`.
 3. ~~Pose identity versus display label.~~ **Dropped 2026-07-28.** There is no
    ID concept and no separation of label from identity.
 
