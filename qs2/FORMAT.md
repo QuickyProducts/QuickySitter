@@ -167,8 +167,10 @@ next `ITEM`: seats, menus, poses and position lines alike.
 
 ```
 ITEM Bett
-SEAT Links|F  | PRIM bett_l
-SEAT Rechts|M | PRIM bett_r
+SEAT Links|F
+PRIM bett_l
+SEAT Rechts|M
+PRIM bett_r
 
 MENU Kuscheln
 POSE Löffel | Links=sleep_spoonA | Rechts=sleep_spoonB
@@ -200,9 +202,16 @@ An `ITEM` binds to every prim carrying its **name**. Prim name and prim
 description are the only two rez-stable and relink-stable identifiers in SL;
 link numbers do not survive a relink and prim UUIDs do not survive a rez.
 
-`PRIM <primname>` on a `SEAT` is the override, needed only where the assignment
-would otherwise be ambiguous, that is on multi-seat items. Without it, seats
-are assigned to the item's prims in link order.
+**`PRIM <primname>`** is the override, on its own line, binding the `SEAT`
+declared immediately above it. Needed only where the assignment would otherwise
+be ambiguous, that is on multi-seat items. Without it, seats are assigned to the
+item's prims in link order.
+
+It is a separate line rather than a fourth field on `SEAT` for a concrete
+reason: a positional field after two optional ones needs `SEAT Links|F||bett_l`,
+and parsing that requires `llParseStringKeepNulls`, which is the exact idiom this
+project has been bitten by. One directive per line is rule 1 of this format
+anyway.
 
 SL allows one sit target per prim, so an item with N seats needs N prims. This
 is the same hard limit that produces today's "not enough prims for required
