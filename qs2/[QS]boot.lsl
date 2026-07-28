@@ -254,7 +254,9 @@ parse(string raw)
     // are stored indexed. Collapsing them into one key each, as an earlier
     // draft of this parser did, silently loses every line but the last.
     // Stored but NOT consumed by any v2 script yet — see qs2/STATUS.md.
-    if (llListFindList(["BUTTON", "SEQUENCE", "PROP1", "PROP2", "PROP3"], [tok]) != -1)
+    // PROP without a digit is used alongside PROP1/2/3 in real notecards
+    // ("Lalou" uses both), so it has to be listed or those lines vanish.
+    if (llListFindList(["BUTTON", "SEQUENCE", "PROP", "PROP1", "PROP2", "PROP3"], [tok]) != -1)
     {
         ensure_item();
         string ck = "qs:x:" + cur_item + ":" + tok + ":count";
@@ -272,6 +274,18 @@ parse(string raw)
     {
         llLinksetDataWrite("qs:cfg::" + tok, rest);
         return;
+    }
+    // Anything left that is not a plain uppercase token is decoration, not
+    // a directive. Real notecards carry separator lines like "--------",
+    // and storing those as configuration keys is how LSD fills up with
+    // rubbish.
+    integer c = 0;
+    integer L = llStringLength(tok);
+    while (c < L)
+    {
+        string ch = llGetSubString(tok, c, c);
+        if (llSubStringIndex("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", ch) == -1) return;
+        ++c;
     }
     ensure_item();
     llLinksetDataWrite("qs:cfg:" + cur_item + ":" + tok, rest);
