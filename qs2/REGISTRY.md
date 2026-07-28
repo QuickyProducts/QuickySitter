@@ -106,6 +106,35 @@ registered entries in registration order. No sort keys are offered. Determinism
 matters more here than control, and a creator who wants a specific position has
 the tool in the next paragraph.
 
+### Label collisions
+
+**Decided 2026-07-28.** A registered entry and a notecard pose in the same menu
+may carry the same label. Dispatch matches on label text, so this has to be
+resolved rather than left to chance.
+
+**The registered entry wins.** The reasoning is asymmetry of control: a creator
+can rename a pose in their own notecard, but the plugin is somebody else's
+source code and often cannot be touched. The shadowed pose is not reachable
+from that menu.
+
+**A warning is mandatory.** Silent shadowing is the failure mode this rule
+exists to prevent: a customer installs a plugin whose button happens to be named
+like one of their poses, and a pose quietly stops working.
+
+```
+[QS]menu: "Lesen" in menu "Entspannen" is registered by [QS]myplugin and is
+also a pose in the notecard. The registered entry wins and the pose is not
+reachable here. Rename one of them.
+```
+
+**Emitted at registration, never at render.** This matters: rendering happens
+every time somebody opens a menu, and a per-render owner-say multiplies across
+every piece of furniture on the region. Registration happens once per script
+lifetime and once per census, which bounds it to creator-triggered moments.
+
+The warning goes out at the always-on verbosity level, not behind a debug flag.
+It reports a real misconfiguration, not diagnostics.
+
 **Creator control is the notecard itself.** There is no registration token in
 the notecard, and none is needed. A creator who wants registered entries inside
 a menu of their own simply declares that menu:
@@ -215,8 +244,11 @@ llMessageLinked(LINK_SET, 90212,
    else's furniture.
 2. **Depth limit for auto-created paths.** Unbounded nesting from a registration
    is probably not wanted.
-3. **Collision between a registered label and a notecard pose label** in the
-   same menu. Today's dispatch matches on label text; with both sources in one
-   menu that needs an explicit precedence rule.
+3. ~~Collision between a registered label and a notecard pose label.~~
+   **Decided 2026-07-28**, see section 4: the registered entry wins and a
+   warning is emitted at registration. Still open underneath it: whether the
+   warning should also be recorded somewhere durable, so a creator who was not
+   in-world when it fired can still find it. `boot`'s existing self-check report
+   is the obvious host, at the cost of an LSD key.
 4. **Top-level registration race**, see section 6 and DESIGN.md question 1c.
    Needs an in-world look before this is called done.
