@@ -103,10 +103,16 @@ SEAT Sitz
 POSE Sitzen | chair_idle
 ```
 
-This is the most common furniture shape there is, and the shorthand makes the
-line identical to today's AVpos. *Marked as revocable:* it is a special case,
-and special cases are what erode "easy to understand". Drop it if it causes one
-support question.
+**Decided 2026-07-28: allowed.** Single-seat furniture is the most common shape
+there is, and the shorthand makes the line character-identical to today's AVpos
+apart from spacing around the separator, so for those creators the format change
+reads as no change at all.
+
+The price is that **adding a second seat later rewrites every `POSE` line**.
+That is acceptable because the failure is loud rather than silent: once a second
+`SEAT` is declared, a `POSE` line without `=` cannot be resolved and is a parse
+error with a line number. Anyone adding a seat also has to set offsets for every
+pose on it, so it was never a five-minute edit.
 
 ### `POS <pose> | <seat> | <position> | <rotation>`
 
@@ -127,6 +133,10 @@ to the end.
 Self-contained means *within its item*. Like every other directive, a `POS` line
 belongs to the most recently opened `ITEM` (section 3), which is what keeps seat
 names local and unambiguous.
+
+**The single-seat shorthand does not apply here.** A `POS` line always names its
+seat, even when the item has only one. The shorthand exists to spare a human
+typing; nobody types these.
 
 Both `<pose>` and `<seat>` are resolvable names from the structure above, so a
 typo is a parse error with a line number. Today a mistyped `{Name}` is a silent
@@ -331,8 +341,8 @@ main lever on the notecard editor limit.
 
 ## 6. Open points
 
-1. **Single-seat shorthand** (section 2, `POSE`). Included on the product
-   owner's default recommendation, explicitly revocable.
+1. ~~Single-seat shorthand.~~ **Decided 2026-07-28: allowed**, for `POSE` only
+   and never for `POS`. See section 2.
 2. **Scoping of the carried-over tokens** to `SEAT` versus `ITEM`. Mechanical,
    not done.
 3. **Pose identity versus display label.** The migration path requires that a
