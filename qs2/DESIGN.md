@@ -15,25 +15,59 @@ From-Zero Seat Model" (2026-07-27) covers sections 4 and 5 in an earlier form.
 
 ---
 
-## 1. The problem, in two independent redundancies
+## 1. The problem
 
-### 1.1 Per-SITTER duplication in the notecard
+### 1.1 The notecard is not meaningfully redundant
 
-A classic AVpos repeats the whole menu skeleton once per `SITTER` block. This
-costs twice:
+**This section previously claimed the opposite. Corrected 2026-07-29 after
+measuring two real notecards; the correction is kept visible because it was the
+founding premise of this whole document.**
 
-* **Notecard size.** This is the practical cause of hitting the viewer's
-  notecard editor limit (~48 KB in the observed case, not the 64 KiB asset
-  limit).
-* **Storage.** The duplicates land one to one in LSD as `qs:p:<n>:*`,
-  `qs:nm:<n>:*`, `qs:nt:<n>:*`. On the reference sofa: `Storage=73183` of
-  131072 (**measured**). A single piece of furniture occupies more than half
-  the linkset budget, and a large share of that is four copies of the same
-  menu tree.
+The original claim was that a classic AVpos repeats the menu skeleton once per
+`SITTER` block, and that this dominates both notecard size and LSD storage. It
+was derived from a synthetic stress file where the menus were 312 of 3432
+structure lines, and from line counts rather than bytes.
 
-The second point is what makes the older "several pieces of furniture in one
-linkset" idea unrealistic today. As long as one sofa eats 73 KB, no second one
-fits beside it.
+Measured on the real "Lalou" notecard, 1013 lines and 26948 bytes:
+
+| | lines | bytes | share |
+|---|---|---|---|
+| offsets | 394 | 15328 | 57 % |
+| `SYNC` | 334 | 6863 | 25 % |
+| `POSE` | 60 | 1101 | 4 % |
+| `TOMENU` | 46 | 662 | 2.5 % |
+| `MENU` | 48 | 594 | 2.2 % |
+
+What v2 saves: `TOMENU` disappears (−662 B), `MENU` halves (−297 B), `SYNC`
+pairs merge (−835 B), `POSE` gains seat names (+300 B), `OFFSETS` markers
+(+50 B). **Net about −1450 B of 26948, so 5 %.**
+
+**Why the premise was wrong.** Merging two `SYNC` lines saves exactly one
+repetition of the *label* and pays for the seat names:
+
+```
+SYNC Nice|S37F                      15 B
+SYNC Nice|S37M                      15 B
+POSE Nice|Girl=S37F|Guy=S37M        29 B
+```
+
+One byte. The saving per merged pair is `len(label) − 3`, and labels are short.
+The deeper reason: the two `SITTER` blocks are **not copies of each other**.
+`S37F` and `S37M` are different animations, which is the entire purpose of
+having two blocks. Only the navigation scaffolding is duplicated, and that is
+under 5 % of the file.
+
+The same correction applies to the storage figure. `Storage=73183` on the
+reference sofa is real, but it is dominated by pose data that genuinely differs
+per sitter, not by copies of a menu tree.
+
+**Consequences, stated plainly:**
+
+* v2 does **not** solve the notecard editor limit. It is roughly size-neutral
+  (see [FORMAT.md](FORMAT.md) §5).
+* v2 does not free up meaningful LSD either, so "several pieces of furniture in
+  one linkset" has to stand on the item model itself rather than on reclaimed
+  storage.
 
 ### 1.2 Per-seat bytecode duplication in the runtime
 
@@ -58,11 +92,29 @@ Consequence: a four seater pays for **four copies of the same program**, not for
 four copies of data. 4 x 111 KB = 444 KB of sim script memory (**measured**
 basis, arithmetic ours).
 
-### 1.3 The two are independent
+### 1.3 What v2 is therefore for
+
+With 1.1 gone, the case rests on three things rather than four:
+
+1. **Script memory**, 1.2. The only measured, large redundancy there is.
+2. **Comprehensibility.** Four tokens instead of seven concepts, coupling that
+   is written down instead of arising from two blocks happening to use the same
+   name, no `MENU`/`TOMENU` trap, and typos that surface as parse errors with a
+   line number instead of silent no-ops.
+3. **Several pieces of furniture in one linkset**, which the item model makes
+   possible and which no amount of tidying the v1 format would.
+
+**Notecard size is not on the list.** Neither is the editor limit.
+
+### 1.4 The two changes are independent
 
 Neither requires the other. The singleton split works with today's integer slot
 addressing; the new notecard format works on today's 2N+1 runtime. They can
 ship separately and be rolled back separately.
+
+That independence matters more now than it did: the runtime half carries the one
+measured benefit, and the format half carries the other two. If only one of them
+is ever built, this is the seam to cut along.
 
 ---
 
@@ -280,8 +332,7 @@ The unit of furniture is called `ITEM` (named by the product owner on
   structural: whoever appears in the line takes part, whoever does not is not
   touched. Independence is the default, coupling the special case. The
   `POSE` versus `SYNC` distinction disappears.
-* **The menu exists once per item, not once per seat.** This is the fix for
-  1.1.
+* **The menu exists once per item, not once per seat.** Worth about 1 KB on a real notecard (1.1), so this is a clarity change, not a size one.
 * **Seats have names.** `Links` exists only inside `Bett`. The address of an
   occupant is the pair `Bett/Links`, which is at the same time the LSD key and
   the address plugins use. Today's `SCRIPT_CHANNEL`, which is simultaneously
@@ -319,9 +370,7 @@ reserved pose name in the same key shape.
 
 This block is the largest part of a real notecard and is entirely machine
 written. On the real "BED ENGINE 2026" notecard it is 372 of 816 lines, so
-structure de-duplication alone saves 28 % while removing the offsets would save
-74 %. The earlier factor-of-six figure came from a synthetic stress file with
-six offset lines and measured only the structure half.
+structure de-duplication alone saves about 5 % in bytes (1.1). Earlier figures here of a factor of six and then 28 % were line counts from a synthetic stress file, presented as if they were sizes.
 
 #### Offsets stay in the notecard
 
@@ -921,7 +970,7 @@ it only arises on furniture shapes that cannot exist today.
 | 3 | ~~Per operator dialog state in a singleton `menu`.~~ **Designed 2026-07-28, see 6.6.** Still unproven in-world: the sweep timeout for operators who walk away, and whether the proposed cap of seats plus two is enough. | Section 6.3 |
 | 4 | Collision rate in the existing stock: how often do identically named `POSE` entries occur across sitter blocks. **First real data point 2026-07-28: zero** in "BED ENGINE 2026", where seat 1 has no `POSE` lines at all and every coupled pose is correctly authored as `SYNC`. One well-built file is not a rate; more of the stock still needs counting. | Section 5, and therefore the sequencing choice in 5.4 |
 | 4b | Divergence classes found in the same file that the converter must report: a menu carrying different flags per sitter (`MENU PRONE\|V` against `MENU PRONE`), and identical pose sets in different order within a menu. | Section 5.1 assumption 5 |
-| 5 | LSD budget after de-duplication. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
+| 5 | LSD budget after de-duplication. Expected to be small, since 1.1 shows the duplication is scaffolding rather than data. Re-measure `Storage=` on the reference sofa with a converted notecard. | The "several pieces of furniture in one linkset" goal |
 | 5b | **Deferred 2026-07-28.** One notecard or two: whether the machine-written `POS` lines move to a second card so the hand-edited one stays small (4.3). Not forced yet, since a two-seat file fits either way; a six-seater with full offsets would not. **Revisit when the converter is built**, because it has to choose an output shape anyway. Costs `boot` 40 to 60 lines for the second card. | The notecard editor limit on large furniture |
 | 6 | ~~Does v2 keep stock AVsitter compatibility.~~ **Decided 2026-07-28: yes, see 7.5.** Kept where it can be kept, with any specific conflict against a gamechanger feature decided on its own merits. | Resolved. The legacy blocks stay and remain counted in the estimates. |
 
