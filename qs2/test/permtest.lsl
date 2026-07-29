@@ -58,19 +58,47 @@ string ANIM_B = "MW-sway-male";
 // 0 = nothing running, 1 = A/B running, 2 = swapped (B/A running)
 integer phase;
 
+key uuidA;
+key uuidB;
+
+// MEASURED 2026-07-29: the count is NOT definitive, which is what an
+// earlier version of this comment claimed. An avatar's AO starts and
+// stops animations continuously, so across two identical runs the same
+// call read 7->8 once and 8->8 the next time. The eye turned out to be
+// the reliable instrument and the counter the unreliable one, exactly
+// backwards from the assumption this test was built on.
+//
+// The clean instrument is the animation's own asset UUID, which
+// llGetInventoryKey yields only for a full-perm item. Where that works,
+// membership is exact and the AO cannot touch it. Where it does not,
+// fall back to counting and say so, rather than quietly reporting a
+// number that means nothing.
 integer anim_count(key av)
 {
-    // Definitive evidence. Eyeballing is unreliable here because a sit
-    // pose competes with whatever we start.
     return llGetListLength(llGetAnimationList(av));
+}
+
+// -1 = cannot tell, 0 = not playing, 1 = playing
+integer playing(key av, key uuid)
+{
+    if (uuid == NULL_KEY) return -1;
+    if (llListFindList(llGetAnimationList(av), [uuid]) == -1) return 0;
+    return 1;
 }
 
 report(string phase, key av, integer before, integer after, integer granted, key kAfter)
 {
+    string exact = "";
+    integer pa = playing(av, uuidA);
+    integer pb = playing(av, uuidB);
+    if (pa != -1)
+        exact = "  A=" + (string)pa + " B=" + (string)pb;
+
     llOwnerSay(phase + "  av=" + llGetSubString((string)av, 0, 7)
         + "  granted=" + (string)granted
         + "  keyMatches=" + (string)(kAfter == av)
-        + "  anims " + (string)before + " -> " + (string)after);
+        + exact
+        + "  (anims " + (string)before + " -> " + (string)after + ", noisy)");
 }
 
 default
@@ -90,6 +118,13 @@ default
             llOwnerSay("permtest: \"" + ANIM_A + "\" is not in this prim.");
         if (llGetInventoryType(ANIM_B) != INVENTORY_ANIMATION)
             llOwnerSay("permtest: \"" + ANIM_B + "\" is not in this prim.");
+
+        uuidA = llGetInventoryKey(ANIM_A);
+        uuidB = llGetInventoryKey(ANIM_B);
+        if (uuidA == NULL_KEY || uuidB == NULL_KEY)
+            llOwnerSay("permtest: animations are not full-perm, so exact"
+                + " A=/B= readings are unavailable. Counts alone are AO-noise;"
+                + " TURN THE AVATARS' AO OFF or judge by eye.");
 
         phase = 0;
         llOwnerSay("permtest ready. Seat two avatars, then touch."
