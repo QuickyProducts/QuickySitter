@@ -371,10 +371,30 @@ Two things about measuring this, both learned the hard way:
   the *last* key. In phase 2 that is four events, all naming the same avatar. It
   carries no usable information here and the engine must ignore it outright.
 
-**Still untested:** whether four or eight requests in one handler behave like
-two. A long enough handler can be preempted between bytecodes, which would put
-the split back — just at a different seam. The reference sofa with four seats is
-the honest test.
+**It scales.** Measured over 200 acquire+start pairs in one handler, so the
+total sits far above the frame resolution:
+
+```
+COLD STRESS: 200 acquire+start in 245 ms  =  1.2 ms each
+             ->  8 seats would take 10 ms   (frame ~22 ms)
+```
+
+**1.2 ms per seat.** An eight seater starts every animation inside one frame,
+with a factor of two in hand. Sixteen seats would still fit, barely. So there is
+no seat count at which the handler has to be split, and `SYNC` is exact rather
+than merely close.
+
+**Do not measure this with `llGetTime` at small N.** It resolves in whole
+frames: every reading at 2 to 8 pairs came out as 22, 45 or 66 ms, and eight
+pairs once read *less* than two pairs had in the run before. A cold-versus-warm
+difference was read out of those numbers and was pure quantisation noise. Three
+instruments were tried here and two were useless — animation counts (defeated by
+the avatars' AO) and the clock at small N. What worked: exact UUID membership
+for correctness, and a large sample for timing.
+
+**One caveat that stands.** This was measured on a quiet region. Under sim load
+script time slices shrink, and the 10 ms figure has only a 2x margin against the
+frame. It is comfortable at eight seats and thin at sixteen.
 
 **How the reasoning failed.** The claim rested on an assumption about
 `run_time_permissions` being a gate rather than a notification, which was never
