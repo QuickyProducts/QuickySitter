@@ -4,6 +4,9 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Version 1.27
+- **Fix**: Seats are handed out by gender again on furniture whose AVpos has a stray space at the end of a `SITTER` line. That space was read as part of the gender letter, so the seat counted as "no gender set" and a woman was put into the next female seat instead of the first one (F2 before F, with the second woman then getting F). Such lines are common in notecards that came from the original AVsitter kit, where the space is ignored. After updating, re-save the AVpos notecard once so the furniture re-reads it
+
 ## Version 1.26
 - **Feature**: The [QUICKYHUD] entry in the [ADJUST] menu is now called [HELPER HUD]. It sits right next to [HELPER] and does the same job with the HUD instead of the helper bars, so the name now says what the button is for. Nothing else changes: same access rules, same adjust mode, and creator scripts listening for the old name keep working
 - **Feature**: New owner chat shortcut for the Adjust access level, `/5 adjust owner`, `/5 adjust group` or `/5 adjust all`. Same setting as [SECURITY] > Adjust, but it also works on furniture that does not have the security plugin in it, so a store-owned piece can be opened up for your building account without adding scripts

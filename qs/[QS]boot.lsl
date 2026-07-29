@@ -19,7 +19,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.26";
+string version = "1.261";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -1298,7 +1298,16 @@ default
         notecard_query = llGetNotecardLine(notecard_name, ++reused_variable);
 
         data = llGetSubString(data, llSubStringIndex(data, "◆") + 1, 99999);
-        data = llStringTrim(data, STRING_TRIM_HEAD);
+        // Trim BOTH ends. Head-only trim let a trailing space ride along on
+        // the line's last field, and the raw parts[] reads below (the gender
+        // markers at "SITTER 0|F|F " and "POSE name|anim|M ") compare against
+        // untrimmed strings: "F " matched neither "M" nor "F", so the sitter
+        // was recorded as gender -1 and sitA handed the seat to the next
+        // gender-matching slot instead (woman on F2, second woman on F).
+        // Stock AVsitter neutralizes the space, and QS promises notecard
+        // compatibility, so the defect was ours. part0/part1 were already
+        // STRING_TRIM'd and are unaffected either way.
+        data = llStringTrim(data, STRING_TRIM);
         string command = llGetSubString(data, 0, llSubStringIndex(data, " ") - 1);
         list parts = llParseStringKeepNulls(llGetSubString(data, llSubStringIndex(data, " ") + 1, 99999), [" | ", " |", "| ", "|"], []);
         // Stock AVsitter parses with llParseString2List which drops empties.
