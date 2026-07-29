@@ -47,9 +47,20 @@
 string ANIM_A = "MW-sway-female";
 string ANIM_B = "MW-sway-male";
 
-// Phase 4 issues this many acquire+start PAIRS in one handler, to reach
-// eight-seat handler length with fewer than eight avatars.
-integer STRESS_PAIRS = 8;
+// Deliberately far more than any real piece of furniture would need.
+//
+// MEASURED 2026-07-29: llGetTime resolves in whole frames. Every reading
+// across three sessions was 22, 45 or 66 ms, that is 1, 2 or 3 times the
+// ~22 ms frame, and eight pairs once read 45 ms while two pairs read 66
+// in the run before. The clock cannot resolve the thing it was pointed
+// at, and an earlier cold-versus-warm story read out of those numbers
+// was quantisation noise rather than a finding.
+//
+// So measure something the clock CAN see: enough repetitions that the
+// total is seconds rather than frames, then divide. At 200 pairs a cost
+// of 3 ms per pair shows up as 600 ms and 0.1 ms as 20 ms, both of which
+// are unambiguous.
+integer STRESS_PAIRS = 200;
 
 integer phase;
 list    OCC;          // avatars currently seated, in link order
@@ -109,9 +120,17 @@ report(string tag)
 
 timing(string tag, float dt, integer calls)
 {
-    llOwnerSay(tag + ": " + (string)calls + " seat(s) in "
+    // Per-call cost is the only figure worth printing. The total is
+    // frame-quantised, so a small total says nothing; the per-call
+    // number only becomes meaningful once the total is well above a
+    // frame, which is what STRESS_PAIRS is for.
+    llOwnerSay(tag + ": " + (string)calls + " acquire+start in "
         + (string)llRound(dt * 1000.0) + " ms"
-        + "  (frame is ~22 ms)");
+        + "  =  " + (string)(llRound(dt * 10000.0 / (float)calls) / 10.0)
+        + " ms each"
+        + "  ->  8 seats would take "
+        + (string)llRound(dt * 8000.0 / (float)calls) + " ms"
+        + "  (frame ~22 ms)");
 }
 
 default
