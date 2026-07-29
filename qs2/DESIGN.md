@@ -340,10 +340,29 @@ engine is `boot` + `core` + `seat` + `menu`, a **fixed** script count
 independent of seat count. The memory case gets stronger and stops degrading
 with seat count (section 2).
 
-**Still unverified:** the stop path, which is the direction that matters for a
-pose change, since acquiring the second avatar revokes the first. The test
-covers it on a second touch; that half has not been run. Also untested: whether
-six or eight requests in one handler behave like two.
+**The pose change and the stop path also pass**, run 2026-07-29. Phase 2 uses
+the two-pass pattern the engine would need (acquire and start every seat, one
+shared `llSleep(0.2)`, then acquire and stop every seat), and both avatars end
+phase 3 back at their phase-1 starting counts: `a` 7 → 7, `b` 5 → 5. Nothing is
+left running, so the second pass really did stop the old animations.
+
+**And the visual check passes for two seats:** the matched sway pair runs in
+phase. That was the actual question, since a frame of offset in a looping couple
+pose is permanent.
+
+Two things about reading the log, both learned the hard way:
+
+* **Per-phase animation counts are noise.** An avatar's own AO starts and stops
+  animations constantly; `b` was read at 4 entering phase 2 having ended phase 1
+  at 6. Only the round trip is trustworthy.
+* `run_time_permissions` fires once per request, always late, and always reports
+  the *last* key. In phase 2 that is four events, all naming the same avatar. It
+  carries no usable information here and the engine must ignore it outright.
+
+**Still untested:** whether four or eight requests in one handler behave like
+two. A long enough handler can be preempted between bytecodes, which would put
+the split back — just at a different seam. The reference sofa with four seats is
+the honest test.
 
 **How the reasoning failed.** The claim rested on an assumption about
 `run_time_permissions` being a gate rather than a notification, which was never

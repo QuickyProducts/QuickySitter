@@ -160,10 +160,15 @@ default
             // the other animation.
             llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
             integer nA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            // Captured HERE, not at the end of the handler. Reporting the
+            // final key for both rows made the first one read keyMatches=0,
+            // which looks like a failure and is only bad bookkeeping.
+            key keyA2 = llGetPermissionsKey();
             if (nA) llStartAnimation(ANIM_B);
 
             llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
             integer nB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            key keyB2 = llGetPermissionsKey();
             if (nB) llStartAnimation(ANIM_A);
 
             llSleep(0.2);                      // the overlap, once for everybody
@@ -181,10 +186,12 @@ default
             // Counts should be UNCHANGED: one animation off, one on. A
             // count that grew means the second pass failed to stop the
             // old one, which is the failure this phase exists to catch.
-            report("SWAP  a", a, beforeA, anim_count(a), nA && oA, llGetPermissionsKey());
-            report("SWAP  b", b, beforeB, anim_count(b), nB && oB, llGetPermissionsKey());
-            llOwnerSay("permtest: counts should be unchanged, and they"
-                + " should have traded animations. Touch to stop.");
+            report("SWAP  a", a, beforeA, anim_count(a), nA && oA, keyA2);
+            report("SWAP  b", b, beforeB, anim_count(b), nB && oB, keyB2);
+            llOwnerSay("permtest: per-phase counts are NOISY (an AO starts"
+                + " and stops animations of its own). The reliable check is"
+                + " the round trip: after phase 3 both avatars must be back"
+                + " at their phase-1 starting counts. Touch to stop.");
             return;
         }
 
