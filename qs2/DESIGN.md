@@ -21,6 +21,19 @@ Sections 4, 5 and [FORMAT.md](FORMAT.md) are kept as a record of the reasoning,
 not as a plan. [REGISTRY.md](REGISTRY.md) survives: it is a runtime mechanism and
 does not depend on the format.
 
+**Direction as of 2026-07-29: v2 is the SLua rewrite.** Not an LSL refactor that
+is later ported, but one rewrite at the point where the platform changes anyway.
+Product owner's reasoning, and it answers the question this document had failed
+to answer all day: what justifies a change of this size to creators. "A new
+notecard format" did not, and "fewer scripts" is invisible to them. "Runs on the
+new scripting language" is a generational statement, and during a beta everyone
+expects churn.
+
+That makes today's architecture work the design phase rather than wasted effort:
+`core` / `seat` / `menu`, no per-seat script, permission cycling proven. It is
+the design one would carry into a rewrite. See section 9 for what SLua actually
+provides.
+
 Everything marked **measured** comes from the reference furniture (see
 Measurement basis). Everything else is derived from the code or from LSL
 semantics and is flagged as such. Nothing here has been reproduced in-world.
@@ -1123,3 +1136,58 @@ comparisons must use the same object in the same configuration.
 Rules of thumb from the same measurement round: ~50 bytes per line of real code;
 15 to 17 bytes for an additional LSD call using an existing string literal;
 comments are free.
+
+---
+
+## 9. SLua
+
+Researched 2026-07-29 from the wiki, the release notes and the feedback site.
+Beta since December 2025, runs **only in SLua beta regions**, so nothing here is
+shippable yet. LSL keeps working everywhere.
+
+### The four questions that were blocking
+
+| Question | Answer |
+|---|---|
+| How are events declared? | `LLEvents:on("touch_start", function(...) end)`. **Global handlers are dead**: the release notes say `touch_start()` "and friends no longer do anything". |
+| Does `link_message` exist? | Yes, and **`id` is now a string**, not a key, "since it's most frequently used to pass string data rather than a UUID". |
+| Does LinksetData exist? | Yes, as `ll.LinksetData*`. `ll.LinksetDataRead` returns `""` for a missing key, as LSL does. |
+| **Do SLua and LSL coexist in one linkset?** | **Yes, and it is designed for.** The feedback thread on `LinksetDataRead` argues that `""` must keep deleting a key "to be compatible with LSL scripts sharing the linkset data in the same object", with a participant naming the case outright: "Legacy objects that we're enhancing." |
+
+The last one is the important one: **migration can be incremental.** One script
+at a time, plugins following at their own pace, rather than the whole plugin
+landscape having to move in one release.
+
+### The finding nobody asked for
+
+**`ll.*` functions are 1-indexed.** From the release notes: "All
+`ll.SomeFunction()` functions that accept or return an index into some other
+object will be 1-indexed unless you're using `llcompat.SomeFunction()`."
+
+QuickySitter is full of indices: link numbers, list positions, slot integers,
+strided list arithmetic. A port that misses this produces off-by-one bugs that
+compile cleanly and fail subtly. `llcompat.*` preserves the old behaviour and is
+the safer choice for a port; new code can use `ll.*` deliberately.
+
+### Two known issues worth watching
+
+Both from the SLua Alpha feedback list, both touching this product directly:
+
+* **"Failed to Perform Mandatory Yield error in long running script."** The
+  permission-cycling loop (section 3) is exactly a long-running handler. At eight
+  seats it is ~10 ms, so probably far from the limit, but the failure mode in
+  SLua is apparently an *error* rather than a silent suspension.
+* **"Erratic starts of halted SLua scripts when drag-copying the containing
+  object."** Furniture is copied and sold for a living.
+
+### What is not yet documented anywhere
+
+The wiki has no page for `link_message` or LinksetData under SLua, and the
+`Luau_Examples` page still shows the dead global-handler syntax. The GitHub repo
+is the VM fork, not the SL bindings. Everything above came from release notes and
+feedback threads, which means it is current but not authoritative, and the beta
+says outright to expect changes.
+
+**Correction:** an earlier note in this session cited `ll.Table2Json` /
+`ll.Json2Table` as available. Those are a feature *request* on the feedback site.
+The shipped API is `lljson.encode` / `lljson.decode`.
