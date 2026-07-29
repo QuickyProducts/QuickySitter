@@ -350,11 +350,23 @@ left running, so the second pass really did stop the old animations.
 phase. That was the actual question, since a frame of offset in a looping couple
 pose is permanent.
 
-Two things about reading the log, both learned the hard way:
+**Clean run with the avatars' AO switched off**, and every reading matches the
+model exactly:
 
-* **Per-phase animation counts are noise.** An avatar's own AO starts and stops
-  animations constantly; `b` was read at 4 entering phase 2 having ended phase 1
-  at 6. Only the round trip is trustworthy.
+| Phase | a | b | expected |
+|---|---|---|---|
+| START | 6 → 7 | 5 → 6 | +1 |
+| SWAP | 7 → 7 | 6 → 6 | unchanged |
+| STOP | 7 → 6 | 6 → 5 | −1 |
+| round trip | 6 → 6 | 5 → 5 | level |
+
+Two things about measuring this, both learned the hard way:
+
+* **An AO makes `llGetAnimationList` useless.** Two identical runs with the AO
+  on gave 7→8 and then 8→8 for the same call. The test was built on the
+  assumption that counting is definitive and eyeballing unreliable; it is the
+  other way round. Switch the AO off, or check the animation's asset UUID via
+  `llGetInventoryKey` where it is full-perm.
 * `run_time_permissions` fires once per request, always late, and always reports
   the *last* key. In phase 2 that is four events, all naming the same avatar. It
   carries no usable information here and the engine must ignore it outright.
