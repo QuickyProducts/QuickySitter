@@ -136,8 +136,14 @@ is ever built, this is the seam to cut along.
 ## 2. Target runtime architecture
 
 ```
-[QS]boot  +  [QS]core  +  [QS]seat  +  [QS]menu  +  N x [QS]anim
+[QS]boot  +  [QS]core  +  [QS]seat  +  [QS]menu
 ```
+
+**Four scripts, whatever the seat count.** `N x [QS]anim` was here until
+2026-07-29, when an in-world test showed that permission cycling works
+synchronously (section 3). `seat` acquires each occupant's permission and
+starts its animation in the same handler, so nothing is left that has to exist
+once per seat.
 
 | Script | Instances | Owns |
 |---|---|---|
@@ -253,17 +259,26 @@ result. Counting allocations instead:
 Scripts that change, per piece of furniture (`boot` and the plugins are in both
 columns and are omitted):
 
+**Updated 2026-07-29**, after `[QS]anim` was removed (section 3). The v2 rows no
+longer depend on seat count at all.
+
 | Four seater | Scripts | Allocated |
 |---|---|---|
 | today | 4 x sitA + 4 x sitB | 8 x 64 = **512 KB** |
-| v2, no memory limits | core, seat, menu, 4 x anim | 7 x 64 = **448 KB** |
-| v2, with memory limits | 32 + 32 + 52 + 4 x 8 | **148 KB** |
+| v2, no memory limits | core, seat, menu | 3 x 64 = **192 KB** |
+| v2, with memory limits | 32 + 32 + 52 | **116 KB** |
 
 | Eight seater | Scripts | Allocated |
 |---|---|---|
 | today | 8 x sitA + 8 x sitB | 16 x 64 = **1024 KB** |
-| v2, no memory limits | core, seat, menu, 8 x anim | 11 x 64 = **704 KB** |
-| v2, with memory limits | 32 + 32 + 52 + 8 x 8 | **180 KB** |
+| v2, no memory limits | core, seat, menu | 3 x 64 = **192 KB** |
+| v2, with memory limits | 32 + 32 + 52 | **116 KB** |
+
+Factor 4.4 at four seats and **8.8 at eight**, and unlike every earlier version
+of this table the v2 side is flat: an eight seater costs exactly what a two
+seater costs. That also means the benefit no longer depends on
+`llSetMemoryLimit` to be worth having — 192 KB against 1024 KB stands without
+it, where the earlier N-animator arithmetic did not.
 
 Two things follow, and the second one is easy to miss:
 
@@ -294,7 +309,52 @@ all.
 
 ---
 
-## 3. Rejected: one script cycling permissions
+## 3. Permission cycling: rejected, then MEASURED AND WRONG
+
+**Overturned in-world 2026-07-29.** The rejection below was wrong. It is kept
+because the reasoning is instructive about how it went wrong, but the conclusion
+does not hold.
+
+`qs2/test/permtest.lsl`, two seated avatars, two requests and two
+`llStartAnimation` calls in **one** event handler:
+
+```
+START a  av=c648fc06  granted=1  keyMatches=1  anims 7 -> 8
+START b  av=08a811cd  granted=1  keyMatches=1  anims 5 -> 6
+run_time_permissions fired, perm=16 for 08a811cd
+run_time_permissions fired, perm=16 for 08a811cd
+```
+
+Both avatars animate. **The grant is synchronous for an avatar already seated
+on the object**: `llRequestPermissions` returns with the permission in effect,
+and the following `llStartAnimation` reaches that avatar. `run_time_permissions`
+arrives *after* the work is done, so it is a notification, not a gate. Note it
+fires twice and reports the *last* key both times, so it cannot even be used to
+tell the two requests apart; in this pattern it must be ignored.
+
+Avatar `a` keeps its animation while `b` is requested, confirming that losing
+the permission does not stop what is already running.
+
+**Consequences.** There is no per-seat script. `[QS]anim` is unnecessary and the
+engine is `boot` + `core` + `seat` + `menu`, a **fixed** script count
+independent of seat count. The memory case gets stronger and stops degrading
+with seat count (section 2).
+
+**Still unverified:** the stop path, which is the direction that matters for a
+pose change, since acquiring the second avatar revokes the first. The test
+covers it on a second touch; that half has not been run. Also untested: whether
+six or eight requests in one handler behave like two.
+
+**How the reasoning failed.** The claim rested on an assumption about
+`run_time_permissions` being a gate rather than a notification, which was never
+checked. It was then propped up with "AVsitter uses 2N+1 scripts precisely
+because of this limitation; if cycling worked, it would have been done in 2015",
+which is an argument from authority and turned out to be simply false. A
+ten-minute in-world test settled what a paragraph of inference got backwards.
+
+---
+
+### The original rejection, superseded
 
 The tempting version of this design has no per-seat script at all: a single
 script requests `PERMISSION_TRIGGER_ANIMATION` from each occupant in turn.
