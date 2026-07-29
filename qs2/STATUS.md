@@ -1,5 +1,24 @@
 # QuickySitter v2 build status
 
+> **2026-07-29: the format half is cancelled.** See the banner in
+> [DESIGN.md](DESIGN.md). The runtime split stands; the notecard format change
+> does not. What that costs of the code below:
+>
+> | Script | Fate |
+> |---|---|
+> | `[QS]anim` | **survives unchanged**, it is format-agnostic |
+> | `[QS]seat` | re-point at the v1 LSD schema (`qs:cfg:<ch>`, `qs:sitter:<ch>`) instead of `qs:i` / `qs:s` |
+> | `[QS]core` | re-point at `qs:p:<ch>:<i>`, and re-implement coupling as v1's name broadcast rather than the seat list in a pose row |
+> | `[QS]menu` | re-point at the `qs:nm` / `qs:nt` sidecar instead of `qs:m` / `qs:pm` |
+> | `[QS]boot` | **obsolete.** v1 `boot` keeps its job. |
+>
+> `core` carries the most rework, because `POSE`-versus-`SYNC` coupling comes
+> back as a semantic it has to implement rather than read off a pose line.
+>
+> Still open and not cancelled: adding a single `ITEM` grouping token to the v1
+> format, which is what several pieces of furniture in one linkset actually
+> needs.
+
 **What exists is a spine, not feature parity.** Sit down, get a pose, see a
 menu, pick another pose, stand up. Enough to prove the architecture in
 [DESIGN.md](DESIGN.md); nowhere near enough to put in furniture.

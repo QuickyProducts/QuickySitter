@@ -1,10 +1,25 @@
 # QuickySitter v2 engine, design draft
 
-**Status: exploratory.** Not part of any release and not scheduled. The
-reasoning here comes from the design sessions of 2026-07-27 and 2026-07-28.
+**Status: the format half is CANCELLED, 2026-07-29.** The runtime half stands.
 
-**First code landed 2026-07-29:** [`[QS]anim.lsl`](%5BQS%5Danim.lsl), written to
-answer open question 1 (see section 8). Nothing else is built.
+The notecard format change described in section 4 and in
+[FORMAT.md](FORMAT.md) will not be built. It rested on a size argument that
+turned out to be false (section 1.1), and once that fell away the remaining
+case was comprehensibility alone. Multiple items in one linkset — the other
+goal it was carrying — needs a single `ITEM` grouping token, not a new format.
+
+**What replaces it:** an online editing tool for the *existing* AVpos format.
+The pain the format change was aimed at is real; it is just editing pain rather
+than format pain, and a tool addresses it without a migration, a converter, or a
+break in compatibility.
+
+**What still stands:** section 1.2 and the runtime split. 512 KB against 148 KB
+on a four seater is measured, and it is independent of the notecard format
+(section 1.4).
+
+Sections 4, 5 and [FORMAT.md](FORMAT.md) are kept as a record of the reasoning,
+not as a plan. [REGISTRY.md](REGISTRY.md) survives: it is a runtime mechanism and
+does not depend on the format.
 
 Everything marked **measured** comes from the reference furniture (see
 Measurement basis). Everything else is derived from the code or from LSL
