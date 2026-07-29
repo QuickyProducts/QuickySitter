@@ -32,7 +32,13 @@
  *      is worthless: two identical runs gave 7->8 and then 8->8 for the
  *      same call. This was the single biggest source of confusion in
  *      testing.
- *   4. Touch four times: start, pose change, stop, stress.
+ *   4. Touch four times: COLD STRESS, start, pose change, stop.
+ *
+ * THE COLD READING IS THE POINT. The very first touch after a reset
+ * issues STRESS_PAIRS acquire+start pairs, which is the handler length
+ * an eight seater would have, against avatars nobody has held
+ * permission for yet. Everything after it is warm and cheap. To repeat
+ * the measurement, reset the script.
  *
  * ANIMATIONS: a matched looping pair, so phase can be judged by eye as
  * well as by counter. Both must be in the prim's inventory.
@@ -135,7 +141,7 @@ default
         phase = 0;
         llOwnerSay("permtest ready on " + (string)n + " prim(s)."
             + " Seat avatars, AO off, then touch."
-            + " 1=start 2=pose change 3=stop 4=stress");
+            + " 1=COLD STRESS 2=start 3=pose change 4=stop");
     }
 
     changed(integer change)
@@ -159,8 +165,55 @@ default
 
         if (phase == 0)
         {
-            // PHASE 1. Acquire and start every seat, no return to the
-            // event loop in between. This loop IS the question.
+            // PHASE 1, COLD STRESS. Runs FIRST on purpose.
+            //
+            // Measured 2026-07-29: eight pairs took 22 ms while two took
+            // 66 ms in the same session. Repetition makes the calls
+            // cheaper, so the first acquisition of an avatar appears to
+            // cost real work and later ones come from somewhere warm.
+            // That is a hypothesis from three data points, not a finding.
+            //
+            // It matters because a real piece of furniture is COLD: four
+            // people sit down, then somebody picks a couple pose. The
+            // warm 2.75 ms per pair would mean an eight seater starts
+            // inside one frame; the cold 33 ms would mean a spread of
+            // about 260 ms, which is roughly a tenth of a sway loop and
+            // would be visible.
+            //
+            // So this number, taken immediately after a reset, is the
+            // one the architecture stands or falls on.
+            t0 = llGetTime();
+            i = 0;
+            while (i < STRESS_PAIRS)
+            {
+                llRequestPermissions(llList2Key(OCC, i % n), PERMISSION_TRIGGER_ANIMATION);
+                llStartAnimation(anim_for(i % n));
+                ++i;
+            }
+            timing("COLD STRESS", llGetTime() - t0, STRESS_PAIRS);
+
+            llSleep(1.0);
+            report("COLD ");
+
+            i = 0;
+            while (i < n)
+            {
+                llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+                llStopAnimation(anim_for(i));
+                ++i;
+            }
+            phase = 1;
+            llOwnerSay("permtest: that was the COLD number. Everything from"
+                + " here is warm. RESET the script for another cold reading."
+                + " Touch for the normal start.");
+            return;
+        }
+
+        if (phase == 1)
+        {
+            // Acquire and start every seat, no return to the event loop
+            // in between. Warm by now, so compare against the 66 ms this
+            // took cold.
             t0 = llGetTime();
             i = 0;
             while (i < n)
@@ -169,17 +222,17 @@ default
                 llStartAnimation(anim_for(i));
                 ++i;
             }
-            timing("START", llGetTime() - t0, n);
-            phase = 1;
+            timing("START (warm)", llGetTime() - t0, n);
+            phase = 2;
             llSleep(1.0);
             report("START");
             llOwnerSay("permtest: do they sway IN PHASE? Touch for the pose change.");
             return;
         }
 
-        if (phase == 1)
+        if (phase == 2)
         {
-            // PHASE 2, the pattern the engine would use. sitA overlaps
+            // PHASE 3, the pattern the engine would use. sitA overlaps
             // per avatar (start new, sleep, stop old) so nobody drops
             // into their default pose; that sleep would tear the frame
             // apart mid-cycle, so it becomes two passes with ONE shared
@@ -207,7 +260,7 @@ default
             }
 
             timing("SWAP pass 1", dtStart, n);
-            phase = 2;
+            phase = 3;
             llSleep(1.0);
             report("SWAP");
             llOwnerSay("permtest: counts must be UNCHANGED (one off, one on)."
@@ -215,8 +268,8 @@ default
             return;
         }
 
-        if (phase == 2)
         {
+            // PHASE 4, plain stop.
             i = 0;
             while (i < n)
             {
@@ -224,39 +277,13 @@ default
                 llStopAnimation(other_anim(i));
                 ++i;
             }
-            phase = 3;
+            phase = 1;
             llSleep(1.0);
             report("STOP ");
-            llOwnerSay("permtest: counts must be back at their phase-1 start."
-                + " Touch for the stress measurement.");
-            return;
+            llOwnerSay("permtest: all A=0 B=0 means nothing was left behind."
+                + " RESET the script for another cold reading; touching again"
+                + " only repeats the warm cycle.");
         }
-
-        // PHASE 4. Handler length is what scales, not avatar count, so
-        // cycling two avatars STRESS_PAIRS times reaches the handler
-        // length an eight seater would have.
-        t0 = llGetTime();
-        i = 0;
-        while (i < STRESS_PAIRS)
-        {
-            llRequestPermissions(llList2Key(OCC, i % n), PERMISSION_TRIGGER_ANIMATION);
-            llStartAnimation(anim_for(i % n));
-            ++i;
-        }
-        timing("STRESS", llGetTime() - t0, STRESS_PAIRS);
-
-        llSleep(1.0);
-        report("STRESS");
-
-        i = 0;
-        while (i < n)
-        {
-            llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
-            llStopAnimation(anim_for(i));
-            ++i;
-        }
-        phase = 0;
-        llOwnerSay("permtest: reset to phase 1.");
     }
 
     run_time_permissions(integer perm)
