@@ -36,12 +36,18 @@
  *   both granted but only one avatar animates
  *      -> the grant is bookkeeping only; treat as asynchronous.
  *
- * Built-in animations are used on purpose: nothing has to be in
- * inventory, so the test runs in any prim.
+ * ANIMATIONS. A matched looping pair, so the second question can be
+ * answered by eye as well as by counter: if the two avatars sway IN
+ * PHASE, the starts landed in the same frame. Out of phase means they
+ * did not, and for a SYNC couple pose that offset is permanent rather
+ * than a one-off stutter.
+ *
+ * Both animations must be IN THE PRIM'S INVENTORY. This is not a
+ * built-in pair.
  */
 
-string ANIM_A = "dance1";
-string ANIM_B = "dance2";
+string ANIM_A = "MW-sway-female";
+string ANIM_B = "MW-sway-male";
 
 integer started;
 
@@ -69,6 +75,15 @@ default
             llLinkSitTarget(2, <0.0, 0.0, 0.6>, ZERO_ROTATION);
         else
             llOwnerSay("permtest: link a second prim, one sit target per prim.");
+
+        // Fail loudly here rather than reporting granted=1 with no
+        // visible animation, which would read as "the grant is
+        // bookkeeping only" and send the whole conclusion sideways.
+        if (llGetInventoryType(ANIM_A) != INVENTORY_ANIMATION)
+            llOwnerSay("permtest: \"" + ANIM_A + "\" is not in this prim.");
+        if (llGetInventoryType(ANIM_B) != INVENTORY_ANIMATION)
+            llOwnerSay("permtest: \"" + ANIM_B + "\" is not in this prim.");
+
         started = FALSE;
         llOwnerSay("permtest ready. Seat two avatars, then touch.");
     }
