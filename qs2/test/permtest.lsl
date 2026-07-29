@@ -26,7 +26,13 @@
  *      auto-grant only applies to avatars seated on the object. A
  *      non-seated avatar would get a permission dialog and the test
  *      would measure nothing.
- *   3. Touch to run. Touch again to run the stop path.
+ *   3. Touch three times: start, pose change, stop.
+ *
+ * The second touch is the one that matters for the engine. A pose
+ * change cannot use sitA's per-avatar overlap (start new, sleep, stop
+ * old), because that sleep would tear the frame apart mid-cycle. It
+ * becomes two passes with one shared sleep, and phase 2 runs exactly
+ * that.
  *
  * WHAT THE OUTPUT MEANS
  *   "granted immediately" twice, and both avatars gain an animation
@@ -49,7 +55,8 @@
 string ANIM_A = "MW-sway-female";
 string ANIM_B = "MW-sway-male";
 
-integer started;
+// 0 = nothing running, 1 = A/B running, 2 = swapped (B/A running)
+integer phase;
 
 integer anim_count(key av)
 {
@@ -84,8 +91,9 @@ default
         if (llGetInventoryType(ANIM_B) != INVENTORY_ANIMATION)
             llOwnerSay("permtest: \"" + ANIM_B + "\" is not in this prim.");
 
-        started = FALSE;
-        llOwnerSay("permtest ready. Seat two avatars, then touch.");
+        phase = 0;
+        llOwnerSay("permtest ready. Seat two avatars, then touch."
+            + " 1 = start, 2 = pose change, 3 = stop.");
     }
 
     changed(integer change)
@@ -107,10 +115,10 @@ default
         integer beforeA = anim_count(a);
         integer beforeB = anim_count(b);
 
-        if (!started)
+        if (phase == 0)
         {
-            // The whole test is these six lines: two requests and two
-            // starts, no return to the event loop in between.
+            // PHASE 1, the core question. Two requests and two starts,
+            // no return to the event loop in between.
             llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
             integer okA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
             key keyA = llGetPermissionsKey();
@@ -121,29 +129,78 @@ default
             key keyB = llGetPermissionsKey();
             if (okB) llStartAnimation(ANIM_B);
 
-            started = TRUE;
-            // Give the simulator a moment to apply, then read back.
-            llSleep(1.0);
+            phase = 1;
+            llSleep(1.0);                      // settle, then read back
             report("START a", a, beforeA, anim_count(a), okA, keyA);
             report("START b", b, beforeB, anim_count(b), okB, keyB);
-            llOwnerSay("permtest: touch again for the stop path.");
+            llOwnerSay("permtest: watch whether they sway IN PHASE."
+                + " Touch for the pose change.");
             return;
         }
 
-        // Stop path. A pose CHANGE needs this direction too, and it is
-        // the one that hurts: requesting for b revoked our hold on a, so
-        // stopping a means acquiring it again.
+        if (phase == 1)
+        {
+            // PHASE 2, the pattern the engine would actually use, and
+            // the reason the sleep exists.
+            //
+            // sitA today overlaps per avatar: start new, sleep 0.2, stop
+            // old, so nobody drops into their default pose for a frame.
+            // That sleep would tear the frame apart mid-cycle, so the
+            // overlap becomes TWO PASSES instead:
+            //
+            //   pass 1  every seat: acquire, start the new animation
+            //   sleep
+            //   pass 2  every seat: acquire, stop the old animation
+            //
+            // The starts stay in one frame, so SYNC survives, and the
+            // stops end up synchronous with each other too, which is
+            // better than v1 manages across N independent scripts.
+            //
+            // The swap is a genuine pose change: each avatar moves to
+            // the other animation.
+            llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
+            integer nA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            if (nA) llStartAnimation(ANIM_B);
+
+            llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
+            integer nB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            if (nB) llStartAnimation(ANIM_A);
+
+            llSleep(0.2);                      // the overlap, once for everybody
+
+            llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
+            integer oA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            if (oA) llStopAnimation(ANIM_A);
+
+            llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
+            integer oB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
+            if (oB) llStopAnimation(ANIM_B);
+
+            phase = 2;
+            llSleep(1.0);
+            // Counts should be UNCHANGED: one animation off, one on. A
+            // count that grew means the second pass failed to stop the
+            // old one, which is the failure this phase exists to catch.
+            report("SWAP  a", a, beforeA, anim_count(a), nA && oA, llGetPermissionsKey());
+            report("SWAP  b", b, beforeB, anim_count(b), nB && oB, llGetPermissionsKey());
+            llOwnerSay("permtest: counts should be unchanged, and they"
+                + " should have traded animations. Touch to stop.");
+            return;
+        }
+
+        // PHASE 3, plain stop. Whichever animation each avatar ended up
+        // with after the swap.
         llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
         integer sA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
         key skeyA = llGetPermissionsKey();
-        if (sA) llStopAnimation(ANIM_A);
+        if (sA) llStopAnimation(ANIM_B);
 
         llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
         integer sB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
         key skeyB = llGetPermissionsKey();
-        if (sB) llStopAnimation(ANIM_B);
+        if (sB) llStopAnimation(ANIM_A);
 
-        started = FALSE;
+        phase = 0;
         llSleep(1.0);
         report("STOP  a", a, beforeA, anim_count(a), sA, skeyA);
         report("STOP  b", b, beforeB, anim_count(b), sB, skeyB);
