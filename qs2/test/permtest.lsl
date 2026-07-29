@@ -1,84 +1,81 @@
 /*
  * permtest - throwaway diagnostic, NOT product code
  *
- * ONE QUESTION: can a single script start animations on TWO seated
- * avatars within one event handler?
+ * ONE QUESTION: can a single script drive the animations of every seated
+ * avatar from one event handler?
  *
- * Everything in qs2/DESIGN.md §3 rests on "no". That rejection assumed
- * llRequestPermissions costs an event round trip per avatar, so each
- * seat's animation starts a frame later than the previous one, which for
- * looping SYNC poses is a permanent phase offset rather than a stutter.
+ * qs2/DESIGN.md §3 said no. Measured 2026-07-29 with two seats: yes. The
+ * grant is synchronous for an avatar already sitting on the object, so
+ * llRequestPermissions returns with the permission in effect and the
+ * following llStartAnimation reaches that avatar. run_time_permissions
+ * arrives afterwards and is a notification, not a gate.
  *
- * The llGetPermissionsKey wiki page says something that may contradict
- * it: "The result of granting permissions affects the return of
- * llGetPermissions and llGetPermissionsKey immediately, despite the
- * run_time_permissions event being queued." For an avatar already
- * sitting on the object the grant needs no dialog, so the simulator may
- * be able to do it synchronously.
+ * If that holds at four and eight seats too, [QS]anim disappears and the
+ * engine is boot + core + seat + menu regardless of seat count.
  *
- * If it is synchronous, [QS]anim disappears: the whole engine becomes
- * boot + core + seat + menu regardless of seat count, and that would
- * have been true in LSL all along.
+ * WHAT CAN STILL GO WRONG AT SCALE
+ *
+ * Not the permissions: the handler. A script that runs past its time
+ * slice is suspended between bytecodes and resumes in a later frame,
+ * which would put the SYNC offset back, just at a different seam. So
+ * every phase reports how long its loop took. A simulator frame is about
+ * 22 ms at 45 fps; comfortably under that means the whole set of seats
+ * starts in one frame.
  *
  * SETUP
- *   1. Two prims, linked. Both get a sit target from state_entry.
- *   2. Two avatars, one on each. An alt works; they must SIT, because
- *      auto-grant only applies to avatars seated on the object. A
- *      non-seated avatar would get a permission dialog and the test
- *      would measure nothing.
- *   3. Touch three times: start, pose change, stop.
+ *   1. Link as many prims as you want seats. state_entry gives every
+ *      prim a sit target.
+ *   2. Seat avatars on some or all of them. The test runs over whoever
+ *      is actually sitting, so two avatars on four prims is a valid
+ *      two-seat run.
+ *   3. TURN THE AVATARS' AO OFF. With an AO running llGetAnimationList
+ *      is worthless: two identical runs gave 7->8 and then 8->8 for the
+ *      same call. This was the single biggest source of confusion in
+ *      testing.
+ *   4. Touch four times: start, pose change, stop, stress.
  *
- * The second touch is the one that matters for the engine. A pose
- * change cannot use sitA's per-avatar overlap (start new, sleep, stop
- * old), because that sleep would tear the frame apart mid-cycle. It
- * becomes two passes with one shared sleep, and phase 2 runs exactly
- * that.
- *
- * WHAT THE OUTPUT MEANS
- *   "granted immediately" twice, and both avatars gain an animation
- *      -> synchronous. DESIGN §3 is wrong and anim can go.
- *   first granted, second not (or key does not change)
- *      -> asynchronous. DESIGN §3 stands as written.
- *   both granted but only one avatar animates
- *      -> the grant is bookkeeping only; treat as asynchronous.
- *
- * ANIMATIONS. A matched looping pair, so the second question can be
- * answered by eye as well as by counter: if the two avatars sway IN
- * PHASE, the starts landed in the same frame. Out of phase means they
- * did not, and for a SYNC couple pose that offset is permanent rather
- * than a one-off stutter.
- *
- * Both animations must be IN THE PRIM'S INVENTORY. This is not a
- * built-in pair.
+ * ANIMATIONS: a matched looping pair, so phase can be judged by eye as
+ * well as by counter. Both must be in the prim's inventory.
  */
 
 string ANIM_A = "MW-sway-female";
 string ANIM_B = "MW-sway-male";
 
-// 0 = nothing running, 1 = A/B running, 2 = swapped (B/A running)
+// Phase 4 issues this many acquire+start PAIRS in one handler, to reach
+// eight-seat handler length with fewer than eight avatars.
+integer STRESS_PAIRS = 8;
+
 integer phase;
+list    OCC;          // avatars currently seated, in link order
+key     uuidA;
+key     uuidB;
 
-key uuidA;
-key uuidB;
-
-// MEASURED 2026-07-29: the count is NOT definitive, which is what an
-// earlier version of this comment claimed. An avatar's AO starts and
-// stops animations continuously, so across two identical runs the same
-// call read 7->8 once and 8->8 the next time. The eye turned out to be
-// the reliable instrument and the counter the unreliable one, exactly
-// backwards from the assumption this test was built on.
-//
-// The clean instrument is the animation's own asset UUID, which
-// llGetInventoryKey yields only for a full-perm item. Where that works,
-// membership is exact and the AO cannot touch it. Where it does not,
-// fall back to counting and say so, rather than quietly reporting a
-// number that means nothing.
-integer anim_count(key av)
+string anim_for(integer i)
 {
-    return llGetListLength(llGetAnimationList(av));
+    if (i % 2 == 0) return ANIM_A;
+    return ANIM_B;
 }
 
-// -1 = cannot tell, 0 = not playing, 1 = playing
+string other_anim(integer i)
+{
+    if (i % 2 == 0) return ANIM_B;
+    return ANIM_A;
+}
+
+gather()
+{
+    OCC = [];
+    integer l = 1;
+    integer n = llGetNumberOfPrims();
+    while (l <= n)
+    {
+        key av = llAvatarOnLinkSitTarget(l);
+        if (av != NULL_KEY) OCC += av;
+        ++l;
+    }
+}
+
+// -1 = cannot tell (animation not full-perm), else 0/1
 integer playing(key av, key uuid)
 {
     if (uuid == NULL_KEY) return -1;
@@ -86,34 +83,43 @@ integer playing(key av, key uuid)
     return 1;
 }
 
-report(string phase, key av, integer before, integer after, integer granted, key kAfter)
+report(string tag)
 {
-    string exact = "";
-    integer pa = playing(av, uuidA);
-    integer pb = playing(av, uuidB);
-    if (pa != -1)
-        exact = "  A=" + (string)pa + " B=" + (string)pb;
+    integer i = 0;
+    integer n = llGetListLength(OCC);
+    while (i < n)
+    {
+        key av = llList2Key(OCC, i);
+        string exact = "";
+        integer pa = playing(av, uuidA);
+        if (pa != -1) exact = "  A=" + (string)pa + " B=" + (string)playing(av, uuidB);
+        llOwnerSay(tag + " seat " + (string)i
+            + "  av=" + llGetSubString((string)av, 0, 7)
+            + exact
+            + "  anims=" + (string)llGetListLength(llGetAnimationList(av)));
+        ++i;
+    }
+}
 
-    llOwnerSay(phase + "  av=" + llGetSubString((string)av, 0, 7)
-        + "  granted=" + (string)granted
-        + "  keyMatches=" + (string)(kAfter == av)
-        + exact
-        + "  (anims " + (string)before + " -> " + (string)after + ", noisy)");
+timing(string tag, float dt, integer calls)
+{
+    llOwnerSay(tag + ": " + (string)calls + " seat(s) in "
+        + (string)llRound(dt * 1000.0) + " ms"
+        + "  (frame is ~22 ms)");
 }
 
 default
 {
     state_entry()
     {
-        llLinkSitTarget(1, <0.0, 0.0, 0.6>, ZERO_ROTATION);
-        if (llGetNumberOfPrims() > 1)
-            llLinkSitTarget(2, <0.0, 0.0, 0.6>, ZERO_ROTATION);
-        else
-            llOwnerSay("permtest: link a second prim, one sit target per prim.");
+        integer l = 1;
+        integer n = llGetNumberOfPrims();
+        while (l <= n)
+        {
+            llLinkSitTarget(l, <0.0, 0.0, 0.6>, ZERO_ROTATION);
+            ++l;
+        }
 
-        // Fail loudly here rather than reporting granted=1 with no
-        // visible animation, which would read as "the grant is
-        // bookkeeping only" and send the whole conclusion sideways.
         if (llGetInventoryType(ANIM_A) != INVENTORY_ANIMATION)
             llOwnerSay("permtest: \"" + ANIM_A + "\" is not in this prim.");
         if (llGetInventoryType(ANIM_B) != INVENTORY_ANIMATION)
@@ -121,14 +127,15 @@ default
 
         uuidA = llGetInventoryKey(ANIM_A);
         uuidB = llGetInventoryKey(ANIM_B);
-        if (uuidA == NULL_KEY || uuidB == NULL_KEY)
-            llOwnerSay("permtest: animations are not full-perm, so exact"
-                + " A=/B= readings are unavailable. Counts alone are AO-noise;"
-                + " TURN THE AVATARS' AO OFF or judge by eye.");
+        if (uuidA == NULL_KEY)
+            llOwnerSay("permtest: animations are not full-perm, so exact A=/B="
+                + " readings are unavailable. TURN THE AO OFF or the counts"
+                + " mean nothing.");
 
         phase = 0;
-        llOwnerSay("permtest ready. Seat two avatars, then touch."
-            + " 1 = start, 2 = pose change, 3 = stop.");
+        llOwnerSay("permtest ready on " + (string)n + " prim(s)."
+            + " Seat avatars, AO off, then touch."
+            + " 1=start 2=pose change 3=stop 4=stress");
     }
 
     changed(integer change)
@@ -136,124 +143,129 @@ default
         if (change & CHANGED_LINK) llResetScript();
     }
 
-    touch_start(integer n)
+    touch_start(integer num)
     {
-        key a = llAvatarOnLinkSitTarget(1);
-        key b = llAvatarOnLinkSitTarget(2);
-        if (a == NULL_KEY || b == NULL_KEY)
+        gather();
+        integer n = llGetListLength(OCC);
+        if (n < 2)
         {
-            llOwnerSay("permtest: need an avatar on BOTH prims. Have "
-                + (string)(a != NULL_KEY) + " / " + (string)(b != NULL_KEY));
+            llOwnerSay("permtest: need at least two seated avatars, have "
+                + (string)n + ".");
             return;
         }
 
-        integer beforeA = anim_count(a);
-        integer beforeB = anim_count(b);
+        integer i;
+        float t0;
 
         if (phase == 0)
         {
-            // PHASE 1, the core question. Two requests and two starts,
-            // no return to the event loop in between.
-            llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
-            integer okA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            key keyA = llGetPermissionsKey();
-            if (okA) llStartAnimation(ANIM_A);
-
-            llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
-            integer okB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            key keyB = llGetPermissionsKey();
-            if (okB) llStartAnimation(ANIM_B);
-
+            // PHASE 1. Acquire and start every seat, no return to the
+            // event loop in between. This loop IS the question.
+            t0 = llGetTime();
+            i = 0;
+            while (i < n)
+            {
+                llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+                llStartAnimation(anim_for(i));
+                ++i;
+            }
+            timing("START", llGetTime() - t0, n);
             phase = 1;
-            llSleep(1.0);                      // settle, then read back
-            report("START a", a, beforeA, anim_count(a), okA, keyA);
-            report("START b", b, beforeB, anim_count(b), okB, keyB);
-            llOwnerSay("permtest: watch whether they sway IN PHASE."
-                + " Touch for the pose change.");
+            llSleep(1.0);
+            report("START");
+            llOwnerSay("permtest: do they sway IN PHASE? Touch for the pose change.");
             return;
         }
 
         if (phase == 1)
         {
-            // PHASE 2, the pattern the engine would actually use, and
-            // the reason the sleep exists.
-            //
-            // sitA today overlaps per avatar: start new, sleep 0.2, stop
-            // old, so nobody drops into their default pose for a frame.
-            // That sleep would tear the frame apart mid-cycle, so the
-            // overlap becomes TWO PASSES instead:
-            //
-            //   pass 1  every seat: acquire, start the new animation
-            //   sleep
-            //   pass 2  every seat: acquire, stop the old animation
-            //
-            // The starts stay in one frame, so SYNC survives, and the
-            // stops end up synchronous with each other too, which is
-            // better than v1 manages across N independent scripts.
-            //
-            // The swap is a genuine pose change: each avatar moves to
-            // the other animation.
-            llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
-            integer nA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            // Captured HERE, not at the end of the handler. Reporting the
-            // final key for both rows made the first one read keyMatches=0,
-            // which looks like a failure and is only bad bookkeeping.
-            key keyA2 = llGetPermissionsKey();
-            if (nA) llStartAnimation(ANIM_B);
+            // PHASE 2, the pattern the engine would use. sitA overlaps
+            // per avatar (start new, sleep, stop old) so nobody drops
+            // into their default pose; that sleep would tear the frame
+            // apart mid-cycle, so it becomes two passes with ONE shared
+            // sleep. Starts stay in one frame, and the stops end up
+            // synchronous with each other as well, which v1 never
+            // manages across N independent scripts.
+            t0 = llGetTime();
+            i = 0;
+            while (i < n)
+            {
+                llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+                llStartAnimation(other_anim(i));
+                ++i;
+            }
+            float dtStart = llGetTime() - t0;
 
-            llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
-            integer nB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            key keyB2 = llGetPermissionsKey();
-            if (nB) llStartAnimation(ANIM_A);
+            llSleep(0.2);                       // the overlap, once for everybody
 
-            llSleep(0.2);                      // the overlap, once for everybody
+            i = 0;
+            while (i < n)
+            {
+                llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+                llStopAnimation(anim_for(i));
+                ++i;
+            }
 
-            llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
-            integer oA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            if (oA) llStopAnimation(ANIM_A);
-
-            llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
-            integer oB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-            if (oB) llStopAnimation(ANIM_B);
-
+            timing("SWAP pass 1", dtStart, n);
             phase = 2;
             llSleep(1.0);
-            // Counts should be UNCHANGED: one animation off, one on. A
-            // count that grew means the second pass failed to stop the
-            // old one, which is the failure this phase exists to catch.
-            report("SWAP  a", a, beforeA, anim_count(a), nA && oA, keyA2);
-            report("SWAP  b", b, beforeB, anim_count(b), nB && oB, keyB2);
-            llOwnerSay("permtest: per-phase counts are NOISY (an AO starts"
-                + " and stops animations of its own). The reliable check is"
-                + " the round trip: after phase 3 both avatars must be back"
-                + " at their phase-1 starting counts. Touch to stop.");
+            report("SWAP");
+            llOwnerSay("permtest: counts must be UNCHANGED (one off, one on)."
+                + " Touch to stop.");
             return;
         }
 
-        // PHASE 3, plain stop. Whichever animation each avatar ended up
-        // with after the swap.
-        llRequestPermissions(a, PERMISSION_TRIGGER_ANIMATION);
-        integer sA = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-        key skeyA = llGetPermissionsKey();
-        if (sA) llStopAnimation(ANIM_B);
+        if (phase == 2)
+        {
+            i = 0;
+            while (i < n)
+            {
+                llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+                llStopAnimation(other_anim(i));
+                ++i;
+            }
+            phase = 3;
+            llSleep(1.0);
+            report("STOP ");
+            llOwnerSay("permtest: counts must be back at their phase-1 start."
+                + " Touch for the stress measurement.");
+            return;
+        }
 
-        llRequestPermissions(b, PERMISSION_TRIGGER_ANIMATION);
-        integer sB = (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) != 0;
-        key skeyB = llGetPermissionsKey();
-        if (sB) llStopAnimation(ANIM_A);
+        // PHASE 4. Handler length is what scales, not avatar count, so
+        // cycling two avatars STRESS_PAIRS times reaches the handler
+        // length an eight seater would have.
+        t0 = llGetTime();
+        i = 0;
+        while (i < STRESS_PAIRS)
+        {
+            llRequestPermissions(llList2Key(OCC, i % n), PERMISSION_TRIGGER_ANIMATION);
+            llStartAnimation(anim_for(i % n));
+            ++i;
+        }
+        timing("STRESS", llGetTime() - t0, STRESS_PAIRS);
 
-        phase = 0;
         llSleep(1.0);
-        report("STOP  a", a, beforeA, anim_count(a), sA, skeyA);
-        report("STOP  b", b, beforeB, anim_count(b), sB, skeyB);
+        report("STRESS");
+
+        i = 0;
+        while (i < n)
+        {
+            llRequestPermissions(llList2Key(OCC, i), PERMISSION_TRIGGER_ANIMATION);
+            llStopAnimation(anim_for(i));
+            ++i;
+        }
+        phase = 0;
+        llOwnerSay("permtest: reset to phase 1.");
     }
 
     run_time_permissions(integer perm)
     {
-        // If this fires AFTER the report lines above, the grant was
-        // asynchronous and the flags read TRUE for some other reason.
-        // Ordering here is a large part of the answer.
-        llOwnerSay("permtest: run_time_permissions fired, perm=" + (string)perm
+        // Fires once per request, always after the work is done, and
+        // always reporting the LAST key. It cannot distinguish the
+        // requests and the engine must ignore it outright. Logged here
+        // only to show that ordering.
+        llOwnerSay("permtest: run_time_permissions perm=" + (string)perm
             + " for " + llGetSubString((string)llGetPermissionsKey(), 0, 7));
     }
 }
