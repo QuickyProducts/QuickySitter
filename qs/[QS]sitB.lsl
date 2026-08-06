@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.262";
+string version = "1.263";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -94,6 +94,15 @@ integer QSADJ_REGISTER    = 90213;
 // (QS_FINALIZE 90215) left a dead button dispatching to a channel nobody
 // listens on, plus a phantom self-show [ADJUST] (see animation_menu).
 integer QSADJ_UNREGISTER  = 90216;
+// QSDLG_RENDER — render a dialog to OUR sitter on a plugin's behalf. The
+// point is llDialog's forced 1.0 s sleep on the CALLING script: a plugin
+// serving several sitters from one script serializes them all behind each
+// other's sleeps, while sitB exists once per seat — a natural sleep lane per
+// sitter. Same-script rendering also means the pad REPLACES this sitter's
+// previous menu window instead of stacking on it (dialogs replace only
+// within one script). The reply is plain agent chat on the given channel;
+// the plugin's own listener hears it, we render and forget.
+integer QSDLG_RENDER      = 90279;
 list    ADJUST_DYN;             // [label, click_chan, scriptName, flags, ...] (strided 4)
 integer in_plugin_menu;         // TRUE while [OPTIONS] dialog is open;
                                 // flips listen() to plugin-flavored routing
@@ -1172,6 +1181,19 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        // PROTOCOL.md § QSDLG_RENDER — first, because the llDialog inside
+        // sleeps this copy 1.0 s and everything queued behind it waits.
+        // Exactly the copy whose seat holds the addressed sitter renders;
+        // every other copy falls through at the cost of one compare.
+        if (num == QSDLG_RENDER)
+        {
+            if (MY_SITTER == "") return;
+            if (id != MY_SITTER) return;
+            list dp = llParseStringKeepNulls(msg, ["|"], []);
+            llDialog(MY_SITTER, llList2String(dp, 1),
+                llList2List(dp, 2, 13), (integer)llList2String(dp, 0));
+            return;
+        }
         integer one = (integer)msg;
         integer two = (integer)((string)id);
         integer index;
