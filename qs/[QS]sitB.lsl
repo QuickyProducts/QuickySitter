@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.26";
+string version = "1.261";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -704,7 +704,21 @@ adjust_dialog()
         animation_menu(0);
         return;
     }
-    tail += "[POSE]";
+    // [POSE] — the built-in entry, unless a plugin registered one under the
+    // same label (1.261). QuickyHUD's [QS]hudadmin does exactly that: its pad
+    // drives the same personal offset through the HUD's camera-relative
+    // maths, so where it exists it should be the only [POSE] in the menu.
+    //
+    // Gating on the REGISTRATION rather than on "is the HUD product here"
+    // is what makes this survive a mixed update: whichever half is older,
+    // the menu holds exactly one [POSE] at all times. Registered but not
+    // yet announced -> ours stands; announced -> ours steps aside.
+    //
+    // The %4 check keeps a label from matching at a scriptName slot, the
+    // same guard the ADJUST_MENU dispatch below uses for its pairs.
+    integer pdi = llListFindList(ADJUST_DYN, ["[POSE]"]);
+    if (pdi == -1 || pdi % 4 != 0)
+        tail += "[POSE]";
 
     integer fixed = 1 + llGetListLength(builtins) + llGetListLength(tail); // [BACK] + builtins + tail
     integer items_per_page = 12 - fixed;
@@ -1242,9 +1256,15 @@ default
             integer aflags = (integer)llList2String(ap, 3);
             if (alabel == "" || achan == 0 || asName == "")
                 return;                                  // malformed announce
+            // Identity is scriptName + label, not scriptName alone (1.261).
+            // One script may own several entries: [QS]hudadmin registers both
+            // its HUD-fetch button and the pose pad. Deduping on the name only
+            // made the second announce overwrite the first, so whichever
+            // re-announced last was the only one left in the menu.
             integer ari = 0;
             integer arn = llGetListLength(ADJUST_DYN);
-            while (ari < arn && llList2String(ADJUST_DYN, ari + 2) != asName)
+            while (ari < arn && !(llList2String(ADJUST_DYN, ari + 2) == asName
+                               && llList2String(ADJUST_DYN, ari)     == alabel))
                 ari += 4;
             if (ari < arn)
                 ADJUST_DYN = llListReplaceList(ADJUST_DYN,
@@ -1263,13 +1283,24 @@ default
             // own reset. Empty msg is dropped: the register handler refuses
             // an empty scriptName, so no stride can legitimately match it.
             if (msg == "") return;
+            // Removes EVERY stride of that script, not just the first
+            // (1.261): since register dedupes on scriptName + label, one
+            // script can hold several entries, and a self-deleting tool has
+            // to take all of them with it. No index advance after a hit —
+            // the delete shifts the next stride into the same slot.
             integer ui = 0;
-            integer un = llGetListLength(ADJUST_DYN);
-            while (ui < un && llList2String(ADJUST_DYN, ui + 2) != msg)
-                ui += 4;
-            if (ui < un)
+            integer removed = FALSE;
+            while (ui < llGetListLength(ADJUST_DYN))
             {
-                ADJUST_DYN = llDeleteSubList(ADJUST_DYN, ui, ui + 3);
+                if (llList2String(ADJUST_DYN, ui + 2) == msg)
+                {
+                    ADJUST_DYN = llDeleteSubList(ADJUST_DYN, ui, ui + 3);
+                    removed = TRUE;
+                }
+                else ui += 4;
+            }
+            if (removed)
+            {
                 // The button count shrank, so an open dialog's page index may
                 // now point past the end. Next render starts at page 0.
                 adjust_page = 0;
