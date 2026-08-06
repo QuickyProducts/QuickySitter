@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.261";
+string version = "1.262";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -641,6 +641,22 @@ integer adjust_allowed(key av)
 // routing lives in listen() under in_adjust_menu, plus a 90101[ADJUST]
 // receiver in link_message for external back-routes ([AV]root-security,
 // [QS]faces). See PROTOCOL.md.
+// Has a plugin claimed the [POSE] label (QuickyHUD's [QS]huddialog does)?
+//
+// ONE function, used by BOTH the render and the click dispatch, because
+// gating only the render is a bug I actually shipped: the button then came
+// from the registry while the click still ran into the built-in branch below
+// and opened sitA's dialog. Whoever draws the button must be the one who
+// gets the press.
+//
+// The %4 check keeps a label from matching at a scriptName slot, the same
+// guard the ADJUST_MENU dispatch uses for its pairs.
+integer pose_registered()
+{
+    integer pdi = llListFindList(ADJUST_DYN, ["[POSE]"]);
+    return (pdi != -1 && pdi % 4 == 0);
+}
+
 adjust_dialog()
 {
     list builtins;
@@ -714,10 +730,7 @@ adjust_dialog()
     // the menu holds exactly one [POSE] at all times. Registered but not
     // yet announced -> ours stands; announced -> ours steps aside.
     //
-    // The %4 check keeps a label from matching at a scriptName slot, the
-    // same guard the ADJUST_MENU dispatch below uses for its pairs.
-    integer pdi = llListFindList(ADJUST_DYN, ["[POSE]"]);
-    if (pdi == -1 || pdi % 4 != 0)
+    if (!pose_registered())
         tail += "[POSE]";
 
     integer fixed = 1 + llGetListLength(builtins) + llGetListLength(tail); // [BACK] + builtins + tail
@@ -859,7 +872,11 @@ default
                     (string)CONTROLLER + "|" + (string)MY_SITTER);
                 return;
             }
-            if (msg == "[POSE]")
+            // Built-in [POSE] — skipped when a plugin owns the label, so the
+            // press reaches whoever drew the button. Without this gate the
+            // registered entry rendered but this branch still answered it,
+            // and the plugin's dialog never opened.
+            if (msg == "[POSE]" && !pose_registered())
             {
                 // Position/Rotation adjust dialog (adjust_pose_menu) still
                 // lives in sitA — its CURRENT_POSITION + sit_using_prim_params
