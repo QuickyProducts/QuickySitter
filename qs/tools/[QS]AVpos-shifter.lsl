@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.261";
+string version = "1.262";
 string notecard_name = "AVpos";
 
 // Self-hosted dump receiver, same endpoint [QS]boot posts its [DUMP] to.
@@ -73,6 +73,19 @@ key notecard_query;
 integer notecard_line;
 vector target_prim_pos;
 rotation target_prim_rot;
+// Frame the numbers in the notecard are ALREADY expressed in, as a
+// root-local transform. AVpos positions are local to the prim that holds
+// [QS]sitA — sitA seats avatars with prim params of its own prim, they are
+// not root-local — and by project layout that is this prim, since we read
+// the AVpos out of our own inventory.
+//
+// Zero for the /5 and /6 offset paths: those shift the numbers inside their
+// own frame and must not be reframed. Set only for the touch rebase, which
+// genuinely changes frames. ZERO_ROTATION is the identity quaternion and
+// ZERO_VECTOR adds nothing, so the offset paths compute exactly what they
+// computed before this existed.
+vector source_prim_pos;
+rotation source_prim_rot;
 string cache;
 string webkey;
 integer webcount;
@@ -202,13 +215,22 @@ qs_stale_notecard_warning()
 // a second conversion would resume past EOF and print an empty result.
 // The offsets are reset by the callers for the same reason, so a /6 after
 // a /5 does not inherit the earlier position shift.
+// A run in progress owns the conversion transform: the dataserver loop reads
+// target_prim_pos/rot per line, so a second command that writes them mid-run
+// converts the REST of the notecard with the new values and prints a
+// silently mixed-frame result. Both trigger paths therefore ask this BEFORE
+// touching anything, not after — start_conversion's own check came too late,
+// the globals were already overwritten by then.
+integer busy()
+{
+    if (!converting) return FALSE;
+    llOwnerSay("Still converting. Wait for the closing cut marker before starting another run. If the notecard was removed mid-run, reset this script.");
+    return TRUE;
+}
+
 start_conversion()
 {
-    if (converting)
-    {
-        llOwnerSay("Still converting. Wait for the closing cut marker before starting another run. If the notecard was removed mid-run, reset this script.");
-        return;
-    }
+    if (busy()) return;
     if (!check_notecard()) return;
     qs_stale_notecard_warning();
     converting = TRUE;
@@ -234,8 +256,17 @@ default
         // and posts an upload; a visitor's touch should not start one.
         if (llDetectedKey(0) != llGetOwner()) return;
         if (llDetectedLinkNumber(0) <= 1) return;
+        if (busy()) return;
         target_prim_pos = llList2Vector(llGetLinkPrimitiveParams(llDetectedLinkNumber(0), [PRIM_POS_LOCAL]), 0);
         target_prim_rot = llList2Rot(llGetLinkPrimitiveParams(llDetectedLinkNumber(0), [PRIM_ROT_LOCAL]), 0);
+        // The rebase converts BETWEEN two prim frames, so it needs both ends.
+        // Stock only ever had one because it refused to run outside the root
+        // (it deleted itself there), where the source frame is the identity.
+        // This fork allows the child-prim layout QuickySitter actually uses,
+        // and without our own transform every rebased number came out wrong
+        // by exactly this prim's offset from the root.
+        source_prim_pos = llList2Vector(llGetLinkPrimitiveParams(LINK_THIS, [PRIM_POS_LOCAL]), 0);
+        source_prim_rot = llList2Rot(llGetLinkPrimitiveParams(LINK_THIS, [PRIM_ROT_LOCAL]), 0);
         llOwnerSay("Converting " + notecard_name + " for use in prim #" + (string)llDetectedLinkNumber(0));
         start_conversion();
     }
@@ -253,6 +284,11 @@ default
             llOwnerSay("That is not a vector. Use /5 <0,0,1.5> or /6 <0,0,180>.");
             return;
         }
+
+        if (busy()) return;
+        // Offsets move the numbers inside their own frame; no reframing.
+        source_prim_pos = ZERO_VECTOR;
+        source_prim_rot = ZERO_ROTATION;
 
         if (chan == 5)
         {
@@ -308,9 +344,9 @@ default
             data = llGetSubString(data, llSubStringIndex(data, "}") + 1, 99999);
             list parts = llParseStringKeepNulls(data, ["<"], []);
             vector pos = (vector)("<" + llList2String(parts, 1));
-            pos = (pos - target_prim_pos) / target_prim_rot;
+            pos = ((pos * source_prim_rot + source_prim_pos) - target_prim_pos) / target_prim_rot;
             rotation rot = llEuler2Rot((vector)("<" + llList2String(parts, 2)) * DEG_TO_RAD);
-            vector vec_rot = llRot2Euler(rot / target_prim_rot) * RAD_TO_DEG;
+            vector vec_rot = llRot2Euler((rot * source_prim_rot) / target_prim_rot) * RAD_TO_DEG;
             string result = "<" + FormatFloat(pos.x, 3) + "," + FormatFloat(pos.y, 3) + "," + FormatFloat(pos.z, 3) + ">";
             result += "<" + FormatFloat(vec_rot.x, 1) + "," + FormatFloat(vec_rot.y, 1) + "," + FormatFloat(vec_rot.z, 1) + ">";
             Readout_Say("{" + command + "}" + result);
@@ -340,8 +376,8 @@ default
             {
                 pos = (vector)llList2String(parts, index);
                 rot = llEuler2Rot((vector)llList2String(parts, index + 1) * DEG_TO_RAD);
-                pos = (pos - target_prim_pos) / target_prim_rot;
-                vector vec_rot = llRot2Euler(rot / target_prim_rot) * RAD_TO_DEG;
+                pos = ((pos * source_prim_rot + source_prim_pos) - target_prim_pos) / target_prim_rot;
+                vector vec_rot = llRot2Euler((rot * source_prim_rot) / target_prim_rot) * RAD_TO_DEG;
                 string pos_string = "<" + FormatFloat(pos.x, 3) + "," + FormatFloat(pos.y, 3) + "," + FormatFloat(pos.z, 3) + ">";
                 string rot_string = "<" + FormatFloat(vec_rot.x, 1) + "," + FormatFloat(vec_rot.y, 1) + "," + FormatFloat(vec_rot.z, 1) + ">";
                 parts = llListReplaceList(parts, [pos_string, rot_string], index, index + 1);
