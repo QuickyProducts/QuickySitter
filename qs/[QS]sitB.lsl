@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.263";
+string version = "1.264";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
@@ -650,7 +650,8 @@ integer adjust_allowed(key av)
 // routing lives in listen() under in_adjust_menu, plus a 90101[ADJUST]
 // receiver in link_message for external back-routes ([AV]root-security,
 // [QS]faces). See PROTOCOL.md.
-// Has a plugin claimed the [POSE] label (QuickyHUD's [QS]huddialog does)?
+// Does a plugin's [POSE] entry serve THIS controller (QuickyHUD's
+// [QS]huddialog registers one)?
 //
 // ONE function, used by BOTH the render and the click dispatch, because
 // gating only the render is a bug I actually shipped: the button then came
@@ -658,12 +659,28 @@ integer adjust_allowed(key av)
 // and opened sitA's dialog. Whoever draws the button must be the one who
 // gets the press.
 //
+// Two cases keep the BUILT-IN alive even though an entry is registered
+// (1.264):
+// - Foreign control, CONTROLLER != MY_SITTER: root-control's touch handoff,
+//   the [AV]helper MENU stick, RLV. The registered pad adjusts the CLICKING
+//   agent's own seat through the HUD pipeline, so a foreign controller would
+//   either be refused (standing) or move the wrong seat. The built-in sitA
+//   dialog adjusts THIS seat no matter who drives, and it is the one that
+//   covers the helper's empty-seat flow.
+// - Owner-only entry (flags bit 0) hidden from this controller by the
+//   adjust ACL: a hidden entry must not suppress the built-in, or
+//   non-owners would have no [POSE] at all.
+//
 // The %4 check keeps a label from matching at a scriptName slot, the same
 // guard the ADJUST_MENU dispatch uses for its pairs.
 integer pose_registered()
 {
+    if (CONTROLLER != MY_SITTER) return FALSE;
     integer pdi = llListFindList(ADJUST_DYN, ["[POSE]"]);
-    return (pdi != -1 && pdi % 4 == 0);
+    if (pdi == -1 || pdi % 4 != 0) return FALSE;
+    if (((integer)llList2String(ADJUST_DYN, pdi + 3) & 1)
+        && !adjust_allowed(CONTROLLER)) return FALSE;
+    return TRUE;
 }
 
 adjust_dialog()
@@ -686,9 +703,14 @@ adjust_dialog()
     for (i = 0; i < dn; i += 4)
     {
         string dlab = llList2String(ADJUST_DYN, i);
-        if ((!((integer)llList2String(ADJUST_DYN, i + 3) & 1) || adjust_allowed(CONTROLLER))
-            && llListFindList(dyn, [dlab]) == -1)
-            dyn += dlab;
+        integer show = (!((integer)llList2String(ADJUST_DYN, i + 3) & 1)
+                        || adjust_allowed(CONTROLLER))
+            && llListFindList(dyn, [dlab]) == -1;
+        // The registered [POSE] yields whenever the built-in must serve this
+        // controller (foreign control, hidden owner-only entry — see
+        // pose_registered). Without this, both buttons would render.
+        if (show && dlab == "[POSE]" && !pose_registered()) show = FALSE;
+        if (show) dyn += dlab;
     }
 
     list tail;
@@ -1295,11 +1317,12 @@ default
             integer aflags = (integer)llList2String(ap, 3);
             if (alabel == "" || achan == 0 || asName == "")
                 return;                                  // malformed announce
-            // Identity is scriptName + label, not scriptName alone (1.261).
-            // One script may own several entries: [QS]hudadmin registers both
-            // its HUD-fetch button and the pose pad. Deduping on the name only
-            // made the second announce overwrite the first, so whichever
-            // re-announced last was the only one left in the menu.
+            // Identity is scriptName + label, not scriptName alone (1.261),
+            // so one script may own several entries. (No shipped script does
+            // yet — hudadmin registers the HUD-fetch button, [QS]huddialog
+            // the pose pad, each under its OWN name — but deduping on the
+            // name alone made a script's second announce overwrite its
+            // first, a wall the next multi-button plugin would hit.)
             integer ari = 0;
             integer arn = llGetListLength(ADJUST_DYN);
             while (ari < arn && !(llList2String(ADJUST_DYN, ari + 2) == asName

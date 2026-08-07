@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.261";
+string version = "1.262";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -978,11 +978,12 @@ default
                 // tools remove THEMSELVES on finalization — this script
                 // knows no Pro-kit inventory names (repo split).
                 // Subscribers: [QS]animesh (its [FINALIZE] teardown:
-                // bodies + notecard + both scripts + rezzed dummies) and
+                // bodies + notecard + both scripts + rezzed dummies),
                 // [QS]animeshRemote (unpairs from the AVpos editor, drops
                 // its [ADJUST] entry, then removes itself — its pairing
                 // token lives in LSD and would otherwise travel with a
-                // sold copy). Sent first so it is out before our
+                // sold copy) and [QS]AVpos-shifter (removes itself; owns
+                // no [ADJUST] entry). Sent first so it is out before our
                 // self-removal.
                 llMessageLinked(LINK_SET, 90215, "", "");
                 llRegionSay(comm_channel, "DONEA");
