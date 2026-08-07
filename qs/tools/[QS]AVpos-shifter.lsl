@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.262";
+string version = "1.27";
 string notecard_name = "AVpos";
 
 // Self-hosted dump receiver, same endpoint [QS]boot posts its [DUMP] to.

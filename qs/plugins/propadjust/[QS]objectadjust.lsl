@@ -40,7 +40,7 @@
  * arrives and the QSSAVESCALE reply is ignored — the prop just behaves
  * as if unscaled. A prop without this script ignores QSSCALE likewise.
  */
-string version = "1.26";
+string version = "1.27";
 
 integer comm_channel;
 integer prop_id;

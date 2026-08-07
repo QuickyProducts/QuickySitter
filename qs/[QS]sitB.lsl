@@ -13,7 +13,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.264";
+string version = "1.27";
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
