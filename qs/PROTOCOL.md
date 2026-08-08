@@ -471,8 +471,24 @@ dispatch. `ADJUST_DYN` is RAM only — never written to or rebuilt from
 and the plugin re-announces on the next 90097 (QSALIVE reply), the
 same recovery path QSPLUG_REGISTER uses.
 
-**Adoption pattern** — identical to QSPLUG_REGISTER (`register_*` on
-`state_entry` / `on_rez` / `CHANGED_INVENTORY` / 90097) but on channel
+**Census clear (sitB 1.27).** sitB also empties `ADJUST_DYN` whenever
+`[QS]boot` broadcasts `QS_ALIVE_CENSUS` (90079), i.e. after a script was
+added to or removed from the furniture. This closes the one hole
+`QSADJ_UNREGISTER` cannot: a plugin that is **deleted** never gets to send
+it, so its stride outlived it until a sitB reset — visible in the field as
+a dead button that still dispatched to a channel nobody listened on, and
+(for `[POSE]`) kept the built-in entry suppressed. The clear is race-free
+for the same reason boot's own `qs:alive:*` wipe is: a plugin can only send
+after receiving the census, so every re-announce is strictly later in
+sitB's queue.
+
+Consequence for plugin authors: **handle 90079 as well as 90097.** A plugin
+that answers only 90097 loses its button after any script drag until the
+next re-seed. The `[OPTIONS]` registry (QSPLUG_REGISTER) is deliberately
+NOT census-cleared, so its adoption pattern is unchanged.
+
+**Adoption pattern** — QSPLUG_REGISTER's (`register_*` on `state_entry` /
+`on_rez` / `CHANGED_INVENTORY` / 90097) plus a 90079 handler, on channel
 90213 with the trailing `flags` field, e.g.
 `"[MYTOOL]|" + (string)MY_CLICK_CHAN + "|" + llGetScriptName() + "|1"`
 for an owner-only tool.

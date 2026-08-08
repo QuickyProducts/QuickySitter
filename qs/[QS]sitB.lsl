@@ -88,6 +88,30 @@ list    QSPLUG_REGISTRY;        // [label, click_chan, scriptName, ...]
 // [QUICKYHUD]). RAM registry, re-announced by the plugin on QSALIVE_REPLY, so it
 // survives a re-seed (qs_load_from_lsd rebuilds ADJUST_MENU, never ADJUST_DYN).
 integer QSADJ_REGISTER    = 90213;
+// QS_ALIVE_CENSUS — [QS]boot broadcasts this after a script was added to or
+// removed from the furniture (changed(CHANGED_INVENTORY) with the notecard
+// asset key unchanged). Boot wipes every qs:alive:* flag first and lets the
+// survivors re-stamp, which is how removal is detected centrally.
+//
+// We hang ADJUST_DYN off the same event (1.27). It is the one piece of
+// plugin state the census did NOT reach: a DELETED script cannot send
+// QSADJ_UNREGISTER, so its stride survived until our own reset. Symptom in
+// the field: delete [QS]huddialog and the built-in [POSE] stays suppressed,
+// because pose_registered() still sees the pad's registration.
+//
+// Race-free for the reason boot documents for its own wipe: a plugin can
+// only send AFTER receiving the census, so every re-announce is strictly
+// later in our queue than the clear. All four shipped registrants re-announce
+// here ([QS]huddialog, [QS]hudadmin, [QS]animesh, [QS]animeshRemote).
+//
+// Contract note: the header above says a plugin re-announces on
+// QSALIVE_REPLY. Census is now the second required trigger for ADJUST_DYN
+// entries. A plugin that handles only QSALIVE_REPLY loses its button until
+// the next re-seed — still better than the phantom it replaces, which
+// dispatched to a channel nobody listened on and suppressed the built-in.
+// The [OPTIONS] registry (QSPLUG_REGISTRY) is deliberately NOT cleared here:
+// its reference implementation handles QSALIVE_REPLY only.
+integer QS_ALIVE_CENSUS   = 90079;
 // Counterpart (1.2563): a plugin drops its own entry again before it
 // self-deletes. Needed because ADJUST_DYN is add/replace-only otherwise and
 // only empties on OUR reset, so a creator-only tool removed by '/5 cleanup'
@@ -1303,6 +1327,13 @@ default
                     [label, chan, sName], ri, ri + 2);
             else
                 QSPLUG_REGISTRY += [label, chan, sName];
+            return;
+        }
+        if (num == QS_ALIVE_CENSUS)
+        {
+            // Scripts changed: drop every registered [ADJUST] entry and let
+            // the survivors re-announce. See the constant's header.
+            ADJUST_DYN = [];
             return;
         }
         if (num == QSADJ_REGISTER)
