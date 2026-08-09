@@ -13,7 +13,10 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.27";
+string version = "1.27";   // rev 1
+// Per-file running count of changes made AFTER the 1.27 stamp. Fold-ins
+// keep the version at 1.27, so the version string alone cannot tell two
+// builds apart. Bump it in the same edit that changes the file.
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
