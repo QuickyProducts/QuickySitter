@@ -1,5 +1,57 @@
 # QuickySitter v2 build status
 
+## The plan, 2026-07-29
+
+Built in LSL now, ported to SLua later (DESIGN.md banner). Two stages, so the
+first one ships on its own.
+
+### Stage 1 — drop-in replacement, nothing else changes
+
+`sitA` + `sitB` (2N scripts) become `core` + `seat` + `menu` (3 singletons).
+They read the **v1 LSD schema** that today's `boot` writes and speak the
+existing 900xx wire, so the notecard, the plugins, the HUD and every other
+script are untouched. A four seater goes from nine scripts to four.
+
+Work, in order:
+
+1. **Delete `[QS]anim`.** Permission cycling is measured (DESIGN.md §3), so the
+   per-seat script never existed for a reason.
+2. **`seat`** absorbs the animation driving: acquire and start every occupant in
+   one handler, two passes with one shared sleep for a pose change.
+3. **Re-point `seat`** at the v1 schema (`qs:cfg:<ch>`, `qs:sitter:<ch>`) instead
+   of `qs:i` / `qs:s`.
+4. **Re-point `core`** at `qs:p:<ch>:<i>`, and re-implement coupling as v1's
+   `SYNC`-broadcast-by-name rather than a seat list read off a pose row. This is
+   the largest single piece of rework.
+5. **Re-point `menu`** at the `qs:nm` / `qs:nt` sidecar.
+6. **Delete `[QS]boot`** from qs2. The v1 boot keeps its job.
+
+### Stage 2 — several pieces of furniture in one linkset
+
+Still wanted. Needs one new token and therefore does touch `boot`, which is why
+it is not in stage 1.
+
+```
+ITEM Bett
+SITTER 0|Links|F
+SITTER 1|Rechts|M
+ITEM Stuhl
+SITTER 2|Sitz
+```
+
+* `boot` writes `qs:item:count` and `qs:item:<n>` = `<name>|<firstSlot>|<count>`.
+  Nothing else in the notecard changes, and a file with no `ITEM` is one item.
+* **`core` scopes `SYNC` to the item.** This is the semantic that has to be
+  added rather than moved: v1 broadcasts a `SYNC` by name to every slot, so a
+  bed pose and a chair pose sharing a label would couple across two pieces of
+  furniture. Today that cannot happen because there is only ever one piece.
+* `seat` resolves a touched seat prim to its item.
+* Per-slot menus already exist in v1, so the menu side needs nothing.
+
+**Out of scope for stage 2:** binding a non-seat prim (a bed frame, a cushion)
+to an item so that touching it opens that item's menu. That needs prim-name
+binding, which is a creator-facing change, and it can be stage 3.
+
 > **2026-07-29: the format half is cancelled.** See the banner in
 > [DESIGN.md](DESIGN.md). The runtime split stands; the notecard format change
 > does not. What that costs of the code below:

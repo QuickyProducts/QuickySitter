@@ -21,18 +21,35 @@ Sections 4, 5 and [FORMAT.md](FORMAT.md) are kept as a record of the reasoning,
 not as a plan. [REGISTRY.md](REGISTRY.md) survives: it is a runtime mechanism and
 does not depend on the format.
 
-**Direction as of 2026-07-29: v2 is the SLua rewrite.** Not an LSL refactor that
-is later ported, but one rewrite at the point where the platform changes anyway.
-Product owner's reasoning, and it answers the question this document had failed
-to answer all day: what justifies a change of this size to creators. "A new
-notecard format" did not, and "fewer scripts" is invisible to them. "Runs on the
-new scripting language" is a generational statement, and during a beta everyone
-expects churn.
+**Direction, revised: build it in LSL now, port to SLua later.**
 
-That makes today's architecture work the design phase rather than wasted effort:
-`core` / `seat` / `menu`, no per-seat script, permission cycling proven. It is
-the design one would carry into a rewrite. See section 9 for what SLua actually
-provides.
+An earlier decision the same day made v2 *be* the SLua rewrite. Reversed,
+because SLua only runs in beta regions and therefore ships to nobody. Writing it
+twice is the price, and it is a low one: the second writing is a port of working
+code rather than a design under time pressure, and section 9 establishes that
+SLua and LSL coexist in a linkset, so the port can go one script at a time.
+
+**What v2 therefore is: a drop-in replacement for `sitA` and `sitB`.** This
+follows from the two decisions together. With the format change cancelled,
+`core` / `seat` / `menu` read the **v1 LSD schema** that today's `boot` already
+writes. With stock compatibility kept (section 7.5), they speak the existing
+900xx wire. So:
+
+| | changes |
+|---|---|
+| the notecard | no |
+| plugins | no |
+| the HUD | no |
+| `boot`, `prop`, `faces`, `offset`, RLV | no |
+| `sitA` + `sitB`, 2N scripts | **become 3 singletons** |
+
+A four seater goes from nine scripts to four. The creator swaps scripts and
+nothing else.
+
+That is also a better pitch to creators than "fewer scripts" sounded like
+earlier in this document. Script count and memory are visible in the object's
+contents and in a region's top-scripts list, and sim operators evict on exactly
+that. "A quarter of the script memory" is an argument that reaches the customer.
 
 Everything marked **measured** comes from the reference furniture (see
 Measurement basis). Everything else is derived from the code or from LSL
