@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.05";
+string version = "0.06";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -61,6 +61,7 @@ integer QSB_RELOAD  = 90431;
 integer AV_NEWSITTER  = 90060;
 integer AV_SITTERGONE = 90065;
 integer AV_MENUTOUSER = 90005;
+integer AV_SITTERSUPD = 90070;   // "sitter list updated", msg = slot, id = avatar
 
 // SEATS strided 5: primLink, occupant, currentAnim, basePos, baseRot
 // basePos/baseRot are what the running pose resolved to, kept so a live
@@ -270,6 +271,15 @@ seat_taken(integer seat, key av)
     // time, so there is no grant to wait for.
     llMessageLinked(LINK_SET, QSS_OCCUPIED, (string)seat, av);
     llMessageLinked(LINK_SET, AV_NEWSITTER, (string)seat, av);
+    // 90070 is what both HUD scripts build their own sitter mirror from
+    // (hudproxy maintains it on 90060/90065/90070/90045; hudadmin looks
+    // the avatar up in that list before attaching). v1 sends it from
+    // sitA once the permission grant lands; here there is no grant to
+    // wait for, so it goes out with the rest.
+    //
+    // Omitting it is why the HUD would not attach: hudadmin found the
+    // avatar nowhere in SITTERS.
+    llMessageLinked(LINK_SET, AV_SITTERSUPD, (string)seat, av);
     llMessageLinked(LINK_SET, QSS_SEATED, (string)seat, av);
 }
 
