@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.12";
+string version = "0.13";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -208,14 +208,22 @@ place_sittargets()
             ["OK"], 23658);
 }
 
-// The -0.4 Z shift and the nudge along the target's up axis are the
-// AVsitter convention for turning a pose position into a sit target
-// (sitA.lsl:460).
+// THE POSE POSITION, UNMODIFIED. v1 subtracts 0.4 on Z here and adds a
+// 0.05 nudge along the target's up axis (sitA.lsl:460), and measured
+// in-world every pose sat exactly that 0.4 too low.
+//
+// The compensation only ever made sense because in v1 the sit target is
+// a throwaway: sit_using_prim_params overwrites the avatar's position
+// microseconds later on every single pose apply, so whatever the target
+// said was never what anyone saw. Here move_occupant does that job, and
+// on the one occasion the target IS what the avatar gets - the instant
+// of sitting down, before any pose has been applied - a compensated
+// value is simply wrong by 0.4.
 set_seat_target(integer seat, vector pos, rotation rot)
 {
     integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
     if (link <= 0) return;
-    llLinkSitTarget(link, pos - <0.0, 0.0, 0.4> + llRot2Up(rot) * 0.05, rot);
+    llLinkSitTarget(link, pos, rot);
 }
 
 // A SEATED AVATAR IS ITS OWN LINK. Seated agents occupy link numbers
