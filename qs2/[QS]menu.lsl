@@ -44,18 +44,19 @@
  * channels may share a name - the "Lalou" notecard has three such pairs
  * including the default sit pose - so a label does not identify a pose.
  *
- * NOT BUILT YET: the seat picker, the swap dialog, the HUD wire
- * (90100/90101/90271/90299-90301), MTYPE/ETYPE click modes. See
- * qs2/STATUS.md.
+ * NOT BUILT YET: the seat picker, the swap dialog, MTYPE/ETYPE click
+ * modes. See qs2/STATUS.md.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.04";
+string version = "0.05";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
+integer AV_MENUCHOICE = 90100;   // back route: inject a menu click
+integer AV_MENUNAV    = 90101;   // same, submenu navigation
 integer QSC_REQUEST   = 90420;
 // v1 registration wire, unchanged so plugins do not notice the receiver
 // moving from sitB to here.
@@ -531,6 +532,36 @@ default
                 REG = llDeleteSubList(REG, at * REG_STRIDE,
                     at * REG_STRIDE + REG_STRIDE - 1);
             REG += [label, dest, chan, owner, flags];
+            return;
+        }
+
+        if (num == AV_MENUCHOICE || num == AV_MENUNAV)
+        {
+            // The back route. "<slot>|<msg>|<controller>|<menuIndex>",
+            // used by the HUD, the adjuster, [QS]faces and [QS]select to
+            // inject a menu click as if the operator had pressed it.
+            // Slot "X" is a wildcard for cross-slot routing.
+            //
+            // In v1 every sitB instance received this and had to filter
+            // on its own channel, which is where the "clicking [ADJUST]
+            // on slot 0 spawned a second dialog for slot 1" bug came
+            // from. A singleton has no such ambiguity: the slot field
+            // simply says which seat's menu to act on.
+            list f = llParseStringKeepNulls(msg, ["|"], []);
+            string sSlot = llList2String(f, 0);
+            string what  = llList2String(f, 1);
+            key who      = (key)llList2String(f, 2);
+            if (what == "") return;
+            if (who == "") return;
+
+            integer ch = 0;
+            if (sSlot != "X") ch = (integer)sSlot;
+
+            // Reuse the operator's open dialog if there is one, so a
+            // back-routed click lands in the menu they are looking at.
+            integer op = op_of_avatar(who);
+            if (op < 0) op = op_open(who, ch);
+            click(op, what);
             return;
         }
 

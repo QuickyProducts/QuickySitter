@@ -42,14 +42,14 @@
  * NOT BUILT YET, deliberately rather than forgotten:
  *   - SEQUENCE stepping
  *   - the keyframed-motion pause/resume around a pose change (KFM)
- *   - the HUD wire, which lives in [QS]menu
+ *   - camera, which v1 drives from the notecard through [AV]camera
  * See qs2/STATUS.md.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.03";
+string version = "0.04";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -68,6 +68,16 @@ integer QSB_RELOAD  = 90431;
 integer AV_POSEPLAYED  = 90045;   // core -> all: what is playing
 integer AV_PLUGINPROBE = 90201;   // core -> plugins: announce yourselves
 integer AV_PLUGINREPLY = 90202;   // root-security -> core
+
+// QuickySitter presence. The project's documented way to detect a sitter
+// and read its version; hudadmin forwards the version to the updater.
+// In v1 only slot-0 sitA answered so that a probe got exactly one reply;
+// a singleton has that for free.
+integer QSALIVE_PROBE = 90096;
+integer QSALIVE_REPLY = 90097;
+
+integer AV_RESYNC     = 90271;    // hudproxy or any in-prim source
+integer AV_POSESAVED  = 90301;    // adjuster -> here, after a [SAVE]
 
 integer has_security;
 integer SEATS;                    // channel count
@@ -346,6 +356,55 @@ default
                         if (at == -1) at = find_by_name(c, "P:" + cur);
                         if (at >= 0) { start_entry(c, at); return; }
                     }
+                }
+                ++c;
+            }
+            return;
+        }
+
+        if (num == QSALIVE_PROBE)
+        {
+            // "<product>|<version>|<sitterCount>|<capabilityCSV>", parsed
+            // by the receiver with llParseString2List; KeepNulls would
+            // re-introduce the trailing-empty bug.
+            //
+            // The capability list is deliberately SHORTER than v1's. v1
+            // advertises "customs90260,dump90098,offsetlsd_v1"; v2 reads
+            // the QSO offset store but implements neither the 90260
+            // personal-offset wire nor the DUMP probe yet, and claiming a
+            // capability that is absent is worse than lacking it.
+            llMessageLinked(LINK_SET, QSALIVE_REPLY,
+                "QuickySitter|" + version + "|" + (string)SEATS + "|"
+                + "offsetlsd_v1", "");
+            return;
+        }
+
+        if (num == AV_RESYNC)
+        {
+            // Stop and restart what is playing, so a couple pose that has
+            // drifted comes back into phase. Re-applying the pose does
+            // exactly that and re-resolves the offsets while it is at it.
+            llMessageLinked(LINK_SET, QSC_RESYNC, "", "");
+            return;
+        }
+
+        if (num == AV_POSESAVED)
+        {
+            // The adjuster saved a pose: "<name>|<pos>|<rot>|". Refresh
+            // only if that pose is the one currently playing on a seat,
+            // which is v1's rule (sitB is stricter than sitA here on
+            // purpose). The payload is authoritative, but core re-reads
+            // qs:p because the adjuster has already written it.
+            list f = llParseString2List(msg, ["|"], []);
+            string name = llList2String(f, 0);
+            integer c = 0;
+            while (c < SEATS)
+            {
+                if (llLinksetDataRead("qs:cur:" + (string)c) == name)
+                {
+                    integer at = find_by_name(c, name);
+                    if (at == -1) at = find_by_name(c, "P:" + name);
+                    if (at >= 0) { start_entry(c, at); return; }
                 }
                 ++c;
             }

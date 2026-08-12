@@ -121,7 +121,7 @@ before this is furniture.
 | `core` | **`SEQUENCE`** stepping and its timer path | parsed into `qs:x:*`, not consumed |
 | `core` | **Keyframed motion** path in sit-target application | v1 pauses and resumes `llSetKeyframedMotion` around a pose change |
 | `core` | Legacy 90045 pose-played broadcast | emitted; 90005 and 90060/90065 are done in seat. The rest of §7.5 is untested. |
-| `menu` | **HUD wire** (90100, 90101, 90271, 90299-90301) | absent entirely |
+| `menu` | 90299/90300 | 90100/90101 back route, 90271 resync and 90301 pose-saved are done. These two are not, and their contract has not been read yet. |
 | `menu` | **Seat picker** and **swap dialog** | `seat` can swap; nothing asks it to |
 | `menu` | `MTYPE` / `ETYPE` click modes, `llPassTouches` | touch always opens a menu today |
 | `menu` | `[OPTIONS]` as a distinct node | registered entries land at the path they ask for, but the v1 `[OPTIONS]` grouping behaviour is not reproduced |
