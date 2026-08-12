@@ -53,7 +53,10 @@ that. "A quarter of the script memory" is an argument that reaches the customer.
 
 Everything marked **measured** comes from the reference furniture (see
 Measurement basis). Everything else is derived from the code or from LSL
-semantics and is flagged as such. Nothing here has been reproduced in-world.
+semantics and is flagged as such.
+
+In-world so far: the permission-cycling measurements in section 3, and stage 1
+compiling on 2026-07-29. Nothing else has been reproduced.
 
 Related prior record: the Google Doc "QuickySitter: SET, Stations, and a
 From-Zero Seat Model" (2026-07-27) covers sections 4 and 5 in an earlier form.

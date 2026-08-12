@@ -12,19 +12,34 @@ They read the **v1 LSD schema** that today's `boot` writes and speak the
 existing 900xx wire, so the notecard, the plugins, the HUD and every other
 script are untouched. A four seater goes from nine scripts to four.
 
-Work, in order:
+Work, in order. **All six done, and it compiles** (2026-07-29).
 
-1. **Delete `[QS]anim`.** Permission cycling is measured (DESIGN.md §3), so the
-   per-seat script never existed for a reason.
-2. **`seat`** absorbs the animation driving: acquire and start every occupant in
+1. ~~Delete `[QS]anim`.~~ Permission cycling is measured (DESIGN.md §3), so the
+   per-seat script never needed to exist.
+2. ~~`seat` absorbs the animation driving:~~ acquire and start every occupant in
    one handler, two passes with one shared sleep for a pose change.
-3. **Re-point `seat`** at the v1 schema (`qs:cfg:<ch>`, `qs:sitter:<ch>`) instead
-   of `qs:i` / `qs:s`.
-4. **Re-point `core`** at `qs:p:<ch>:<i>`, and re-implement coupling as v1's
-   `SYNC`-broadcast-by-name rather than a seat list read off a pose row. This is
-   the largest single piece of rework.
-5. **Re-point `menu`** at the `qs:nm` / `qs:nt` sidecar.
-6. **Delete `[QS]boot`** from qs2. The v1 boot keeps its job.
+3. ~~Re-point `seat`~~ at the v1 schema (`qs:cfg:<ch>`, `qs:sitter:<ch>`).
+4. ~~Re-point `core`~~ at `qs:p:<ch>:<i>`, coupling re-implemented as v1's
+   `SYNC`-broadcast-by-name. The largest single piece of rework.
+5. ~~Re-point `menu`~~ at the `qs:nm` / `qs:nt` sidecar.
+6. ~~Delete `[QS]boot`~~ from qs2. The v1 boot keeps its job.
+
+**Compiling means the syntax is valid and nothing else.** The schema reads, the
+wire and the behaviour are all still unverified, and the gaps listed further
+down are still gaps.
+
+It does unblock the figure that has been open since the first draft. DESIGN
+questions 1 and 1b ask what these three actually cost, and every number in
+DESIGN section 2 is an estimate at 50 bytes per line of code. All three print
+`llGetFreeMemory` in their ready line at verbose 1, so a `VERBOSE 1` in the
+notecard turns the projection into a measurement.
+
+| Script | code lines | predicted at 50 B/line |
+|---|---|---|
+| `core` | 235 | ~11.8 KB |
+| `seat` | 294 | ~14.7 KB |
+| `menu` | 356 | ~17.8 KB |
+| **total** | **885** | **~44 KB**, against 2 x 64 KB per seat today |
 
 ### Stage 2 — several pieces of furniture in one linkset
 
