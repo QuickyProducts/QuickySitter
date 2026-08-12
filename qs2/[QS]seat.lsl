@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.08";
+string version = "0.09";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -490,7 +490,7 @@ default
 
         if (num == AV_HELPERMOVED)
         {
-            // The HUD's adjust arrows, and [AV]helper, land here. str is
+            // The HUD's adjust arrows, and [AV]helper, land here. msg is
             // the seat, id is "<absPos>|<eulerRotDeg>|" and BOTH ARE
             // ABSOLUTE: hudproxy has already added the personal offset
             // (hudproxy.lsl:713), so adding the seat's base here would
@@ -503,7 +503,7 @@ default
             // Nothing is persisted. Saving is the HUD's own 90262 to
             // [QS]offset, and a re-applied pose is meant to snap back to
             // the stored value when the operator never pressed [SAVE].
-            integer seat = (integer)str;
+            integer seat = (integer)msg;
             if (seat < 0) return;
             if (seat >= llGetListLength(SEATS) / SEAT_STRIDE) return;
             list f = llParseString2List((string)id, ["|"], []);
