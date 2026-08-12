@@ -3,52 +3,53 @@
  *
  * Singleton. It owns WHAT GETS PLAYED. [QS]seat owns WHO SITS WHERE.
  *
- * Responsibilities: the pose model, resolving a pose into per-seat
- * animations and positions, default and personal offsets, gender
- * variants, sequences, camera, access gating, and the broadcast that
- * plugins listen to.
+ * DROP-IN REPLACEMENT: reads the schema today's [QS]boot already writes
+ * and speaks the existing 900xx wire. See qs2/STATUS.md stage 1.
  *
- * WHY IT NEVER ASKS WHO IS SITTING
+ * THE v1 ENTRY MODEL, which this is built on
  *
- * Occupancy lives in LSD (qs:occ:*), written by [QS]seat. core reads it
- * directly. That is what keeps the core/seat split off the hot path: a
- * pose start is resolve-then-one-message, not a conversation.
+ *   qs:p:<ch>:<i>       "<name>|<type>|<anim>|<pos>|<rot>"   KeepNulls
+ *   qs:cfg:slots:<ch>   entry count for that channel
  *
- * NO LISTENER, NO PERMISSIONS, NO CHANGED_LINK. Dialogs belong to
- * [QS]menu, permission and animation to [QS]seat, occupancy too.
+ * type is one of:
+ *   P  pose, SLOT-LOCAL. Only this channel plays it. name carries a
+ *      "P:" prefix.
+ *   S  sync. Couples across channels BY NAME, and the name has no
+ *      prefix, which is what makes the match work.
+ *   T  submenu button ("T:" prefix), M  menu marker, B  button
+ *      ("B:" prefix). All three belong to [QS]menu, not here.
  *
- * POSE DATA IN LSD (written by [QS]boot)
+ * Every channel carries its OWN full list, menu tree included. There is
+ * no shared pose table.
  *
- *   qs:p:<item>:count        number of poses in this item
- *   qs:p:<item>:<n>          "<label>|<seat>=<anim>|<seat>=<anim>|…"
- *   qs:o:<item>:<n>:<seat>   "<pos>|<rot>"   default offset, from POS lines
- *   qs:x:<item>:SEQUENCE:<n> "<menuPath>|<label>|<pose>,<secs>,…"
- *   qs:cfg:<item>:CAMERA     "<eyeOffset>|<atOffset>"   optional
+ * COUPLING IS THE TOKEN, NOT THE NAME. This is the semantic that had to
+ * be rebuilt rather than moved. v1 dispatches a P to `channel =
+ * SCRIPT_CHANNEL` and an S to `channel = ""`, a broadcast every sitA
+ * then resolves against its own list (sitB.lsl:933). So two same-named
+ * P entries in different channels are INDEPENDENT poses that merely
+ * share a label, and the "Lalou" notecard has three such pairs (Sit,
+ * Phone call, Dance) including the default sit pose. Matching on the
+ * name alone would hand seat 1 seat 0's pose.
  *
- * Personal offsets keep the v1 shape with the v2 address:
- *   QSO:<short>:<item>/<seat>:<label>
+ * WHY IT NEVER ASKS WHO IS SITTING. Occupancy lives in LSD (qs:occ:<ch>),
+ * written by seat. core reads it directly, which is what keeps the
+ * core/seat split off the hot path: a pose start is resolve-then-one-
+ * message, not a conversation.
  *
- * GENDER. A seat carries M, F or empty. A pose may offer per-gender
- * animation variants as "<seat>=<animM>/<animF>"; a seat whose gender is
- * empty takes the first. Absent a slash, both genders get the same
- * animation, which is the common case.
+ * NO LISTENER, NO PERMISSIONS, NO CHANGED_LINK. Dialogs belong to menu,
+ * permission and animation to seat, occupancy too.
  *
- * STOCK COMPATIBILITY. The legacy 90045 / 90060 / 90065 broadcasts are
- * emitted alongside the v2 wire, carrying slot integers, so stock
- * AVsitter plugins keep working (DESIGN.md §7.5). 90060/90065 are sent
- * by [QS]seat, which owns occupancy; 90045 is sent here, since it
- * describes the pose.
- *
- * NOT BUILT YET: the keyframed-motion pause/resume path around a pose
- * change, and the HUD wire (that lives in [QS]menu). See qs2/STATUS.md.
- *
- * Wire: see qs2/PROTOCOL.md.
+ * NOT BUILT YET, deliberately rather than forgotten:
+ *   - SEQUENCE stepping
+ *   - the keyframed-motion pause/resume around a pose change (KFM)
+ *   - the HUD wire, which lives in [QS]menu
+ * See qs2/STATUS.md.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.02";
+string version = "0.03";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -57,25 +58,21 @@ integer QSC_REQUEST = 90420;
 integer QSC_APPLY   = 90421;
 integer QSC_PLAYING = 90422;
 integer QSC_RESYNC  = 90423;
-integer QSC_ALLOWED = 90424;   // core → menu, answer to QSC_MAYI
-integer QSC_MAYI    = 90425;   // menu → core, "may this avatar operate <item>"
+integer QSC_ALLOWED = 90424;
+integer QSC_MAYI    = 90425;
 
 integer QSB_READY   = 90430;
 integer QSB_RELOAD  = 90431;
 
-// Stock AVsitter numbers, emitted for compatibility.
-integer AV_POSEPLAYED = 90045;
-integer AV_PLUGINPROBE = 90201;
-integer AV_PLUGINREPLY = 90202;
-integer AV_CAMERA      = 90202;   // sitA→camera used 90202 in the other direction
+// Stock AVsitter numbers.
+integer AV_POSEPLAYED  = 90045;   // core -> all: what is playing
+integer AV_PLUGINPROBE = 90201;   // core -> plugins: announce yourselves
+integer AV_PLUGINREPLY = 90202;   // root-security -> core
 
 integer has_security;
-
-// Sequence runner. One at a time per object, which matches v1: a
-// sequence drives the whole item, not a single seat.
-string  seq_item;
-list    seq_steps;      // strided 2: poseLabel, seconds
-integer seq_at;
+integer SEATS;                    // channel count
+integer DFLT;
+integer SET;
 
 integer verbose = 0;
 
@@ -85,17 +82,19 @@ Out(integer level, string s)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
 }
 
-string qso_key(key av, string addr, string label)
+// v1 key shape, unchanged: the address is the slot integer.
+string qso_key(key av, integer seat, string label)
 {
-    return "QSO:" + llGetSubString((string)av, 0, 7) + ":" + addr + ":" + label;
+    return "QSO:" + llGetSubString((string)av, 0, 7) + ":" + (string)seat
+         + ":" + label;
 }
 
 // ------------------------------------------------------------- access
 
-// Same shape as v1's adjust_allowed(): the owner always passes, otherwise
-// the level comes from [QS]root-security via qs:sec:adjust. has_security
-// is bound to the existence of a 90202 reply, not to its payload, exactly
-// as sitB binds it.
+// Same shape as v1's adjust_allowed() (sitB.lsl:626): the owner always
+// passes, otherwise the level comes from [QS]root-security via
+// qs:sec:adjust. has_security is bound to the EXISTENCE of a 90202
+// reply, not to its payload, exactly as sitB binds it.
 integer allowed(key av)
 {
     if (av == llGetOwner()) return TRUE;
@@ -106,75 +105,76 @@ integer allowed(key av)
     return FALSE;
 }
 
-// A seated avatar may always drive the item it is sitting on. Sitting is
-// itself the permission; the gate above is for people who are not.
-integer seated_on(key av, string item)
+// Sitting is itself the permission; the gate above is for people who
+// are not sitting.
+integer seated_anywhere(key av)
 {
-    integer n = (integer)llLinksetDataRead("qs:s:count");
     integer i = 0;
-    while (i < n)
+    while (i < SEATS)
     {
-        list s = llParseString2List(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-        if (llLinksetDataRead("qs:occ:" + item + "/" + llList2String(s, 0)) == (string)av)
-            return TRUE;
+        if (llLinksetDataRead("qs:occ:" + (string)i) == (string)av) return TRUE;
         ++i;
     }
     return FALSE;
 }
 
-// ------------------------------------------------------------- helpers
+// ------------------------------------------------------------- entries
 
-string seat_field(string item, string seatName, integer idx)
+list entry(integer ch, integer i)
 {
-    integer n = (integer)llLinksetDataRead("qs:s:count");
+    string v = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i);
+    if (v == "") return [];
+    return llParseStringKeepNulls(v, ["|"], []);
+}
+
+// T:/P:/B: carry a two-character prefix; S does not, which is exactly
+// why a SYNC name matches across channels unmodified.
+string bare_name(string name)
+{
+    if (llListFindList(["T:", "P:", "B:"], [llGetSubString(name, 0, 1)]) == -1)
+        return name;
+    return llGetSubString(name, 2, 99999);
+}
+
+// Find the entry in this channel whose name matches, for the SYNC
+// broadcast. Compares the raw field, since S entries are unprefixed.
+integer find_by_name(integer ch, string name)
+{
+    integer n = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)ch);
     integer i = 0;
     while (i < n)
     {
-        list s = llParseStringKeepNulls(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-        if (llList2String(s, 0) == seatName) return llList2String(s, idx);
+        list e = entry(ch, i);
+        if (llList2String(e, 0) == name)
+        {
+            string t = llList2String(e, 1);
+            if (t == "S") return i;
+            if (t == "P") return i;
+        }
         ++i;
     }
-    return "";
+    return -1;
 }
 
-integer slot_of(string addr)
+// -------------------------------------------------------------- offsets
+
+// Default from the entry itself (fields 3 and 4), plus the seated user's
+// personal offset if they saved one. Both are plain LSD reads, which is
+// why this stays here rather than moving to the offset plugin with the
+// editing UI: a wire round trip would make the pose visibly jump into
+// place.
+list resolve_offset(integer seat, list e, string label)
 {
-    string v = llLinksetDataRead("qs:slot:" + addr);
-    if (v == "") return 0;
-    return (integer)v;
-}
+    vector pos = (vector)llList2String(e, 3);
+    vector rot = (vector)llList2String(e, 4);
 
-// "animM/animF". A seat with no gender takes the first variant, which is
-// also what a pose with no slash gives everybody.
-string pick_gender(string anim, string gender)
-{
-    integer cut = llSubStringIndex(anim, "/");
-    if (cut == -1) return anim;
-    if (gender == "F") return llGetSubString(anim, cut + 1, -1);
-    return llGetSubString(anim, 0, cut - 1);
-}
-
-list resolve_offset(string item, integer idx, string seatName, string label)
-{
-    vector pos = ZERO_VECTOR;
-    vector rot = ZERO_VECTOR;
-
-    string d = llLinksetDataRead("qs:o:" + item + ":" + (string)idx + ":" + seatName);
-    if (d != "")
-    {
-        list p = llParseString2List(d, ["|"], []);
-        pos = (vector)llList2String(p, 0);
-        rot = (vector)llList2String(p, 1);
-    }
-
-    string addr = item + "/" + seatName;
-    key av = (key)llLinksetDataRead("qs:occ:" + addr);
+    key av = (key)llLinksetDataRead("qs:occ:" + (string)seat);
     if (av != "")
     {
-        string pers = llLinksetDataRead(qso_key(av, addr, label));
+        string pers = llLinksetDataRead(qso_key(av, seat, label));
         // M#T! is the reserved "same offset for every pose" entry, kept
         // from v1 unchanged.
-        if (pers == "") pers = llLinksetDataRead(qso_key(av, addr, "M#T!"));
+        if (pers == "") pers = llLinksetDataRead(qso_key(av, seat, "M#T!"));
         if (pers != "")
         {
             list p = llParseString2List(pers, ["|"], []);
@@ -185,289 +185,182 @@ list resolve_offset(string item, integer idx, string seatName, string label)
     return [pos, rot];
 }
 
-// Label alone is NOT a unique pose identity, and a real notecard proves
-// it: "Lalou" carries a slot-local POSE named "Sit" in both sitter blocks
-// with different animations, and the same for "Phone call" and "Dance".
-// They are independent poses that share a label, so the identity is the
-// pair (label, participating seat) — which is exactly why no separate ID
-// concept is needed, as long as the caller says which seat is asking.
-//
-// seatName == "" means "any", for callers with no seat (a resync sweep).
-integer pose_by_label(string item, string label, string seatName)
-{
-    integer n = (integer)llLinksetDataRead("qs:p:" + item + ":count");
-    integer i = 0;
-    while (i < n)
-    {
-        string row = llLinksetDataRead("qs:p:" + item + ":" + (string)i);
-        list f = llParseString2List(row, ["|"], []);
-        if (llList2String(f, 0) == label)
-        {
-            if (seatName == "") return i;
-            integer j = 1;
-            integer m = llGetListLength(f);
-            while (j < m)
-            {
-                string pair = llList2String(f, j);
-                integer cut = llSubStringIndex(pair, "=");
-                if (cut > 0)
-                {
-                    if (llGetSubString(pair, 0, cut - 1) == seatName) return i;
-                }
-                ++j;
-            }
-        }
-        ++i;
-    }
-    return -1;
-}
+// -------------------------------------------------------------- camera
 
-// Which seat is this avatar in, within this item. "" when not seated.
-string seat_of(key av, string item)
+apply_camera(integer seat)
 {
-    integer n = (integer)llLinksetDataRead("qs:s:count");
-    integer i = 0;
-    while (i < n)
-    {
-        list s = llParseString2List(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-        string nm = llList2String(s, 0);
-        if (llLinksetDataRead("qs:occ:" + item + "/" + nm) == (string)av) return nm;
-        ++i;
-    }
-    return "";
-}
-
-// --------------------------------------------------------------- camera
-
-// Optional per item: "<eyeOffset>|<atOffset>". Applied to every occupant
-// of the item when a pose starts, which is when v1 applies it too.
-apply_camera(string item)
-{
-    string c = llLinksetDataRead("qs:cfg:" + item + ":CAMERA");
-    if (c == "") return;
-    list f = llParseString2List(c, ["|"], []);
-    llMessageLinked(LINK_SET, AV_CAMERA, llList2String(f, 0), llList2String(f, 1));
+    // v1 drives the camera over 90202 in the plugin direction. Not wired
+    // here yet; the entry model carries no camera field, it comes from
+    // the notecard's CAMERA handling in [AV]camera.
 }
 
 // ----------------------------------------------------------- pose start
 
-start_pose(string item, integer idx)
+// Build one QSC_APPLY row.
+string row_for(integer seat, list e, string label)
 {
-    string row = llLinksetDataRead("qs:p:" + item + ":" + (string)idx);
-    if (row == "") return;
+    list o = resolve_offset(seat, e, label);
+    return (string)seat + "=" + llList2String(e, 2)
+         + "=" + (string)llList2Vector(o, 0)
+         + "=" + (string)llList2Vector(o, 1);
+}
 
-    list f = llParseString2List(row, ["|"], []);
-    string label = llList2String(f, 0);
+// Play entry <i> of channel <ch>, and everything it couples to.
+start_entry(integer ch, integer i)
+{
+    list e = entry(ch, i);
+    if (llGetListLength(e) == 0) return;
 
-    string payload = "";
-    string sitters = "";
-    integer i = 1;
-    integer n = llGetListLength(f);
-    while (i < n)
+    string name  = llList2String(e, 0);
+    string etype = llList2String(e, 1);
+    string label = bare_name(name);
+
+    string payload = row_for(ch, e, label);
+    llLinksetDataWrite("qs:cur:" + (string)ch, label);
+    string sitters = llLinksetDataRead("qs:occ:" + (string)ch);
+
+    if (etype == "S")
     {
-        string pair = llList2String(f, i);
-        integer cut = llSubStringIndex(pair, "=");
-        if (cut > 0)
+        // The broadcast. Every OTHER occupied channel looks for an entry
+        // of its own with this name and plays that one. A channel that
+        // has no such entry is simply not touched, which is how v1
+        // scopes a SYNC without any grouping token.
+        integer c = 0;
+        while (c < SEATS)
         {
-            string seatName = llGetSubString(pair, 0, cut - 1);
-            string anim     = llGetSubString(pair, cut + 1, -1);
-            string addr     = item + "/" + seatName;
-            key occ = (key)llLinksetDataRead("qs:occ:" + addr);
-
-            // A named but empty seat is skipped, not left half applied.
-            if (occ != "")
+            if (c != ch)
             {
-                anim = pick_gender(anim, seat_field(item, seatName, 2));
-                list o = resolve_offset(item, idx, seatName, label);
-                if (payload != "") payload += "|";
-                payload += seatName + "=" + anim
-                         + "=" + (string)llList2Vector(o, 0)
-                         + "=" + (string)llList2Vector(o, 1);
-                llLinksetDataWrite("qs:cur:" + addr, label);
-                if (sitters != "") sitters += "@";
-                sitters += (string)occ;
+                if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+                {
+                    integer at = find_by_name(c, name);
+                    if (at >= 0)
+                    {
+                        list e2 = entry(c, at);
+                        payload += "|" + row_for(c, e2, label);
+                        llLinksetDataWrite("qs:cur:" + (string)c, label);
+                        sitters += "@" + llLinksetDataRead("qs:occ:" + (string)c);
+                    }
+                }
             }
+            ++c;
         }
-        ++i;
     }
 
-    if (payload == "") return;
-    llMessageLinked(LINK_SET, QSC_APPLY, payload, item);
-    llMessageLinked(LINK_SET, QSC_PLAYING, item + "|" + label, "");
-    apply_camera(item);
+    llMessageLinked(LINK_SET, QSC_APPLY, payload, "");
+    llMessageLinked(LINK_SET, QSC_PLAYING, (string)ch + "|" + label, "");
 
-    // Stock AVsitter pose-played broadcast. Slot integers on the wire,
-    // names in LSD: that separation is what lets stock plugins keep
-    // working on v2 (DESIGN.md §7.5). Fields follow v1's sitA:571 shape.
+    // Stock pose-played broadcast, field order from sitA.lsl:571.
+    integer isSync = 0;
+    if (etype == "S") isSync = 1;
     llMessageLinked(LINK_SET, AV_POSEPLAYED,
-        llDumpList2String([slot_of(item + "/" + llList2String(
-            llParseString2List(llList2String(f, 1), ["="], []), 0)),
-            label, "", 0, sitters, 0, 1], "|"), "");
+        llDumpList2String([ch, label, "", SET, sitters, 0, isSync], "|"),
+        (key)llLinksetDataRead("qs:occ:" + (string)ch));
 
-    Out(2, "play " + item + " / " + label);
+    Out(2, "play ch" + (string)ch + " " + label + " type=" + etype);
 }
 
-start_default(string item)
+// First playable entry of a channel, for a fresh occupant.
+start_default(integer ch)
 {
-    if ((integer)llLinksetDataRead("qs:p:" + item + ":count") > 0)
-        start_pose(item, 0);
-}
-
-// ------------------------------------------------------------ sequences
-
-// "<menuPath>|<label>|<pose>,<secs>,<pose>,<secs>,…"
-seq_start(string item, string label)
-{
-    integer n = (integer)llLinksetDataRead("qs:x:" + item + ":SEQUENCE:count");
+    integer n = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)ch);
     integer i = 0;
     while (i < n)
     {
-        list f = llParseString2List(
-            llLinksetDataRead("qs:x:" + item + ":SEQUENCE:" + (string)i), ["|"], []);
-        if (llList2String(f, 1) == label)
-        {
-            seq_item  = item;
-            seq_steps = llParseString2List(llList2String(f, 2), [","], []);
-            seq_at    = 0;
-            i = n;
-            // Fire the first step immediately; the timer only paces the rest.
-            integer at = pose_by_label(item, llList2String(seq_steps, 0), "");
-            if (at >= 0) start_pose(item, at);
-            llSetTimerEvent((float)llList2String(seq_steps, 1));
-            return;
-        }
+        string t = llList2String(entry(ch, i), 1);
+        if (t == "P" || t == "S") { start_entry(ch, i); return; }
         ++i;
     }
 }
 
-seq_stop()
+load_cfg()
 {
-    seq_item = "";
-    seq_steps = [];
-    llSetTimerEvent(0.0);
+    string v = llLinksetDataRead("qs:cfg:verbose");
+    if (v != "") verbose = (integer)v;
+
+    list cfg = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:0"), ["\n"], []);
+    SET  = (integer)llList2String(cfg, 2);
+    DFLT = (integer)llList2String(cfg, 10);
+
+    SEATS = 0;
+    while (llLinksetDataRead("qs:sitter:" + (string)SEATS) != "") ++SEATS;
 }
 
 default
 {
     state_entry()
     {
-        string v = llLinksetDataRead("qs:cfg:verbose");
-        if (v != "") verbose = (integer)v;
+        load_cfg();
         has_security = FALSE;
-        // Same handshake v1 uses: ask, and treat a reply as proof that
+        // Same handshake v1 uses: ask, and treat any reply as proof that
         // [QS]root-security exists.
         llMessageLinked(LINK_SET, AV_PLUGINPROBE, "", "");
-        Out(1, "ready, mem=" + (string)llGetFreeMemory());
-    }
-
-    timer()
-    {
-        if (seq_item == "") { llSetTimerEvent(0.0); return; }
-        seq_at += 2;
-        if (seq_at >= llGetListLength(seq_steps)) seq_at = 0;   // loop, as v1 does
-        integer at = pose_by_label(seq_item, llList2String(seq_steps, seq_at), "");
-        if (at >= 0) start_pose(seq_item, at);
-        llSetTimerEvent((float)llList2String(seq_steps, seq_at + 1));
+        Out(1, "ready, seats=" + (string)SEATS
+            + " mem=" + (string)llGetFreeMemory());
     }
 
     link_message(integer sender, integer num, string msg, key id)
     {
         if (num == QSS_SEATED)
         {
-            integer cut = llSubStringIndex(msg, "/");
-            if (cut > 0) start_default(llGetSubString(msg, 0, cut - 1));
-            return;
-        }
-
-        if (num == QSS_VACATED)
-        {
-            // A sequence is an item-level effect; with the item empty it
-            // has nothing left to drive.
-            if (seq_item != "")
-            {
-                integer cut = llSubStringIndex(msg, "/");
-                if (cut > 0)
-                {
-                    if (llGetSubString(msg, 0, cut - 1) == seq_item) seq_stop();
-                }
-            }
-            return;
-        }
-
-        if (num == QSC_MAYI)
-        {
-            // menu asks before opening. Answer carries the same msg back
-            // so menu can match it to the operator without extra state.
-            integer ok = FALSE;
-            if (seated_on(id, msg)) ok = TRUE;
-            else ok = allowed(id);
-            llMessageLinked(LINK_SET, QSC_ALLOWED, msg + "|" + (string)ok, id);
+            start_default((integer)msg);
             return;
         }
 
         if (num == QSC_REQUEST)
         {
+            // msg = "<seat>|<entryIndex>". menu sends the index rather
+            // than a label precisely because a label is not unique.
             list f = llParseString2List(msg, ["|"], []);
-            string item = llList2String(f, 0);
-            string label = llList2String(f, 1);
-
-            if (!seated_on(id, item))
+            integer ch = (integer)llList2String(f, 0);
+            if (!seated_anywhere(id))
             {
                 if (!allowed(id)) return;
             }
+            start_entry(ch, (integer)llList2String(f, 1));
+            return;
+        }
 
-            // A sequence label and a pose label share one namespace on the
-            // wire; sequences are checked first because a sequence that
-            // shares a pose's name should drive the sequence.
-            integer before = llGetListLength(seq_steps);
-            seq_start(item, label);
-            if (llGetListLength(seq_steps) != before) return;
-            if (seq_item != "")
-            {
-                if (llList2String(seq_steps, 0) == label) return;
-            }
-
-            seq_stop();
-            integer idx = pose_by_label(item, label, seat_of(id, item));
-            if (idx >= 0) start_pose(item, idx);
+        if (num == QSC_MAYI)
+        {
+            integer ok = FALSE;
+            if (seated_anywhere(id)) ok = TRUE;
+            else ok = allowed(id);
+            llMessageLinked(LINK_SET, QSC_ALLOWED, msg + "|" + (string)ok, id);
             return;
         }
 
         if (num == QSC_RESYNC)
         {
-            string item = msg;
-            if (item == "")
-                item = llList2String(llParseString2List(
-                    llLinksetDataRead("qs:i:0"), ["|"], []), 0);
-            integer n = (integer)llLinksetDataRead("qs:s:count");
-            integer i = 0;
-            while (i < n)
+            // Re-apply whatever each occupied seat is currently playing.
+            // Driving it from seat 0 outward means a SYNC re-couples the
+            // others as a side effect rather than being applied twice.
+            integer c = 0;
+            while (c < SEATS)
             {
-                list s = llParseString2List(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-                string cur = llLinksetDataRead("qs:cur:" + item + "/" + llList2String(s, 0));
+                string cur = llLinksetDataRead("qs:cur:" + (string)c);
                 if (cur != "")
                 {
-                    integer idx = pose_by_label(item, cur, llList2String(s, 0));
-                    if (idx >= 0) { start_pose(item, idx); i = n; }
+                    if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+                    {
+                        integer at = find_by_name(c, cur);
+                        if (at == -1) at = find_by_name(c, "P:" + cur);
+                        if (at >= 0) { start_entry(c, at); return; }
+                    }
                 }
-                ++i;
+                ++c;
             }
             return;
         }
 
         if (num == AV_PLUGINREPLY)
         {
-            // Bound to the existence of a reply, not its payload, exactly
-            // as v1's sitB does.
             has_security = TRUE;
             return;
         }
 
         if (num == QSB_READY || num == QSB_RELOAD)
         {
-            string v = llLinksetDataRead("qs:cfg:verbose");
-            if (v != "") verbose = (integer)v;
-            seq_stop();
+            load_cfg();
             llMessageLinked(LINK_SET, AV_PLUGINPROBE, "", "");
             return;
         }

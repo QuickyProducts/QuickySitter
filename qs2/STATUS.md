@@ -143,3 +143,25 @@ converter. `[QS]offset` still addresses by slot and needs the v2 address.
 3. Access gating in `core`. It is the gap with the worst failure mode.
 4. Gender, then camera, then the HUD wire.
 5. Everything else.
+
+## Found while re-pointing at the v1 schema
+
+**`GENDERS` steers seat assignment, not animation choice.** An earlier v2 draft
+had per-gender animation variants (`seat=animM/animF`) in the pose row. No such
+thing exists. v1 uses the sitter's body-shape gender to pick *which free seat*
+they land on ([sitA.lsl:1334]), falling back to a seat marked `-1`. That is a
+`seat` concern and it is **not implemented yet**; right now an avatar keeps
+whichever prim they sat on.
+
+**A label is not a pose identity, and the v1 wire already knew that.** `menu`
+must send `core` an entry *index*, not a label. Two `P` entries in different
+channels with the same name are independent poses, and the "Lalou" notecard has
+three such pairs including the default sit pose.
+
+**Still missing in `core`:** `SEQUENCE` stepping, the keyframed-motion
+pause/resume around a pose change, and camera. v1 drives the camera from the
+notecard through `[AV]camera` rather than from the pose entry, so it needs its
+own look.
+
+**Still missing in `seat`:** gender-based seat assignment (above), and the
+`llUnSit` access gate that v1 runs in `sitB`'s `changed()`.
