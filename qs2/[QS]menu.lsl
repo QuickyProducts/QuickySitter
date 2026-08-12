@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.06";
+string version = "0.07";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -439,12 +439,24 @@ render(integer op)
         i += REG_STRIDE;
     }
 
+    // Is the built-in offset pad available to this operator? It is an
+    // END-USER feature and must NOT depend on any authoring tool being
+    // present: finalised furniture ships without [QS]adjuster and its
+    // customers still adjust their own seat.
+    integer hasPad = FALSE;
+    if (seat_of(av) >= 0)
+    {
+        if (llLinksetDataRead("qs:cur:" + (string)ch) != "") hasPad = TRUE;
+    }
+
     // The two doors, shown at the root only when something is behind
-    // them. v1 self-shows [ADJUST] the same way (sitB.lsl:352).
+    // them. v1 self-shows [ADJUST] the same way (sitB.lsl:352), and it
+    // counts its built-ins too, which is why [ADJUST] survives cleanup
+    // there.
     if (mi == -1)
     {
         if (nOpt) labels += "[OPTIONS]";
-        if (nAdj) labels += "[ADJUST]";
+        if (nAdj || hasPad) labels += "[ADJUST]";
     }
     // Built-in, and the one exception to "menu knows nothing": personal
     // offsets are an end-user feature rather than an authoring one, and
@@ -452,11 +464,7 @@ render(integer op)
     // running. v1 reaches this through sitA's adjust_pose_menu.
     if (mi == SEC_ADJUST)
     {
-        if (seat_of(av) >= 0)
-        {
-            if (llLinksetDataRead("qs:cur:" + (string)ch) != "")
-                labels += "[POSITION]";
-        }
+        if (hasPad) labels += "[POSITION]";
     }
 
     integer total = llGetListLength(labels);

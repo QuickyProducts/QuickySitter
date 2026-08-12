@@ -238,6 +238,14 @@ is `adjuster` → `90266` → `hudproxy` → `hudadmin` as ATTACH_FOR_ADJUST, th
 scripts v2 does not replace, over link messages that never pass through the seat
 engine.
 
+**And that chain is the ADJUSTMODE auto-attach only, not "the HUD".** Corrected
+after the product owner pointed it out: `[QS]adjuster` is removed by
+`/5 cleanup`, and finalised furniture still has to work with the HUD, so nothing
+the HUD needs may depend on it. What it does need - QSALIVE, the 90100/90101
+back route, 90271 - is answered by `core` and `menu` and is unaffected. The
+auto-attach is an authoring convenience; without the adjuster the user attaches
+the HUD themselves, as they always could.
+
 But v1's `sitB` renders `[HELPER]` and `[HELPER HUD]` as **hardcoded literals**,
 and `[HELPER HUD]` is the entry point that fires 90266. `menu` carries no
 authoring literals by design (DESIGN.md §2), so those buttons do not appear.
