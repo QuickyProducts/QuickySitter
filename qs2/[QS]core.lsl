@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.06";
+string version = "0.07";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -246,6 +246,11 @@ start_entry(integer ch, integer i)
     llLinksetDataWrite("qs:cur:" + (string)ch, label);
     string sitters = llLinksetDataRead("qs:occ:" + (string)ch);
 
+    // Strided 5: seat, rawName, anim, rawPos, rawRot. See the AV_ANIMINFO
+    // block below for why this is not derived from `payload`.
+    list infos = [ch, name, llList2String(e, 2),
+                  llList2String(e, 3), llList2String(e, 4)];
+
     if (etype == "S")
     {
         // The broadcast. Every OTHER occupied channel looks for an entry
@@ -264,6 +269,8 @@ start_entry(integer ch, integer i)
                     {
                         list e2 = entry(c, at);
                         payload += "|" + row_for(c, e2, label);
+                        infos += [c, llList2String(e2, 0), llList2String(e2, 2),
+                                  llList2String(e2, 3), llList2String(e2, 4)];
                         llLinksetDataWrite("qs:cur:" + (string)c, label);
                         sitters += "@" + llLinksetDataRead("qs:occ:" + (string)c);
                     }
@@ -283,23 +290,38 @@ start_entry(integer ch, integer i)
     // arrow press on the HUD computes an offset against nothing, so the
     // avatar does not move at all. The v1 adjuster reads it too.
     //
-    // Emitting one per payload row rather than once for <ch> is what
-    // keeps a SYNC correct: all coupled seats moved, so all of them need
-    // their entry refreshed, not just the one that was clicked.
+    // Emitting one per participating seat rather than once for <ch> is
+    // what keeps a SYNC correct: all coupled seats moved, so all of them
+    // need their entry refreshed, not just the one that was clicked.
+    //
+    // IT CARRIES THE RAW ENTRY, NOT THE RESOLVED ONE, which is the whole
+    // reason `infos` exists next to `payload` instead of being parsed
+    // back out of it. Two receivers depend on raw:
+    //
+    //   - hudproxy adds the stored personal offset to the cached value
+    //     itself (hudproxy.lsl:713). Feeding it the already-resolved
+    //     position applies that offset twice.
+    //   - the adjuster's ADJUSTMODE path writes the value straight back
+    //     into qs:p:<ch>:<i> as the new pose default (adjuster.lsl:891).
+    //     With a resolved value that compounds one sitter's personal
+    //     offset into the notecard default on every pose start.
+    //
+    // The name is raw too, prefix included: qs_find_index() and
+    // hudproxy's cache both key on the stored name, and a stripped label
+    // silently matches nothing.
     //
     // Field order and the per-seat str are v1's (sitB.lsl:223). The two
     // trailing fields are broadcast and speed_index, neither of which v2
-    // drives yet, and hudproxy reads neither.
-    list prows = llParseString2List(payload, ["|"], []);
+    // drives yet, and neither receiver reads them.
     integer r = 0;
-    integer rows = llGetListLength(prows);
+    integer rows = llGetListLength(infos);
     while (r < rows)
     {
-        list pr = llParseStringKeepNulls(llList2String(prows, r), ["="], []);
-        llMessageLinked(LINK_THIS, AV_ANIMINFO, llList2String(pr, 0),
-            llDumpList2String([label, llList2String(pr, 1),
-                llList2String(pr, 2), llList2String(pr, 3), 0, 0], "|"));
-        ++r;
+        llMessageLinked(LINK_THIS, AV_ANIMINFO, llList2String(infos, r),
+            llDumpList2String([llList2String(infos, r + 1),
+                llList2String(infos, r + 2), llList2String(infos, r + 3),
+                llList2String(infos, r + 4), 0, 0], "|"));
+        r += 5;
     }
 
     // Stock pose-played broadcast, field order from sitA.lsl:571.
