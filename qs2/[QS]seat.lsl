@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.07";
+string version = "0.08";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -58,6 +58,7 @@ integer QSB_RELOAD  = 90431;
 
 // Stock AVsitter numbers, emitted so stock plugins keep working
 // (DESIGN.md §7.5).
+integer AV_HELPERMOVED = 90057;   // HUD/helper -> here: absolute sit-target move
 integer AV_NEWSITTER  = 90060;
 integer AV_SITTERGONE = 90065;
 integer AV_MENUTOUSER = 90005;
@@ -484,6 +485,30 @@ default
                 llList2Vector(SEATS, seat * SEAT_STRIDE + 3) + (vector)llList2String(f, 1),
                 llEuler2Rot((llList2Vector(SEATS, seat * SEAT_STRIDE + 4)
                     + (vector)llList2String(f, 2)) * DEG_TO_RAD));
+            return;
+        }
+
+        if (num == AV_HELPERMOVED)
+        {
+            // The HUD's adjust arrows, and [AV]helper, land here. str is
+            // the seat, id is "<absPos>|<eulerRotDeg>|" and BOTH ARE
+            // ABSOLUTE: hudproxy has already added the personal offset
+            // (hudproxy.lsl:713), so adding the seat's base here would
+            // apply it twice.
+            //
+            // v1 took this in sitA and ran it through
+            // sit_using_prim_params; in v2 the sit target belongs to
+            // seat, so it is the only script that can honour it.
+            //
+            // Nothing is persisted. Saving is the HUD's own 90262 to
+            // [QS]offset, and a re-applied pose is meant to snap back to
+            // the stored value when the operator never pressed [SAVE].
+            integer seat = (integer)str;
+            if (seat < 0) return;
+            if (seat >= llGetListLength(SEATS) / SEAT_STRIDE) return;
+            list f = llParseString2List((string)id, ["|"], []);
+            set_seat_target(seat, (vector)llList2String(f, 0),
+                llEuler2Rot((vector)llList2String(f, 1) * DEG_TO_RAD));
             return;
         }
 

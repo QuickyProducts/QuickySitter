@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.09";
+string version = "0.10";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -110,6 +110,29 @@ Out(integer level, string s)
 {
     if (verbose >= level)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
+}
+
+// llDialog fills its 3-wide grid from the BOTTOM row upwards, with
+// element 0 at bottom-left. A list in natural order therefore appears
+// row-reversed on screen, which is why v1 has reorder_dialog_buttons()
+// and why the v2 menu looked wrong without it.
+//
+// v1 does this with four fixed llList2List slices over exactly twelve
+// buttons. This walks rows instead, so a short page behaves too: for
+// twelve entries the output is identical to v1's.
+list reorder_rows(list b)
+{
+    list out;
+    integer n = llGetListLength(b);
+    integer start = ((n - 1) / 3) * 3;
+    while (start >= 0)
+    {
+        integer stop = start + 2;
+        if (stop > n - 1) stop = n - 1;
+        out += llList2List(b, start, stop);
+        start -= 3;
+    }
+    return out;
 }
 
 // ------------------------------------------------------------ operators
@@ -295,10 +318,10 @@ adj_dialog(integer op, integer a)
     llDialog((key)llList2String(OPS, row),
         "\nPersonal adjustment: " + llList2String(ADJ, r + 2)
         + "\n" + mode + ", step " + (string)step,
-        ["[BACK]", mode, (string)step,
+        reorder_rows(["[BACK]", mode, (string)step,
          "[DEFAULT]", "[SAVE]", "[SAVE ALL]",
          "X+", "Y+", "Z+",
-         "X-", "Y-", "Z-"],
+         "X-", "Y-", "Z-"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -481,13 +504,19 @@ render(integer op)
         btns += llList2String(labels, i);
         ++i;
     }
-    if (mi != -1) btns += "[BACK]";
-    if (pages > 1) btns += ["[<<]", "[>>]"];
+    // Nav goes at the FRONT, not the end. After the row reversal the
+    // first three entries land in the TOP row, which is where v1 puts
+    // [BACK], and the page entries then read downwards from there.
+    list nav;
+    if (mi != -1) nav += "[BACK]";
+    if (pages > 1) nav += ["[<<]", "[>>]"];
+    btns = nav + btns;
 
     OPS = llListReplaceList(OPS, [page], row + 5, row + 5);
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 
-    llDialog(av, "\n" + llGetObjectName(), btns, llList2Integer(OPS, row + 2));
+    llDialog(av, "\n" + llGetObjectName(), reorder_rows(btns),
+        llList2Integer(OPS, row + 2));
 }
 
 // ------------------------------------------------------------- dispatch

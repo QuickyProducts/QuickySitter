@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.05";
+string version = "0.06";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -66,6 +66,7 @@ integer QSB_RELOAD  = 90431;
 
 // Stock AVsitter numbers.
 integer AV_POSEPLAYED  = 90045;   // core -> all: what is playing
+integer AV_ANIMINFO    = 90055;   // core -> HUD/adjuster: per-seat pose info
 integer AV_PLUGINPROBE = 90201;   // core -> plugins: announce yourselves
 integer AV_PLUGINREPLY = 90202;   // root-security -> core
 
@@ -274,6 +275,32 @@ start_entry(integer ch, integer i)
 
     llMessageLinked(LINK_SET, QSC_APPLY, payload, "");
     llMessageLinked(LINK_SET, QSC_PLAYING, (string)ch + "|" + label, "");
+
+    // AV_ANIMINFO per seat. This is not decoration: hudproxy CACHES the
+    // pose name and its pos/rot from 90055 and derives the absolute
+    // target of an adjust arrow from that cache (hudproxy.lsl:1177 ->
+    // applyPoseChange). With no 90055 the cache stays empty and every
+    // arrow press on the HUD computes an offset against nothing, so the
+    // avatar does not move at all. The v1 adjuster reads it too.
+    //
+    // Emitting one per payload row rather than once for <ch> is what
+    // keeps a SYNC correct: all coupled seats moved, so all of them need
+    // their entry refreshed, not just the one that was clicked.
+    //
+    // Field order and the per-seat str are v1's (sitB.lsl:223). The two
+    // trailing fields are broadcast and speed_index, neither of which v2
+    // drives yet, and hudproxy reads neither.
+    list prows = llParseString2List(payload, ["|"], []);
+    integer r = 0;
+    integer rows = llGetListLength(prows);
+    while (r < rows)
+    {
+        list pr = llParseStringKeepNulls(llList2String(prows, r), ["="], []);
+        llMessageLinked(LINK_THIS, AV_ANIMINFO, llList2String(pr, 0),
+            llDumpList2String([label, llList2String(pr, 1),
+                llList2String(pr, 2), llList2String(pr, 3), 0, 0], "|"));
+        ++r;
+    }
 
     // Stock pose-played broadcast, field order from sitA.lsl:571.
     integer isSync = 0;
