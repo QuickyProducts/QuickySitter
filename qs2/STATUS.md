@@ -117,10 +117,10 @@ before this is furniture.
 |---|---|---|
 | `core` | **Access gating**, the whole `root-security` handoff | Nothing is gated at all right now: any avatar can drive any menu. This is the largest single gap and the one with a security shape. |
 | `core` | **Camera** (`llSetLinkCamera`, 90202) | absent entirely |
-| `core` | **Gender** handling | `SEAT` parses a gender field, `boot` stores it, and nothing reads it. v1 picks animation variants by it. |
+| `seat` | **Gender-based seat assignment** | v1 picks WHICH FREE SEAT an avatar lands on from their body-shape gender (sitA.lsl:1334). Not animation variants: that was an error in an earlier draft. |
 | `core` | **`SEQUENCE`** stepping and its timer path | parsed into `qs:x:*`, not consumed |
 | `core` | **Keyframed motion** path in sit-target application | v1 pauses and resumes `llSetKeyframedMotion` around a pose change |
-| `core` | Legacy 900xx emission for stock plugins | the compatibility promise of DESIGN.md §7.5 is not yet kept |
+| `core` | Legacy 90045 pose-played broadcast | emitted; 90005 and 90060/90065 are done in seat. The rest of §7.5 is untested. |
 | `menu` | **HUD wire** (90100, 90101, 90271, 90299-90301) | absent entirely |
 | `menu` | **Seat picker** and **swap dialog** | `seat` can swap; nothing asks it to |
 | `menu` | `MTYPE` / `ETYPE` click modes, `llPassTouches` | touch always opens a menu today |

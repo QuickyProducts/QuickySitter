@@ -52,7 +52,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.03";
+string version = "0.04";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
