@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.11";
+string version = "0.12";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -104,13 +104,21 @@ integer ADJ_STRIDE = 7;
 integer QSS_NUDGE   = 90415;   // menu -> seat, live sit-target preview
 integer QSO_SAVE    = 90262;   // -> [QS]offset, save personal offset
 
-integer PAGE = 9;           // entries per dialog page, leaving room for nav
 integer verbose = 0;
 
 Out(integer level, string s)
 {
     if (verbose >= level)
         llOwnerSay(llGetScriptName() + "[" + version + "] " + s);
+}
+
+// Seat count, only ever used to decide whether the dialog title needs a
+// "[Sitter N]" line at all. Cheap enough to read on demand.
+integer seat_count()
+{
+    integer c = 0;
+    while (llLinksetDataRead("qs:sitter:" + (string)c) != "") ++c;
+    return c;
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -392,6 +400,47 @@ integer adj_click(integer op, integer a, string msg)
     return TRUE;
 }
 
+// The dialog text, rebuilt from v1 (sitB.lsl:290). It was just the
+// object name, which is the other half of "the menu looks different":
+// the brand line, the seat label and the running pose all live up here
+// and every one of them was missing.
+//
+// The cfg fields are the packed per-channel string boot writes once at
+// EOF: 11 BRAND, 13 CUSTOM_TEXT with newlines escaped.
+string dialog_title(integer ch, key av, integer page, integer pages)
+{
+    list cfg = llParseStringKeepNulls(
+        llLinksetDataRead("qs:cfg:" + (string)ch), ["\n"], []);
+
+    string t = llList2String(cfg, 11);              // BRAND
+    if (t == "") t = "QuickySitter™ " + version;
+
+    // "Menu for X" only when the operator is not the person in the seat,
+    // which is what tells a second reader whose seat is being driven.
+    key occ = (key)llLinksetDataRead("qs:occ:" + (string)ch);
+    if (occ != "" && occ != av)
+        t += "\n\nMenu for " + llKey2Name(occ);
+    t += "\n\n";
+
+    string custom = llList2String(cfg, 13);
+    if (custom != "") t += custom + "\n";
+
+    // The seat label from the notecard's SITTER directive, falling back
+    // to the slot number the way v1 does when several seats exist.
+    list si = llParseStringKeepNulls(
+        llLinksetDataRead("qs:sitter:" + (string)ch), [SEP], []);
+    string label = llList2String(si, 0);
+    if (label != "") t += "[" + label + "]";
+    else if (seat_count() > 1) t += "[Sitter " + (string)ch + "]";
+
+    string cur = llLinksetDataRead("qs:cur:" + (string)ch);
+    if (cur != "") t += " [" + cur + "]";
+
+    // v1 shows the page counter on its paged submenus (sitB.lsl:644).
+    if (pages > 1) t += " (" + (string)(page + 1) + "/" + (string)pages + ")";
+    return t;
+}
+
 // ------------------------------------------------------------ rendering
 
 render(integer op)
@@ -473,14 +522,29 @@ render(integer op)
         if (llLinksetDataRead("qs:cur:" + (string)ch) != "") hasPad = TRUE;
     }
 
+    // v1's FIXED-SLOT LAYOUT (sitB.lsl:437), which is the rest of why the
+    // v2 menu did not read like the old one. Fixing the row order was
+    // only half of it: the dialog is a three-part grid, [BACK] leading,
+    // the page entries in the middle, the doors and the pager closing it
+    // out, and the page size is WHATEVER IS LEFT OVER of the twelve
+    // slots rather than a constant.
+    //
+    // Paginating the doors along with the entries, which is what a flat
+    // list does, also made [OPTIONS] and [ADJUST] disappear on every page
+    // but the last. In v1 they sit on every page because they were never
+    // part of the paginated list to begin with.
+    list head;
+    if (mi != -1) head += "[BACK]";
+
+    list tail;
     // The two doors, shown at the root only when something is behind
     // them. v1 self-shows [ADJUST] the same way (sitB.lsl:352), and it
     // counts its built-ins too, which is why [ADJUST] survives cleanup
     // there.
     if (mi == -1)
     {
-        if (nOpt) labels += "[OPTIONS]";
-        if (nAdj || hasPad) labels += "[ADJUST]";
+        if (nOpt) tail += "[OPTIONS]";
+        if (nAdj || hasPad) tail += "[ADJUST]";
     }
     // Built-in, and the one exception to "menu knows nothing": personal
     // offsets are an end-user feature rather than an authoring one, and
@@ -488,35 +552,37 @@ render(integer op)
     // running. v1 reaches this through sitA's adjust_pose_menu.
     if (mi == SEC_ADJUST)
     {
-        if (hasPad) labels += "[POSITION]";
+        if (hasPad) tail += "[POSITION]";
     }
 
     integer total = llGetListLength(labels);
-    integer pages = (total + PAGE - 1) / PAGE;
+    integer ipp = 12 - llGetListLength(head) - llGetListLength(tail);
+    if (ipp < total)
+    {
+        tail += ["[<<]", "[>>]"];
+        ipp -= 2;
+    }
+    if (ipp < 1) ipp = 1;
+
+    integer pages = (total + ipp - 1) / ipp;
     if (pages < 1) pages = 1;
     if (page >= pages) page = 0;
 
     list btns;
-    i = page * PAGE;
-    integer stop = i + PAGE;
+    i = page * ipp;
+    integer stop = i + ipp;
     if (stop > total) stop = total;
     while (i < stop)
     {
         btns += llList2String(labels, i);
         ++i;
     }
-    // Nav goes at the FRONT, not the end. After the row reversal the
-    // first three entries land in the TOP row, which is where v1 puts
-    // [BACK], and the page entries then read downwards from there.
-    list nav;
-    if (mi != -1) nav += "[BACK]";
-    if (pages > 1) nav += ["[<<]", "[>>]"];
-    btns = nav + btns;
+    btns = head + btns + tail;
 
     OPS = llListReplaceList(OPS, [page], row + 5, row + 5);
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 
-    llDialog(av, "\n" + llGetObjectName(), reorder_rows(btns),
+    llDialog(av, dialog_title(ch, av, page, pages), reorder_rows(btns),
         llList2Integer(OPS, row + 2));
 }
 
