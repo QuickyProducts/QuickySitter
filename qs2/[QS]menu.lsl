@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.08";
+string version = "0.09";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -607,6 +607,8 @@ click(integer op, string msg)
                         if (want != "<S>") bid = (key)want;
                     }
                 }
+                Out(1, "BUTTON \"" + msg + "\" -> num=" + llList2String(bd, 0)
+                    + " msg=\"" + bmsg + "\" id=" + llGetSubString((string)bid, 0, 7));
                 llMessageLinked(LINK_SET, llList2Integer(bd, 0), bmsg, bid);
                 render(op);
                 return;
@@ -651,6 +653,8 @@ click(integer op, string msg)
                 // The tag is a fifth field. v1 consumers read fields 0-3
                 // and llParseString2List simply ignores the extra, so the
                 // payload stays compatible.
+                Out(1, "REG \"" + msg + "\" -> num=" + (string)rchan
+                    + " token=" + out);
                 llMessageLinked(LINK_SET, rchan,
                     (string)ch + "|" + out + "|" + (string)av + "|"
                     + (string)mi + "|" + llGetScriptName(), av);
