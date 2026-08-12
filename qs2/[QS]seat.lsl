@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.11";
+string version = "0.12";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -244,7 +244,18 @@ move_occupant(integer seat, vector pos, vector rotEuler)
     key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
     if (av == "") return;
     integer link = av_link(av);
-    if (link == 0) return;
+    if (link == 0)
+    {
+        // Not silent. If this ever misses, the avatar stays wherever the
+        // sit target dropped them, which is 0.4 m BELOW the pose - the
+        // sit target carries that offset by AVsitter convention and the
+        // prim-params move is what corrects it. "Every pose sits too
+        // low" is precisely what that looks like.
+        Out(0, "seat " + (string)seat + ": avatar has no link yet, not moved.");
+        return;
+    }
+    Out(2, "move seat " + (string)seat + " link " + (string)link
+        + " to " + (string)pos + " / " + (string)rotEuler);
 
     // The pose is expressed relative to the SEAT's prim. v1 could read
     // llGetLocalPos/Rot because each sitA lived in its own seat prim; a
