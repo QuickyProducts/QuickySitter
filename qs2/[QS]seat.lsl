@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.10";
+string version = "0.11";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -216,6 +216,55 @@ set_seat_target(integer seat, vector pos, rotation rot)
     integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
     if (link <= 0) return;
     llLinkSitTarget(link, pos - <0.0, 0.0, 0.4> + llRot2Up(rot) * 0.05, rot);
+}
+
+// A SEATED AVATAR IS ITS OWN LINK. Seated agents occupy link numbers
+// above the prim count, and moving one means setting prim params on that
+// link. The sit target only says where the NEXT sit lands, so setting it
+// alone leaves whoever is already sitting exactly where they were - which
+// is why the HUD's adjust arrows arrived (verified on the wire: 90057
+// reached this script) and still moved nobody.
+//
+// v1 does this from sit_using_prim_params (sitA.lsl:622) on EVERY
+// position change, pose applies included, not just on the helper path.
+integer av_link(key av)
+{
+    integer n = llGetNumberOfPrims();
+    while (llGetAgentSize(llGetLinkKey(n)) != ZERO_VECTOR)
+    {
+        if (llGetLinkKey(n) == av) return n;
+        --n;
+    }
+    return 0;
+}
+
+// rotEuler is in degrees, matching the notecard and the whole 900xx wire.
+move_occupant(integer seat, vector pos, vector rotEuler)
+{
+    key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
+    if (av == "") return;
+    integer link = av_link(av);
+    if (link == 0) return;
+
+    // The pose is expressed relative to the SEAT's prim. v1 could read
+    // llGetLocalPos/Rot because each sitA lived in its own seat prim; a
+    // singleton has to ask for the prim it is placing into.
+    integer prim = llList2Integer(SEATS, seat * SEAT_STRIDE);
+    vector   lp = ZERO_VECTOR;
+    rotation lr = ZERO_ROTATION;
+    if (prim > 1)
+    {
+        list p = llGetLinkPrimitiveParams(prim, [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
+        lp = llList2Vector(p, 0);
+        lr = llList2Rot(p, 1);
+    }
+
+    // The 0.002 degree nudge is v1's and it is load-bearing: an update
+    // that resolves to the identical rotation is dropped, so a repeated
+    // press on one axis would stop having any effect.
+    llSetLinkPrimitiveParamsFast(link,
+        [PRIM_ROT_LOCAL, llEuler2Rot((rotEuler + <0.0, 0.0, 0.002>) * DEG_TO_RAD) * lr,
+         PRIM_POS_LOCAL, pos * lr + lp]);
 }
 
 // ------------------------------------------------------------ animation
@@ -451,6 +500,9 @@ default
                         SEATS = llListReplaceList(SEATS, [br],
                             seat * SEAT_STRIDE + 4, seat * SEAT_STRIDE + 4);
                         set_seat_target(seat, bp, llEuler2Rot(br * DEG_TO_RAD));
+                        // Target for the next sit, prim params for the
+                        // person already sitting. v1 does both here too.
+                        move_occupant(seat, bp, br);
                         if (anim != old)
                         {
                             if (seat_start(seat, anim))
@@ -489,10 +541,12 @@ default
             integer seat = (integer)llList2String(f, 0);
             if (seat < 0) return;
             if (seat >= llGetListLength(SEATS) / SEAT_STRIDE) return;
-            set_seat_target(seat,
-                llList2Vector(SEATS, seat * SEAT_STRIDE + 3) + (vector)llList2String(f, 1),
-                llEuler2Rot((llList2Vector(SEATS, seat * SEAT_STRIDE + 4)
-                    + (vector)llList2String(f, 2)) * DEG_TO_RAD));
+            vector np = llList2Vector(SEATS, seat * SEAT_STRIDE + 3)
+                      + (vector)llList2String(f, 1);
+            vector nr = llList2Vector(SEATS, seat * SEAT_STRIDE + 4)
+                      + (vector)llList2String(f, 2);
+            set_seat_target(seat, np, llEuler2Rot(nr * DEG_TO_RAD));
+            move_occupant(seat, np, nr);
             return;
         }
 
@@ -515,8 +569,12 @@ default
             if (seat < 0) return;
             if (seat >= llGetListLength(SEATS) / SEAT_STRIDE) return;
             list f = llParseString2List((string)id, ["|"], []);
-            set_seat_target(seat, (vector)llList2String(f, 0),
-                llEuler2Rot((vector)llList2String(f, 1) * DEG_TO_RAD));
+            // Prim params ONLY, no sit target. v1 does the same here
+            // (sitA.lsl:1241): this is a transient personal offset, and
+            // the seat's stored default must survive it so re-applying
+            // the pose without a [SAVE] puts things back.
+            move_occupant(seat, (vector)llList2String(f, 0),
+                (vector)llList2String(f, 1));
             return;
         }
 
