@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.12";
+string version = "0.13";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -142,6 +142,61 @@ list reorder_rows(list b)
         start -= 3;
     }
     return out;
+}
+
+// llDialog FAILS SILENTLY FROM THE USER'S SIDE. A message over 512
+// characters, more than twelve buttons, an empty button list or a label
+// over 24 characters each raise a script error and no dialog appears -
+// which is indistinguishable from "the menu never got called" unless
+// somebody is watching the script error channel.
+//
+// Every dialog goes through here so that case names itself and still
+// renders something usable. This is diagnosis, not decoration: two
+// rounds of "no menu at all" were spent on exactly this blind spot.
+dialog_safe(key av, string text, list btns, integer chan)
+{
+    integer len = llStringLength(text);
+    if (len > 511)
+    {
+        Out(0, "dialog text is " + (string)len + " characters, over the 512"
+            + " limit - trimmed. Shorten BRAND or CUSTOM_TEXT in " + "AVpos.");
+        text = llGetSubString(text, 0, 510);
+    }
+
+    integer n = llGetListLength(btns);
+    if (n == 0)
+    {
+        Out(0, "this menu has no buttons at all - empty section?");
+        btns = ["[BACK]"];
+        n = 1;
+    }
+    if (n > 12)
+    {
+        Out(0, "this menu built " + (string)n + " buttons, the limit is 12"
+            + " - truncated.");
+        btns = llList2List(btns, 0, 11);
+        n = 12;
+    }
+
+    integer i = 0;
+    while (i < n)
+    {
+        string b = llList2String(btns, i);
+        if (b == "")
+        {
+            // An empty label is rejected outright, and one blank slot is
+            // enough to lose the whole dialog.
+            btns = llListReplaceList(btns, [" "], i, i);
+        }
+        else if (llStringLength(b) > 24)
+        {
+            Out(0, "button \"" + b + "\" is over 24 characters - trimmed.");
+            btns = llListReplaceList(btns, [llGetSubString(b, 0, 23)], i, i);
+        }
+        ++i;
+    }
+
+    llDialog(av, text, btns, chan);
 }
 
 // ------------------------------------------------------------ operators
@@ -324,7 +379,7 @@ adj_dialog(integer op, integer a)
     if (llList2Integer(ADJ, r + 5)) mode = "ROTATION";
     float step = llList2Float(ADJ, r + 6);
 
-    llDialog((key)llList2String(OPS, row),
+    dialog_safe((key)llList2String(OPS, row),
         "\nPersonal adjustment: " + llList2String(ADJ, r + 2)
         + "\n" + mode + ", step " + (string)step,
         reorder_rows(["[BACK]", mode, (string)step,
@@ -582,7 +637,7 @@ render(integer op)
     OPS = llListReplaceList(OPS, [page], row + 5, row + 5);
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 
-    llDialog(av, dialog_title(ch, av, page, pages), reorder_rows(btns),
+    dialog_safe(av, dialog_title(ch, av, page, pages), reorder_rows(btns),
         llList2Integer(OPS, row + 2));
 }
 
