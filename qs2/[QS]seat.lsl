@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.06";
+string version = "0.07";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -364,6 +364,14 @@ default
     state_entry()
     {
         boot_up();
+    }
+
+    // Same reason as core: v1.s boot announces nothing, it writes
+    // qs:meta:<ch> and lets the sitters notice. Without this a seat that
+    // started before boot finished has no seats at all.
+    linkset_data(integer act, string name, string val)
+    {
+        if (name == "qs:meta:0" || act == LINKSETDATA_RESET) boot_up();
     }
 
     changed(integer change)

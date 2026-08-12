@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.04";
+string version = "0.05";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -126,6 +126,22 @@ integer seated_anywhere(key av)
         ++i;
     }
     return FALSE;
+}
+
+// "<product>|<version>|<sitterCount>|<capabilityCSV>", parsed by the
+// receiver with llParseString2List; KeepNulls would re-introduce the
+// trailing-empty bug.
+//
+// The capability list is deliberately SHORTER than v1.s. v1 advertises
+// "customs90260,dump90098,offsetlsd_v1"; v2 reads the QSO offset store
+// but implements neither the 90260 personal-offset wire nor the DUMP
+// probe yet, and claiming a capability that is absent is worse than
+// lacking it.
+alive_reply()
+{
+    llMessageLinked(LINK_SET, QSALIVE_REPLY,
+        "QuickySitter|" + version + "|" + (string)SEATS + "|"
+        + "offsetlsd_v1", "");
 }
 
 // ------------------------------------------------------------- entries
@@ -304,8 +320,28 @@ default
         // Same handshake v1 uses: ask, and treat any reply as proof that
         // [QS]root-security exists.
         llMessageLinked(LINK_SET, AV_PLUGINPROBE, "", "");
+        // ANNOUNCE, do not only answer. hudadmin probes at ITS state_entry
+        // and sizes its SITTERS list from the count in our reply; if we
+        // started later, or were reset, that probe went unanswered and it
+        // is left believing there is one seat. Whoever starts last has to
+        // speak up.
+        alive_reply();
         Out(1, "ready, seats=" + (string)SEATS
             + " mem=" + (string)llGetFreeMemory());
+    }
+
+    // v1.s boot signals nothing when it finishes: it writes qs:meta:<ch>
+    // and the sitters poll for it (boot.lsl comment at finalize_boot). We
+    // waited for a v2-only 90430 that nobody sends, so a script that
+    // started before boot finished stayed empty forever and only a manual
+    // reset fixed it. Watching the key is event-driven, so no timer.
+    linkset_data(integer act, string name, string val)
+    {
+        if (name == "qs:meta:0" || name == "qs:cfg:verbose" || act == LINKSETDATA_RESET)
+        {
+            load_cfg();
+            alive_reply();
+        }
     }
 
     link_message(integer sender, integer num, string msg, key id)
@@ -364,18 +400,7 @@ default
 
         if (num == QSALIVE_PROBE)
         {
-            // "<product>|<version>|<sitterCount>|<capabilityCSV>", parsed
-            // by the receiver with llParseString2List; KeepNulls would
-            // re-introduce the trailing-empty bug.
-            //
-            // The capability list is deliberately SHORTER than v1's. v1
-            // advertises "customs90260,dump90098,offsetlsd_v1"; v2 reads
-            // the QSO offset store but implements neither the 90260
-            // personal-offset wire nor the DUMP probe yet, and claiming a
-            // capability that is absent is worse than lacking it.
-            llMessageLinked(LINK_SET, QSALIVE_REPLY,
-                "QuickySitter|" + version + "|" + (string)SEATS + "|"
-                + "offsetlsd_v1", "");
+            alive_reply();
             return;
         }
 
