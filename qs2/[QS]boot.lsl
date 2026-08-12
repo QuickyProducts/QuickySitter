@@ -40,7 +40,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "2.00";
+string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
