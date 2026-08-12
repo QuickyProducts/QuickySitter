@@ -87,6 +87,22 @@ integer REG_STRIDE = 5;
 integer SEC_OPTIONS = -2;
 integer SEC_ADJUST  = -3;
 
+// Personal-offset nudging. ADJ strided 7:
+//   avatar, seat, poseName, posDelta, rotDelta, isRot, step
+//
+// Kept out of OPS because only a handful of people nudge at once and it
+// would otherwise widen every operator row for a rare mode.
+//
+// Reading offsets is a direct LSD read in core; WRITING goes through
+// [QS]offset over 90262, because that plugin owns the QSO namespace and
+// a RAM tier for the case where LSD is too tight. core deliberately does
+// not read that RAM tier: a wire round trip on the pose-start path would
+// make the pose visibly jump into place.
+list ADJ;
+integer ADJ_STRIDE = 7;
+integer QSS_NUDGE   = 90415;   // menu -> seat, live sit-target preview
+integer QSO_SAVE    = 90262;   // -> [QS]offset, save personal offset
+
 integer PAGE = 9;           // entries per dialog page, leaving room for nav
 integer verbose = 0;
 
@@ -225,6 +241,133 @@ integer seat_of(key av)
     return -1;
 }
 
+// ------------------------------------------------------- offset nudging
+
+integer adj_of(key av)
+{
+    integer i = 0;
+    integer n = llGetListLength(ADJ);
+    while (i < n)
+    {
+        if (llList2String(ADJ, i) == (string)av) return i / ADJ_STRIDE;
+        i += ADJ_STRIDE;
+    }
+    return -1;
+}
+
+adj_drop(key av)
+{
+    integer a = adj_of(av);
+    if (a < 0) return;
+    ADJ = llDeleteSubList(ADJ, a * ADJ_STRIDE, a * ADJ_STRIDE + ADJ_STRIDE - 1);
+}
+
+// Open the nudge mode for a seated operator on whatever they are
+// currently playing. There is nothing to adjust otherwise.
+integer adj_open(key av, integer seat)
+{
+    string cur = llLinksetDataRead("qs:cur:" + (string)seat);
+    if (cur == "") return FALSE;
+    adj_drop(av);
+    ADJ += [(string)av, seat, cur, ZERO_VECTOR, ZERO_VECTOR, FALSE, 0.05];
+    return TRUE;
+}
+
+// Live preview. seat owns the sit targets, so it does the moving; this
+// only accumulates the delta and says where to put it.
+adj_apply(integer a)
+{
+    integer r = a * ADJ_STRIDE;
+    llMessageLinked(LINK_SET, QSS_NUDGE,
+        llList2String(ADJ, r + 1) + "="
+        + (string)llList2Vector(ADJ, r + 3) + "="
+        + (string)llList2Vector(ADJ, r + 4), "");
+}
+
+adj_dialog(integer op, integer a)
+{
+    integer row = op * OPS_STRIDE;
+    integer r = a * ADJ_STRIDE;
+    string mode = "POSITION";
+    if (llList2Integer(ADJ, r + 5)) mode = "ROTATION";
+    float step = llList2Float(ADJ, r + 6);
+
+    llDialog((key)llList2String(OPS, row),
+        "\nPersonal adjustment: " + llList2String(ADJ, r + 2)
+        + "\n" + mode + ", step " + (string)step,
+        ["[BACK]", mode, (string)step,
+         "[DEFAULT]", "[SAVE]", "[SAVE ALL]",
+         "X+", "Y+", "Z+",
+         "X-", "Y-", "Z-"],
+        llList2Integer(OPS, row + 2));
+    OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
+}
+
+// Returns TRUE when the click belonged to the nudge dialog.
+integer adj_click(integer op, integer a, string msg)
+{
+    integer r = a * ADJ_STRIDE;
+    integer isRot = llList2Integer(ADJ, r + 5);
+    float step = llList2Float(ADJ, r + 6);
+    vector d = llList2Vector(ADJ, r + 3);
+    if (isRot) d = llList2Vector(ADJ, r + 4);
+
+    if (msg == "POSITION" || msg == "ROTATION")
+    {
+        ADJ = llListReplaceList(ADJ, [!isRot], r + 5, r + 5);
+        adj_dialog(op, a);
+        return TRUE;
+    }
+    if (msg == (string)step)
+    {
+        // Cycle the step. Rotation steps are degrees, position metres,
+        // so one ladder does for both at these magnitudes.
+        float next = step * 10.0;
+        if (next > 10.0) next = 0.005;
+        ADJ = llListReplaceList(ADJ, [next], r + 6, r + 6);
+        adj_dialog(op, a);
+        return TRUE;
+    }
+    if (msg == "[DEFAULT]")
+    {
+        ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 3, r + 3);
+        ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 4, r + 4);
+        adj_apply(a);
+        adj_dialog(op, a);
+        return TRUE;
+    }
+    if (msg == "[SAVE]" || msg == "[SAVE ALL]")
+    {
+        // v1 payload: "<slot>|<poseName>|<posDelta>|<rotDelta>", id is
+        // the avatar. M#T! is the reserved "every pose" entry.
+        string name = llList2String(ADJ, r + 2);
+        if (msg == "[SAVE ALL]") name = "M#T!";
+        llMessageLinked(LINK_SET, QSO_SAVE,
+            llList2String(ADJ, r + 1) + "|" + name + "|"
+            + (string)llList2Vector(ADJ, r + 3) + "|"
+            + (string)llList2Vector(ADJ, r + 4),
+            (key)llList2String(ADJ, r));
+        adj_dialog(op, a);
+        return TRUE;
+    }
+
+    integer at = llListFindList(["X+", "Y+", "Z+", "X-", "Y-", "Z-"], [msg]);
+    if (at == -1) return FALSE;
+
+    float s = step;
+    if (at > 2) s = -step;
+    integer axis = at % 3;
+    if (axis == 0) d.x += s;
+    if (axis == 1) d.y += s;
+    if (axis == 2) d.z += s;
+
+    if (isRot) ADJ = llListReplaceList(ADJ, [d], r + 4, r + 4);
+    else       ADJ = llListReplaceList(ADJ, [d], r + 3, r + 3);
+    adj_apply(a);
+    adj_dialog(op, a);
+    return TRUE;
+}
+
 // ------------------------------------------------------------ rendering
 
 render(integer op)
@@ -303,6 +446,18 @@ render(integer op)
         if (nOpt) labels += "[OPTIONS]";
         if (nAdj) labels += "[ADJUST]";
     }
+    // Built-in, and the one exception to "menu knows nothing": personal
+    // offsets are an end-user feature rather than an authoring one, and
+    // they only make sense for somebody who is seated with a pose
+    // running. v1 reaches this through sitA's adjust_pose_menu.
+    if (mi == SEC_ADJUST)
+    {
+        if (seat_of(av) >= 0)
+        {
+            if (llLinksetDataRead("qs:cur:" + (string)ch) != "")
+                labels += "[POSITION]";
+        }
+    }
 
     integer total = llGetListLength(labels);
     integer pages = (total + PAGE - 1) / PAGE;
@@ -359,6 +514,32 @@ click(integer op, string msg)
         }
         OPS = llListReplaceList(OPS, [back, 0, llDumpList2String(st, ",")],
             row + 4, row + 6);
+        render(op);
+        return;
+    }
+
+    // The nudge dialog swallows its own clicks, including [BACK], which
+    // leaves it rather than navigating the menu tree.
+    integer a = adj_of(av);
+    if (a >= 0)
+    {
+        if (msg == "[BACK]")
+        {
+            adj_drop(av);
+            render(op);
+            return;
+        }
+        if (adj_click(op, a, msg)) return;
+        adj_drop(av);
+    }
+
+    if (msg == "[POSITION]")
+    {
+        if (adj_open(av, ch))
+        {
+            adj_dialog(op, adj_of(av));
+            return;
+        }
         render(op);
         return;
     }

@@ -41,13 +41,14 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.03";
+string version = "0.05";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
 integer QSS_TOUCH    = 90412;
 integer QSS_SEATED   = 90413;
 integer QSS_SWAP     = 90414;
+integer QSS_NUDGE    = 90415;   // menu -> seat, live offset preview
 
 integer QSC_APPLY   = 90421;
 integer QSC_RESYNC  = 90423;
@@ -61,11 +62,14 @@ integer AV_NEWSITTER  = 90060;
 integer AV_SITTERGONE = 90065;
 integer AV_MENUTOUSER = 90005;
 
-// SEATS strided 3: primLink, occupant, currentAnim
+// SEATS strided 5: primLink, occupant, currentAnim, basePos, baseRot
+// basePos/baseRot are what the running pose resolved to, kept so a live
+// offset nudge has something to add to and so releasing the nudge
+// dialog without saving can be undone by re-applying the pose.
 // Index into SEATS/SEAT_STRIDE IS the channel number.
 // occupant is "" when free (an LSL key defaults to "", never NULL_KEY).
 list SEATS;
-integer SEAT_STRIDE = 3;
+integer SEAT_STRIDE = 5;
 
 integer MTYPE;
 integer verbose = 0;
@@ -121,7 +125,7 @@ load_from_lsd()
     integer ch = 0;
     while (llLinksetDataRead("qs:sitter:" + (string)ch) != "")
     {
-        SEATS += [0, "", ""];
+        SEATS += [0, "", "", ZERO_VECTOR, ZERO_VECTOR];
         ++ch;
     }
     if (ch == 0) Out(0, "no qs:sitter:0 - has [QS]boot run?");
@@ -413,8 +417,13 @@ default
                     {
                         string anim = llList2String(f, 1);
                         string old  = llList2String(SEATS, seat * SEAT_STRIDE + 2);
-                        set_seat_target(seat, (vector)llList2String(f, 2),
-                            llEuler2Rot((vector)llList2String(f, 3) * DEG_TO_RAD));
+                        vector bp = (vector)llList2String(f, 2);
+                        vector br = (vector)llList2String(f, 3);
+                        SEATS = llListReplaceList(SEATS, [bp],
+                            seat * SEAT_STRIDE + 3, seat * SEAT_STRIDE + 3);
+                        SEATS = llListReplaceList(SEATS, [br],
+                            seat * SEAT_STRIDE + 4, seat * SEAT_STRIDE + 4);
+                        set_seat_target(seat, bp, llEuler2Rot(br * DEG_TO_RAD));
                         if (anim != old)
                         {
                             if (seat_start(seat, anim))
@@ -440,6 +449,23 @@ default
                 seat_stop(llList2Integer(touched, i), llList2String(touched, i + 1));
                 i += 2;
             }
+            return;
+        }
+
+        if (num == QSS_NUDGE)
+        {
+            // Live preview while somebody nudges their personal offset.
+            // "<seat>=<posDelta>=<rotDelta>", applied on top of whatever
+            // the pose already resolved to, so releasing the dialog
+            // without saving and re-applying the pose puts it back.
+            list f = llParseString2List(msg, ["="], []);
+            integer seat = (integer)llList2String(f, 0);
+            if (seat < 0) return;
+            if (seat >= llGetListLength(SEATS) / SEAT_STRIDE) return;
+            set_seat_target(seat,
+                llList2Vector(SEATS, seat * SEAT_STRIDE + 3) + (vector)llList2String(f, 1),
+                llEuler2Rot((llList2Vector(SEATS, seat * SEAT_STRIDE + 4)
+                    + (vector)llList2String(f, 2)) * DEG_TO_RAD));
             return;
         }
 

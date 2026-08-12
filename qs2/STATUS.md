@@ -230,3 +230,26 @@ plain key or a `<controller>|<sitter>` composite, and both are handled.
 
 `hudproxy`'s LSD reads (`qs:offset:alive`, `QPP_CFG:*`) are unaffected, since
 those keys are written by other scripts entirely.
+
+## The authoring path is not drop-in, and that is the principle's doing
+
+Asked whether `[QS]prop` is needed for the HUD to attach. It is not: the chain
+is `adjuster` → `90266` → `hudproxy` → `hudadmin` as ATTACH_FOR_ADJUST, three
+scripts v2 does not replace, over link messages that never pass through the seat
+engine.
+
+But v1's `sitB` renders `[HELPER]` and `[HELPER HUD]` as **hardcoded literals**,
+and `[HELPER HUD]` is the entry point that fires 90266. `menu` carries no
+authoring literals by design (DESIGN.md §2), so those buttons do not appear.
+
+**Two ways out, and they are not equivalent:**
+
+* **`[QS]adjuster` registers its own entries** over 90213, which is what the
+  principle asks for and what makes `/5 cleanup` a real removal. Costs a change
+  to a shipped script, so the drop-in claim becomes "swap the seat scripts *and*
+  update the adjuster".
+* **`menu` re-adds the literals**, which keeps the swap to three files and
+  abandons the principle.
+
+Not decided. It is the first place where "nothing else changes" and "no
+authoring code in the base scripts" pull against each other.
