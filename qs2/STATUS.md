@@ -196,3 +196,41 @@ while both versions must exist; it should converge when v1 is retired.
 `[SECURITY]` in the `[ADJUST]` submenu, gated on other plugins' presence. By the
 same principle those belong to `[QS]faces` and `[QS]root-security`, which means
 more forks or more registration calls. Not started.
+
+## The HUD auto-attach chain, verified 2026-08-13
+
+Took four wrong guesses before reading `quicky-hud/`. Written down so nobody
+re-derives it:
+
+```
+seat  90060 (sitter arrived)   ─┐
+seat  90070 (sitter list)      ─┴─►  hudadmin builds SITTERS
+core  90097 (QSALIVE reply)    ────►  hudadmin sizes SITTERS from the count
+
+hudadmin, in the 90070 handler:
+    cfgAttachMode == "auto"        →  attachHUD(slot, avatar)
+    cfgAttachMode == "menu"        →  only for someone in lHudWearers
+                                      (the 90510 "Quicky-HUD" button
+                                       triggers it there instead)
+
+attachHUD  ──►  90280 QSPROP_ATTACH, LINK_THIS  ──►  [QS]prop rezzes + attaches
+```
+
+**`[QS]prop` is required.** hudadmin attaches nothing itself; it builds a
+payload and hands it to prop, which owns the rezzing machinery. `LINK_THIS`
+means prop must be in the same prim. This is a v1 dependency too, not something
+v2 introduced, but it is invisible from the sitter side and cost a long hunt.
+
+**What v2 had to fix to reach that point**, all confirmed necessary:
+
+* `seat` emits **90070**. Without it hudadmin never finds the avatar in
+  `SITTERS` and does not call `attachHUD` at all.
+* `core` **announces** QSALIVE instead of only answering probes, because
+  hudadmin probes at its own `state_entry` and sizes `SITTERS` from the reply.
+* `core` and `seat` watch `qs:meta:0` via `linkset_data`, because v1's `boot`
+  signals nothing when it finishes and they previously read the schema once and
+  never again.
+
+**Remaining gates inside hudadmin**, if an attach still fails: the licence check
+(`isLicensed`), the HUD object being present in the furniture inventory
+(`findObjectByPrefix`), and the six-seat cap.
