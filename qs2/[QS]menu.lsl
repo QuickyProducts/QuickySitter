@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.07";
+string version = "0.08";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -635,9 +635,26 @@ click(integer op, string msg)
             // [HELPER HUD] this way so its existing handler needs no
             // change at all.
             if (rchan == AV_MENUCHOICE || rchan == AV_MENUNAV)
+            {
+                // v1 renames this token on the way out (sitB.lsl:992);
+                // the adjuster listens for [QUICKYHUD], not the label the
+                // button carries.
+                string out = msg;
+                if (out == "[HELPER HUD]") out = "[QUICKYHUD]";
+
+                // SELF-ECHO GUARD, and it is not optional: we listen on
+                // 90100/90101 ourselves as the back route, so a bare send
+                // comes straight back, finds this same entry, and sends
+                // again. That is an endless dialog loop, observed on the
+                // first click of Quicky HUD.
+                //
+                // The tag is a fifth field. v1 consumers read fields 0-3
+                // and llParseString2List simply ignores the extra, so the
+                // payload stays compatible.
                 llMessageLinked(LINK_SET, rchan,
-                    (string)ch + "|" + msg + "|" + (string)av + "|" + (string)mi,
-                    av);
+                    (string)ch + "|" + out + "|" + (string)av + "|"
+                    + (string)mi + "|" + llGetScriptName(), av);
+            }
             else
                 llMessageLinked(LINK_SET, rchan, msg, av);
             render(op);
@@ -748,6 +765,11 @@ default
             // from. A singleton has no such ambiguity: the slot field
             // simply says which seat's menu to act on.
             list f = llParseStringKeepNulls(msg, ["|"], []);
+            // Our own emission, coming back because LINK_SET reaches the
+            // sender too. Dropping it is what stops the endless loop
+            // described at the send site.
+            if (llList2String(f, 4) == llGetScriptName()) return;
+
             string sSlot = llList2String(f, 0);
             string what  = llList2String(f, 1);
             key who      = (key)llList2String(f, 2);
