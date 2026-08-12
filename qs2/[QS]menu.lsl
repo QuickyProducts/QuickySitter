@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.10";
+string version = "0.11";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -63,6 +63,7 @@ integer QSC_REQUEST   = 90420;
 integer QSPLUG_REGISTER  = 90212;   // -> [OPTIONS]. No unregister exists.
 integer QSADJ_REGISTER   = 90213;   // -> [ADJUST]
 integer QSADJ_UNREGISTER = 90216;   // counterpart of 90213, msg = scriptName
+integer QS_ALIVE_CENSUS = 90079;   // boot wiped presence, re-stamp
 integer QSB_READY     = 90430;
 integer QSB_RELOAD    = 90431;
 
@@ -704,6 +705,10 @@ default
 {
     state_entry()
     {
+        // Presence for boot's self-check, same reasoning as in seat: only
+        // core may answer QSALIVE, so the other two use the qs:alive:*
+        // flag the plugins already use.
+        llLinksetDataWrite("qs:alive:menu", "1");
         SEP = llUnescapeURL("%EF%BF%BD");
         string v = llLinksetDataRead("qs:cfg:verbose");
         if (v != "") verbose = (integer)v;
@@ -838,6 +843,12 @@ default
             if (v != "") verbose = (integer)v;
             OPS = [];
             llSetTimerEvent(0.0);
+            return;
+        }
+
+        if (num == QS_ALIVE_CENSUS)
+        {
+            llLinksetDataWrite("qs:alive:menu", "1");
             return;
         }
     }

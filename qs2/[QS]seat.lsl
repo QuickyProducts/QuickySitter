@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.09";
+string version = "0.10";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -53,6 +53,7 @@ integer QSS_NUDGE    = 90415;   // menu -> seat, live offset preview
 integer QSC_APPLY   = 90421;
 integer QSC_RESYNC  = 90423;
 
+integer QS_ALIVE_CENSUS = 90079;   // boot wiped presence, re-stamp
 integer QSB_READY   = 90430;
 integer QSB_RELOAD  = 90431;
 
@@ -364,6 +365,13 @@ default
 {
     state_entry()
     {
+        // Presence for boot's self-check. seat cannot answer QSALIVE:
+        // hudadmin sizes its SITTERS list from that reply, so exactly one
+        // script may answer it and that is core. The flag is the same
+        // mechanism the plugins use, and boot wipes ^qs:alive: before
+        // every CENSUS, so a stamp only counts while we are here to
+        // re-place it.
+        llLinksetDataWrite("qs:alive:seat", "1");
         boot_up();
     }
 
@@ -522,6 +530,12 @@ default
         if (num == QSB_READY || num == QSB_RELOAD)
         {
             boot_up();
+            return;
+        }
+
+        if (num == QS_ALIVE_CENSUS)
+        {
+            llLinksetDataWrite("qs:alive:seat", "1");
             return;
         }
     }
