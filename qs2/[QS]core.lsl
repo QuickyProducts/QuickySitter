@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.08";
+string version = "0.09";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -190,7 +190,7 @@ integer find_by_name(integer ch, string name)
 // why this stays here rather than moving to the offset plugin with the
 // editing UI: a wire round trip would make the pose visibly jump into
 // place.
-list resolve_offset(integer seat, list e, string label)
+list resolve_offset(integer seat, list e)
 {
     vector pos = (vector)llList2String(e, 3);
     vector rot = (vector)llList2String(e, 4);
@@ -198,7 +198,17 @@ list resolve_offset(integer seat, list e, string label)
     key av = (key)llLinksetDataRead("qs:occ:" + (string)seat);
     if (av != "")
     {
-        string pers = llLinksetDataRead(qso_key(av, seat, label));
+        // KEYED ON THE RAW NAME, PREFIX INCLUDED. This took the bare
+        // label, and the whole personal-offset store is keyed on the raw
+        // one: [QS]offset writes the pose name through verbatim as it
+        // arrives on 90262 (offset.lsl:138), the HUD sends it raw, and v1
+        // looks it up with CURRENT_POSE_NAME, which is field 0 of the
+        // stored entry (sitA.lsl:539). So a "P:Sit" entry was saved under
+        // QSO:<short>:<slot>:P:Sit and looked up as ...:Sit, and never
+        // found. Sitting down landed on the plain default, and only the
+        // first HUD press moved anything, because that path takes its
+        // position from the HUD's own cache instead of from here.
+        string pers = llLinksetDataRead(qso_key(av, seat, llList2String(e, 0)));
         // M#T! is the reserved "same offset for every pose" entry, kept
         // from v1 unchanged.
         if (pers == "") pers = llLinksetDataRead(qso_key(av, seat, "M#T!"));
@@ -224,9 +234,12 @@ apply_camera(integer seat)
 // ----------------------------------------------------------- pose start
 
 // Build one QSC_APPLY row.
-string row_for(integer seat, list e, string label)
+// The label is no longer a parameter: both the animation and the
+// offset key come out of the entry itself, and for a SYNC each
+// participating seat has its OWN entry with its own raw name.
+string row_for(integer seat, list e)
 {
-    list o = resolve_offset(seat, e, label);
+    list o = resolve_offset(seat, e);
     return (string)seat + "=" + llList2String(e, 2)
          + "=" + (string)llList2Vector(o, 0)
          + "=" + (string)llList2Vector(o, 1);
@@ -242,7 +255,7 @@ start_entry(integer ch, integer i)
     string etype = llList2String(e, 1);
     string label = bare_name(name);
 
-    string payload = row_for(ch, e, label);
+    string payload = row_for(ch, e);
     llLinksetDataWrite("qs:cur:" + (string)ch, label);
     string sitters = llLinksetDataRead("qs:occ:" + (string)ch);
 
@@ -268,7 +281,7 @@ start_entry(integer ch, integer i)
                     if (at >= 0)
                     {
                         list e2 = entry(c, at);
-                        payload += "|" + row_for(c, e2, label);
+                        payload += "|" + row_for(c, e2);
                         infos += [c, llList2String(e2, 0), llList2String(e2, 2),
                                   llList2String(e2, 3), llList2String(e2, 4)];
                         llLinksetDataWrite("qs:cur:" + (string)c, label);
