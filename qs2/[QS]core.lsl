@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.07";
+string version = "0.08";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -464,24 +464,54 @@ default
 
         if (num == AV_POSESAVED)
         {
-            // The adjuster saved a pose: "<name>|<pos>|<rot>|". Refresh
-            // only if that pose is the one currently playing on a seat,
-            // which is v1's rule (sitB is stricter than sitA here on
-            // purpose). The payload is authoritative, but core re-reads
-            // qs:p because the adjuster has already written it.
-            list f = llParseString2List(msg, ["|"], []);
-            string name = llList2String(f, 0);
-            integer c = 0;
-            while (c < SEATS)
-            {
-                if (llLinksetDataRead("qs:cur:" + (string)c) == name)
-                {
-                    integer at = find_by_name(c, name);
-                    if (at == -1) at = find_by_name(c, "P:" + name);
-                    if (at >= 0) { start_entry(c, at); return; }
-                }
-                ++c;
-            }
+            // THE SLOT IS IN msg, THE PAYLOAD IS IN id:
+            // msg = "<slot>", id = "<name>|<pos>|<rot>|". Reading the
+            // payload out of msg, which is what this did, meant the name
+            // was always a slot number and 90301 never resolved to
+            // anything. This path has never worked in v2.
+            //
+            // Two senders, identical shape: the adjuster's [SAVE]
+            // (adjuster.lsl:748), and QuickyHUD's adjust arrows while
+            // ADJUSTMODE is On (hudproxy.lsl:671). The HUD sender is why
+            // this cannot re-read qs:p the way a [SAVE] alone could: at
+            // this moment NOTHING has written the new position yet. The
+            // adjuster persists it only when it sees the AV_ANIMINFO we
+            // send below, so the payload is the only copy in existence
+            // and has to be applied straight from here.
+            integer c = (integer)msg;
+            if (c < 0) return;
+            if (c >= SEATS) return;
+            list f = llParseString2List((string)id, ["|"], []);
+            string nm = llList2String(f, 0);
+
+            // v1's rule (sitB.lsl:1748): act only when the saved pose is
+            // the one this seat is playing. Otherwise there is nothing
+            // visible to update and the new default takes effect on the
+            // next sit. qs:cur holds the bare label; the payload name may
+            // carry a "P:" prefix.
+            if (llLinksetDataRead("qs:cur:" + (string)c) != bare_name(nm))
+                return;
+
+            integer at = find_by_name(c, nm);
+            if (at == -1) at = find_by_name(c, "P:" + nm);
+            if (at == -1) return;
+            string anim = llList2String(entry(c, at), 2);
+
+            // Adjuster and HUD first. With ADJUSTMODE On the adjuster
+            // turns this into the qs:p write that makes the edit
+            // permanent, and hudproxy re-caches so the NEXT arrow press
+            // builds on the new value rather than repeating the old one.
+            llMessageLinked(LINK_THIS, AV_ANIMINFO, (string)c,
+                llDumpList2String([nm, anim, llList2String(f, 1),
+                    llList2String(f, 2), 0, 0], "|"));
+
+            // Then move, with the explicit values rather than a re-read.
+            // seat only restarts an animation when the name changes, so
+            // an unchanged anim here means it just re-places the sit
+            // target, which is exactly the intent.
+            llMessageLinked(LINK_SET, QSC_APPLY,
+                (string)c + "=" + anim + "=" + llList2String(f, 1)
+                + "=" + llList2String(f, 2), "");
             return;
         }
 
