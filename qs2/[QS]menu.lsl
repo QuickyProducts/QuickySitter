@@ -1,58 +1,73 @@
 /*
  * [QS]menu - QuickySitter v2 dialogs
  *
- * Singleton. Renders menus, dispatches clicks, and holds the entry
- * registry. It is the only v2 script with a listener.
+ * Singleton. Renders menus, dispatches clicks, holds the entry registry.
+ * The only v2 script with a listener.
  *
- * IT KNOWS NOTHING ABOUT AUTHORING
+ * DROP-IN REPLACEMENT: reads the schema today's [QS]boot already writes.
+ * See qs2/STATUS.md stage 1.
  *
- * There is no "[HELPER]", "[QUICKYHUD]", "[NEW]", "[SAVE]" or "[DUMP]"
- * literal anywhere in this file. Every entry that is not a notecard pose
- * is registered at runtime by the script that owns it, and disappears
- * when that script is removed. That is what makes /5 cleanup a real
- * removal instead of a hidden state. See qs2/REGISTRY.md.
+ * THE v1 MENU MODEL
  *
- * PER-OPERATOR STATE
+ *   qs:p:<ch>:<i>       "<name>|<type>|<anim>|<pos>|<rot>"   KeepNulls
+ *   qs:nm:<ch>:<mi>     child count of the section opened by marker <mi>
+ *                       (mi = -1 is the root section)
+ *   qs:nt:<ch>:<ti>     the M: index a T: at <ti> navigates to
+ *   qs:cfg:slots:<ch>   entry count
  *
- * Every sitB instance served exactly one operator, so its dialog state
- * could be globals. A singleton serves several at once: two people on a
- * bed browsing, plus an owner touching the furniture. Each gets a row in
- * OPS. See DESIGN.md §6.6 for why a shared listen channel was rejected —
- * in short, a dialog cannot be closed, and a per-dialog random channel is
- * what makes a click on a stale window land nowhere instead of being
- * executed against current state.
+ * Entries are one flat list per channel. A section that starts at marker
+ * <mi> owns the entries mi+1 … mi+count, contiguously. Nesting is NOT
+ * containment: submenus sit side by side in the list and are reached by
+ * following a T: through the qs:nt sidecar. That is why rendering a
+ * section is a range walk and needs no tree.
  *
- * MENU DATA IN LSD (written by [QS]boot)
+ * Types: P slot-local pose, S sync pose, T submenu button, M section
+ * marker, B channel button. T:/P:/B: names carry a two-character prefix,
+ * S does not.
  *
- *   qs:m:<item>:count      number of menu nodes
- *   qs:m:<item>:<n>        "<path>|<flags>"   flags: h = hidden, no button
- *   qs:pm:<item>:<n>       menu path of pose n ("" = top level)
- *   qs:p:<item>:<n>        pose row, see [QS]core
+ * IT KNOWS NOTHING ABOUT AUTHORING. There is no "[HELPER]",
+ * "[QUICKYHUD]", "[NEW]", "[SAVE]" or "[DUMP]" literal in this file.
+ * Every entry that is not a notecard entry is registered at runtime by
+ * the script that owns it and disappears when that script is removed,
+ * which is what makes /5 cleanup a real removal. See qs2/REGISTRY.md.
  *
- * NOT BUILT YET, deliberately:
- *   - the seat picker and the swap dialog
- *   - [OPTIONS] paging beyond the flat case
+ * PER-OPERATOR STATE. Each sitB instance served exactly one operator, so
+ * its dialog state could be globals. A singleton serves several at once:
+ * two people on a bed browsing, plus an owner touching the furniture.
+ * Each gets a row in OPS. The per-dialog random channel is deliberate,
+ * not incidental: a dialog cannot be closed programmatically, so a click
+ * on a stale window must land on a channel nobody listens to. On a
+ * long-lived shared channel it would be executed against current state.
+ * See DESIGN.md §6.6.
  *
- * Wire: see qs2/PROTOCOL.md.
+ * IT SENDS core AN INDEX, NOT A LABEL. Two P entries in different
+ * channels may share a name - the "Lalou" notecard has three such pairs
+ * including the default sit pose - so a label does not identify a pose.
+ *
+ * NOT BUILT YET: the seat picker, the swap dialog, the HUD wire
+ * (90100/90101/90271/90299-90301), MTYPE/ETYPE click modes. See
+ * qs2/STATUS.md.
  *
  * MPL 2.0. Original work © the AVsitter Contributors. Trademark policy:
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.01";
+string version = "0.03";
 
-integer QSS_TOUCH    = 90412;
-integer QSC_REQUEST  = 90420;
+integer QSS_TOUCH     = 90412;
+integer QSC_REQUEST   = 90420;
 integer QS_REGISTER   = 90212;
 integer QS_UNREGISTER = 90216;
+integer QSB_READY     = 90430;
+integer QSB_RELOAD    = 90431;
 
-integer QSB_READY   = 90430;
-integer QSB_RELOAD  = 90431;
+string SEP;                 // U+FFFD, the v1 intra-field separator
 
-// OPS strided 8: avatar, channel, handle, item, path, page, navCSV, lastAct
-// navCSV is a string because LSL lists cannot nest. page_map is NOT stored:
-// it is re-derived on click from (path, page), which costs one pass and
-// removes the nesting problem with it.
+// OPS strided 8: avatar, seat, dialogChannel, listenHandle, section,
+//                page, navCSV, lastAct
+// navCSV is a string because LSL lists cannot nest. The rendered page is
+// NOT stored: it is re-derived on click, which removes the nesting
+// problem and costs one pass.
 list OPS;
 integer OPS_STRIDE = 8;
 integer OPS_CAP = 6;
@@ -61,7 +76,7 @@ integer OPS_CAP = 6;
 list REG;
 integer REG_STRIDE = 5;
 
-integer PAGE = 9;          // entries per dialog page, leaving room for nav
+integer PAGE = 9;           // entries per dialog page, leaving room for nav
 integer verbose = 0;
 
 Out(integer level, string s)
@@ -78,7 +93,7 @@ integer op_of_channel(integer chan)
     integer n = llGetListLength(OPS);
     while (i < n)
     {
-        if (llList2Integer(OPS, i + 1) == chan) return i / OPS_STRIDE;
+        if (llList2Integer(OPS, i + 2) == chan) return i / OPS_STRIDE;
         i += OPS_STRIDE;
     }
     return -1;
@@ -100,7 +115,7 @@ op_drop(integer op)
 {
     if (op < 0) return;
     integer row = op * OPS_STRIDE;
-    llListenRemove(llList2Integer(OPS, row + 2));
+    llListenRemove(llList2Integer(OPS, row + 3));
     OPS = llDeleteSubList(OPS, row, row + OPS_STRIDE - 1);
     if (llGetListLength(OPS) == 0) llSetTimerEvent(0.0);
 }
@@ -122,7 +137,7 @@ op_evict_oldest()
     op_drop(oldest);
 }
 
-integer op_open(key av, string item)
+integer op_open(key av, integer ch)
 {
     integer op = op_of_avatar(av);
     if (op >= 0) op_drop(op);                  // re-open: fresh channel
@@ -130,10 +145,11 @@ integer op_open(key av, string item)
 
     integer chan = ((integer)llFrand(0x7FFFFF80) + 1) * -1;
     integer h = llListen(chan, "", av, "");
-    OPS += [(string)av, chan, h, item, "", 0, "", llGetUnixTime()];
-    // Armed only while somebody has a dialog open, disarmed when the last
-    // one drains. There is no event for "the operator walked away", so a
-    // sweep is the one place the event-driven preference cannot hold.
+    OPS += [(string)av, ch, chan, h, -1, 0, "", llGetUnixTime()];
+    // Armed only while somebody has a dialog open, disarmed when the
+    // last one drains. There is no event for "the operator walked away",
+    // so a sweep is the one place the event-driven preference cannot
+    // hold.
     llSetTimerEvent(60.0);
     return llGetListLength(OPS) / OPS_STRIDE - 1;
 }
@@ -163,85 +179,73 @@ reg_drop_owner(string owner)
     }
 }
 
+// ------------------------------------------------------------- entries
+
+list entry(integer ch, integer i)
+{
+    string v = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i);
+    if (v == "") return [];
+    return llParseStringKeepNulls(v, ["|"], []);
+}
+
+string bare_name(string name)
+{
+    if (llListFindList(["T:", "P:", "B:"], [llGetSubString(name, 0, 1)]) == -1)
+        return name;
+    return llGetSubString(name, 2, 99999);
+}
+
+// A section starting at marker <mi> owns the entries mi+1 … mi+count.
+// The root section is mi = -1, so its range starts at 0.
+integer section_count(integer ch, integer mi)
+{
+    return (integer)llLinksetDataRead("qs:nm:" + (string)ch + ":" + (string)mi);
+}
+
+// Which seat is this avatar in? -1 when not seated.
+integer seat_of(key av)
+{
+    integer c = 0;
+    while (llLinksetDataRead("qs:sitter:" + (string)c) != "")
+    {
+        if (llLinksetDataRead("qs:occ:" + (string)c) == (string)av) return c;
+        ++c;
+    }
+    return -1;
+}
+
 // ------------------------------------------------------------ rendering
 
-// Does this pose offer itself to this operator? Visibility is derived
-// from participation: a pose is offered to a seat if and only if that
-// seat appears in the pose line. A non-seated operator (an owner
-// touching the furniture) sees everything.
-integer pose_visible(string row, string seatName)
+render(integer op)
 {
-    if (seatName == "") return TRUE;
-    list f = llParseString2List(row, ["|"], []);
-    integer i = 1;
-    integer n = llGetListLength(f);
-    while (i < n)
-    {
-        string pair = llList2String(f, i);
-        integer cut = llSubStringIndex(pair, "=");
-        if (cut > 0)
-        {
-            if (llGetSubString(pair, 0, cut - 1) == seatName) return TRUE;
-        }
-        ++i;
-    }
-    return FALSE;
-}
+    if (op < 0) return;
+    integer row = op * OPS_STRIDE;
+    key av       = (key)llList2String(OPS, row);
+    integer ch   = llList2Integer(OPS, row + 1);
+    integer mi   = llList2Integer(OPS, row + 4);
+    integer page = llList2Integer(OPS, row + 5);
 
-string seat_of_avatar(string item, key av)
-{
-    integer n = (integer)llLinksetDataRead("qs:s:count");
+    integer first = mi + 1;
+    integer count = section_count(ch, mi);
+    if (count <= 0) count = 0;
+
+    // Collect this section's renderable entries, then the registered
+    // ones. Notecard first, registered after, in registration order.
+    list labels;
+    list kinds;                 // "E" notecard entry, "R" registered
+    list idx;                   // entry index, or REG index
     integer i = 0;
-    while (i < n)
+    while (i < count)
     {
-        list s = llParseString2List(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-        string nm = llList2String(s, 0);
-        if (llLinksetDataRead("qs:occ:" + item + "/" + nm) == (string)av) return nm;
-        ++i;
-    }
-    return "";
-}
-
-// Build the full entry list for one menu node, in the documented order:
-// notecard entries first, then registered entries in registration order.
-// Child menus come before poses so navigation stays at the top.
-list build_entries(string item, string path, key av)
-{
-    string seatName = seat_of_avatar(item, av);
-    list out;
-
-    integer mn = (integer)llLinksetDataRead("qs:m:" + item + ":count");
-    integer i = 0;
-    while (i < mn)
-    {
-        list m = llParseString2List(llLinksetDataRead("qs:m:" + item + ":" + (string)i), ["|"], []);
-        string mp = llList2String(m, 0);
-        if (llSubStringIndex(llList2String(m, 1), "h") == -1)
+        list e = entry(ch, first + i);
+        string t = llList2String(e, 1);
+        if (t == "P" || t == "S" || t == "T" || t == "B")
         {
-            // Direct child of the current path?
-            string prefix = path;
-            if (prefix != "") prefix += "/";
-            if (llSubStringIndex(mp, prefix) == 0)
-            {
-                string tail = llGetSubString(mp, llStringLength(prefix), -1);
-                if (tail != "")
-                {
-                    if (llSubStringIndex(tail, "/") == -1) out += ["M" + mp];
-                }
-            }
-        }
-        ++i;
-    }
-
-    integer pn = (integer)llLinksetDataRead("qs:p:" + item + ":count");
-    i = 0;
-    while (i < pn)
-    {
-        if (llLinksetDataRead("qs:pm:" + item + ":" + (string)i) == path)
-        {
-            string row = llLinksetDataRead("qs:p:" + item + ":" + (string)i);
-            if (pose_visible(row, seatName))
-                out += ["P" + llList2String(llParseString2List(row, ["|"], []), 0)];
+            string lab = bare_name(llList2String(e, 0));
+            if (t == "T") lab = lab + " >";
+            labels += lab;
+            kinds  += "E";
+            idx    += (first + i);
         }
         ++i;
     }
@@ -250,7 +254,9 @@ list build_entries(string item, string path, key av)
     i = 0;
     while (i < rn)
     {
-        if (llList2String(REG, i + 1) == path)
+        // Registered entries land at the root of the seat's menu; there
+        // is no path concept in the v1 model to place them deeper.
+        if (mi == -1)
         {
             integer flags = llList2Integer(REG, i + 4);
             integer show = TRUE;
@@ -258,60 +264,37 @@ list build_entries(string item, string path, key av)
             {
                 if (av != llGetOwner()) show = FALSE;
             }
-            if (show) out += ["R" + llList2String(REG, i)];
+            if (show)
+            {
+                labels += llList2String(REG, i);
+                kinds  += "R";
+                idx    += (i / REG_STRIDE);
+            }
         }
         i += REG_STRIDE;
     }
-    return out;
-}
 
-render(integer op)
-{
-    if (op < 0) return;
-    integer row = op * OPS_STRIDE;
-    key av      = (key)llList2String(OPS, row);
-    string item = llList2String(OPS, row + 3);
-    string path = llList2String(OPS, row + 4);
-    integer page = llList2Integer(OPS, row + 5);
-
-    list all = build_entries(item, path, av);
-    integer total = llGetListLength(all);
+    integer total = llGetListLength(labels);
     integer pages = (total + PAGE - 1) / PAGE;
     if (pages < 1) pages = 1;
     if (page >= pages) page = 0;
 
     list btns;
-    integer i = page * PAGE;
+    i = page * PAGE;
     integer stop = i + PAGE;
     if (stop > total) stop = total;
     while (i < stop)
     {
-        string e = llList2String(all, i);
-        string label = llGetSubString(e, 1, -1);
-        if (llGetSubString(e, 0, 0) == "M")
-        {
-            // Show only the leaf name on the button, not the whole path.
-            integer c = llSubStringIndex(label, "/");
-            while (c != -1)
-            {
-                label = llGetSubString(label, c + 1, -1);
-                c = llSubStringIndex(label, "/");
-            }
-            label = label + " >";
-        }
-        btns += label;
+        btns += llList2String(labels, i);
         ++i;
     }
-
-    if (path != "") btns += "[BACK]";
+    if (mi != -1) btns += "[BACK]";
     if (pages > 1) btns += ["[<<]", "[>>]"];
 
-    OPS = llListReplaceList(OPS, [page, llGetUnixTime()], row + 5, row + 5);
+    OPS = llListReplaceList(OPS, [page], row + 5, row + 5);
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 
-    string title = "\n" + item;
-    if (path != "") title += " — " + path;
-    llDialog(av, title, btns, llList2Integer(OPS, row + 1));
+    llDialog(av, "\n" + llGetObjectName(), btns, llList2Integer(OPS, row + 2));
 }
 
 // ------------------------------------------------------------- dispatch
@@ -319,10 +302,11 @@ render(integer op)
 click(integer op, string msg)
 {
     integer row = op * OPS_STRIDE;
-    key av      = (key)llList2String(OPS, row);
-    string item = llList2String(OPS, row + 3);
-    string path = llList2String(OPS, row + 4);
+    key av       = (key)llList2String(OPS, row);
+    integer ch   = llList2Integer(OPS, row + 1);
+    integer mi   = llList2Integer(OPS, row + 4);
     integer page = llList2Integer(OPS, row + 5);
+    string nav   = llList2String(OPS, row + 6);
 
     if (msg == "[>>]") { OPS = llListReplaceList(OPS, [page + 1], row + 5, row + 5); render(op); return; }
     if (msg == "[<<]")
@@ -335,80 +319,89 @@ click(integer op, string msg)
     }
     if (msg == "[BACK]")
     {
-        string nav = llList2String(OPS, row + 6);
-        string back = "";
-        integer cut = llSubStringIndex(path, "/");
-        // Parent path is everything before the last "/".
-        integer last = -1;
-        integer i = 0;
-        while (i < llStringLength(path))
+        list st = llParseString2List(nav, [","], []);
+        integer back = -1;
+        integer len = llGetListLength(st);
+        if (len > 0)
         {
-            if (llGetSubString(path, i, i) == "/") last = i;
-            ++i;
+            back = llList2Integer(st, len - 1);
+            st = llDeleteSubList(st, len - 1, len - 1);
         }
-        if (last > 0) back = llGetSubString(path, 0, last - 1);
-        OPS = llListReplaceList(OPS, [back, 0], row + 4, row + 5);
+        OPS = llListReplaceList(OPS, [back, 0, llDumpList2String(st, ",")],
+            row + 4, row + 6);
         render(op);
         return;
     }
 
-    // Re-derive the page contents rather than caching them per operator.
-    list all = build_entries(item, path, av);
-    integer i2 = 0;
-    integer n = llGetListLength(all);
-    while (i2 < n)
+    // Re-derive the section rather than caching the page per operator.
+    integer first = mi + 1;
+    integer count = section_count(ch, mi);
+    integer i = 0;
+    while (i < count)
     {
-        string e = llList2String(all, i2);
-        string kind = llGetSubString(e, 0, 0);
-        string label = llGetSubString(e, 1, -1);
+        integer at = first + i;
+        list e = entry(ch, at);
+        string t = llList2String(e, 1);
+        string lab = bare_name(llList2String(e, 0));
+        if (t == "T") lab = lab + " >";
 
-        if (kind == "M")
+        if (lab == msg)
         {
-            string leaf = label;
-            integer c = llSubStringIndex(leaf, "/");
-            while (c != -1)
+            if (t == "T")
             {
-                leaf = llGetSubString(leaf, c + 1, -1);
-                c = llSubStringIndex(leaf, "/");
-            }
-            if (leaf + " >" == msg)
-            {
-                OPS = llListReplaceList(OPS, [label, 0], row + 4, row + 5);
+                integer target = (integer)llLinksetDataRead(
+                    "qs:nt:" + (string)ch + ":" + (string)at);
+                string push = nav;
+                if (push != "") push += ",";
+                push += (string)mi;
+                OPS = llListReplaceList(OPS, [target, 0, push], row + 4, row + 6);
                 render(op);
                 return;
             }
-        }
-        else
-        {
-            if (label == msg)
+            if (t == "B")
             {
-                if (kind == "P")
+                // v1 payload: <channel>SEP<message>SEP<id>, where <C> is
+                // the controller and <S> the seated avatar.
+                list bd = llParseStringKeepNulls(llList2String(e, 2), [SEP], []);
+                string bmsg = msg;
+                if (llList2String(bd, 1) != "") bmsg = llList2String(bd, 1);
+                key bid = av;
+                if (llGetListLength(bd) > 2)
                 {
-                    llMessageLinked(LINK_SET, QSC_REQUEST, item + "|" + label, av);
-                }
-                else
-                {
-                    // Registered entry: fire its channel with the label,
-                    // exactly as sitB does today, so plugin click handlers
-                    // need no change.
-                    integer r = 0;
-                    integer rn = llGetListLength(REG);
-                    while (r < rn)
+                    string want = llList2String(bd, 2);
+                    if (want != "<C>")
                     {
-                        if (llList2String(REG, r) == label)
-                        {
-                            llMessageLinked(LINK_SET, llList2Integer(REG, r + 2), label, av);
-                            r = rn;
-                        }
-                        r += REG_STRIDE;
+                        if (want != "<S>") bid = (key)want;
                     }
                 }
+                llMessageLinked(LINK_SET, llList2Integer(bd, 0), bmsg, bid);
                 render(op);
                 return;
             }
+            // P or S. core gets the INDEX, because a label is not a
+            // unique pose identity.
+            llMessageLinked(LINK_SET, QSC_REQUEST,
+                (string)ch + "|" + (string)at, av);
+            render(op);
+            return;
         }
-        ++i2;
+        ++i;
     }
+
+    // Registered entry?
+    integer r = 0;
+    integer rn = llGetListLength(REG);
+    while (r < rn)
+    {
+        if (llList2String(REG, r) == msg)
+        {
+            llMessageLinked(LINK_SET, llList2Integer(REG, r + 2), msg, av);
+            render(op);
+            return;
+        }
+        r += REG_STRIDE;
+    }
+
     // Unknown label: the page moved under the operator. Re-render.
     render(op);
 }
@@ -417,6 +410,7 @@ default
 {
     state_entry()
     {
+        SEP = llUnescapeURL("%EF%BF%BD");
         string v = llLinksetDataRead("qs:cfg:verbose");
         if (v != "") verbose = (integer)v;
         Out(1, "ready, mem=" + (string)llGetFreeMemory());
@@ -448,15 +442,18 @@ default
     {
         if (num == QSS_TOUCH)
         {
-            render(op_open(id, msg));
+            // Render the toucher's own seat if they are sitting,
+            // otherwise the seat whose prim they touched.
+            integer ch = seat_of(id);
+            if (ch < 0) ch = (integer)msg;
+            render(op_open(id, ch));
             return;
         }
 
         if (num == QS_REGISTER)
         {
             // "<label>|<channel>|<owner>|<flags>|<path>". A 3-field
-            // payload is a v1 QSPLUG_REGISTER and defaults to [OPTIONS];
-            // see REGISTRY.md §3.
+            // payload is a v1 QSPLUG_REGISTER; see REGISTRY.md §3.
             list f = llParseString2List(msg, ["|"], []);
             string label = llList2String(f, 0);
             integer chan = llList2Integer(f, 1);
@@ -465,12 +462,14 @@ default
             if (chan == 0) return;
             if (owner == "") return;
             integer flags = 0;
-            string path = "[OPTIONS]";
+            string path = "";
             if (llGetListLength(f) > 3) flags = llList2Integer(f, 3);
             if (llGetListLength(f) > 4) path  = llList2String(f, 4);
 
             integer at = reg_find(owner);
-            if (at >= 0) REG = llDeleteSubList(REG, at * REG_STRIDE, at * REG_STRIDE + REG_STRIDE - 1);
+            if (at >= 0)
+                REG = llDeleteSubList(REG, at * REG_STRIDE,
+                    at * REG_STRIDE + REG_STRIDE - 1);
             REG += [label, path, chan, owner, flags];
             return;
         }
@@ -485,6 +484,8 @@ default
         {
             string v = llLinksetDataRead("qs:cfg:verbose");
             if (v != "") verbose = (integer)v;
+            OPS = [];
+            llSetTimerEvent(0.0);
             return;
         }
     }
