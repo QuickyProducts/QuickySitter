@@ -51,7 +51,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.05";
+string version = "0.06";
 
 integer QSS_TOUCH     = 90412;
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
@@ -620,7 +620,18 @@ click(integer op, string msg)
     {
         if (llList2String(REG, r) == msg)
         {
-            llMessageLinked(LINK_SET, llList2Integer(REG, r + 2), msg, av);
+            integer rchan = llList2Integer(REG, r + 2);
+            // An entry that registers on the 90100/90101 back route wants
+            // the v1 payload, not a bare label, because its handler was
+            // written against sitB. [QS]adjuster registers [HELPER] and
+            // [HELPER HUD] this way so its existing handler needs no
+            // change at all.
+            if (rchan == AV_MENUCHOICE || rchan == AV_MENUNAV)
+                llMessageLinked(LINK_SET, rchan,
+                    (string)ch + "|" + msg + "|" + (string)av + "|" + (string)mi,
+                    av);
+            else
+                llMessageLinked(LINK_SET, rchan, msg, av);
             render(op);
             return;
         }

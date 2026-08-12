@@ -253,3 +253,32 @@ authoring literals by design (DESIGN.md §2), so those buttons do not appear.
 
 Not decided. It is the first place where "nothing else changes" and "no
 authoring code in the base scripts" pull against each other.
+
+### Resolved: the adjuster is forked into qs2
+
+`qs2/[QS]adjuster.lsl`, copied from `qs/` at v1 1.27 and versioned 2.00. Two
+changes, both marked `v2 FORK ONLY` in the source:
+
+* `state_entry` registers `[HELPER]` and `[HELPER HUD]` over 90213 with the
+  owner-only flag, since `menu` renders no authoring literals.
+* The `/5 cleanup` teardown sends 90216 before removing itself.
+
+The second one **fixes a bug that exists in v1**. The comment beside the
+`qs:alive:adjuster` delete describes it: on the Paloma sofa the flag survived
+the teardown and sitB kept rendering `[HELPER]`/`[HELPER HUD]` pointing at a
+script that no longer existed. Registered entries leave with their owner, so the
+race cannot happen.
+
+**The registration channel is a link-message number, not a chat channel.** It is
+90101, the back route this script already handles, so the click lands in the
+existing handler unchanged. `menu` shapes the v1 payload
+(`<slot>|<msg>|<controller>|<idx>`) for any entry registered on 90100/90101,
+rather than sending a bare label.
+
+**Cost: a fork of a 1347-line script**, which can drift from `qs/`. Acceptable
+while both versions must exist; it should converge when v1 is retired.
+
+**Still hardcoded in sitB and not yet addressed:** `[TEXTURE]`, `[FACES]` and
+`[SECURITY]` in the `[ADJUST]` submenu, gated on other plugins' presence. By the
+same principle those belong to `[QS]faces` and `[QS]root-security`, which means
+more forks or more registration calls. Not started.
