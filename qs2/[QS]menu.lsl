@@ -55,6 +55,7 @@
 string version = "0.03";
 
 integer QSS_TOUCH     = 90412;
+integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
 integer QSC_REQUEST   = 90420;
 // v1 registration wire, unchanged so plugins do not notice the receiver
 // moving from sitB to here.
@@ -482,13 +483,23 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        if (num == QSS_TOUCH)
+        if (num == QSS_TOUCH || num == AV_MENUTOUSER)
         {
-            // Render the toucher's own seat if they are sitting,
-            // otherwise the seat whose prim they touched.
-            integer ch = seat_of(id);
+            // 90005 is the stock "send menu to user" number and is what
+            // plugins and the HUD actually use, so it has to be accepted
+            // here and not only the v2 one. Its id is either a plain
+            // avatar key or a "<controller>|<sitter>" composite; the
+            // controller is the one operating the menu.
+            list who = llParseString2List((string)id, ["|"], []);
+            key av = (key)llList2String(who, 0);
+            if (av == "") return;
+
+            // The toucher's own seat if they are sitting, otherwise the
+            // seat whose prim they touched.
+            integer ch = seat_of(av);
             if (ch < 0) ch = (integer)msg;
-            render(op_open(id, ch));
+            if (ch < 0) ch = 0;
+            render(op_open(av, ch));
             return;
         }
 

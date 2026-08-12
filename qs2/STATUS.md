@@ -209,3 +209,24 @@ Two options, neither taken yet:
   behaviour exactly, costs `menu` the 300 lines back.
 * **`[QS]offset` hosts it**, which owns the data already. Cleaner, and it is
   what DESIGN.md §6.5 proposes, but that plugin has no dialog code today.
+
+## Does the HUD still work? Not yet.
+
+Asked 2026-07-29. The honest answer is no, and the gap is bigger than the
+per-file "NOT BUILT YET" line suggested. Everything the QuickyHUD kit speaks to
+the sitter lands on `sitB` in v1 and has no receiver in v2:
+
+| Wire | What it does | v2 |
+|---|---|---|
+| `90096` / `90097` `QSALIVE` | sitter presence **and version**; hudadmin forwards the version to the updater | **nobody answers.** This is also the project's documented presence mechanism, so it is load-bearing beyond the HUD |
+| `90100` / `90101` | menu choice, the HUD driving the pose menu | missing |
+| `90271` | SYNC re-sync trigger | `core` has the v2 equivalent (`QSC_RESYNC`, 90423) but does not listen on 90271 |
+| `90299` - `90301` | pose refresh and adjuster back-routes | missing |
+
+Fixed in passing: **`90005`**, the stock "send menu to user", now opens a menu.
+`menu` previously listened only for the v2 touch number, so anything that used
+the stock number - plugins and the HUD both do - was ignored. Its id is either a
+plain key or a `<controller>|<sitter>` composite, and both are handled.
+
+`hudproxy`'s LSD reads (`qs:offset:alive`, `QPP_CFG:*`) are unaffected, since
+those keys are written by other scripts entirely.

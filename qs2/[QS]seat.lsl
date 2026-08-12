@@ -230,11 +230,25 @@ integer seat_start(integer seat, string anim)
     return TRUE;
 }
 
+// NEVER call this for an avatar who has stood up. Auto-grant only
+// applies while the avatar is sitting ON the object; off it,
+// llRequestPermissions pops a DIALOG at them. Standing up already
+// revoked the permission and stopped the animation, so there is nothing
+// to do on that path anyway.
+//
+// The guard is here rather than at the call sites because every caller
+// would otherwise have to remember it, and the failure is a permission
+// dialog in a customer's face.
 seat_stop(integer seat, string anim)
 {
     if (anim == "") return;
     key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
     if (av == "") return;
+
+    integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
+    if (link <= 0) return;
+    if (llAvatarOnLinkSitTarget(link) != av) return;   // already gone
+
     llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
         llStopAnimation(anim);
@@ -257,11 +271,10 @@ seat_taken(integer seat, key av)
 
 seat_freed(integer seat, key was)
 {
-    // Standing up revokes the permission and stops the animation by
-    // itself, so this is bookkeeping. The explicit stop matters on the
-    // other path, where a seat is freed while its occupant is still on
-    // it (a swap, or a takeover).
-    seat_stop(seat, llList2String(SEATS, seat * SEAT_STRIDE + 2));
+    // No stop call here. This runs because the avatar has ALREADY left
+    // the sit target, so the permission and the animation are both gone,
+    // and asking for permission again would put a dialog in front of
+    // somebody who just stood up.
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 1, seat * SEAT_STRIDE + 1);
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
     llLinksetDataDelete("qs:occ:" + (string)seat);
