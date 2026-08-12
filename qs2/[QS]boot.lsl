@@ -1646,7 +1646,7 @@ default
                 // Updater runs replace sibling scripts one by one. Keep the
                 // self-check safety-net window open if it's still pending so
                 // the timer doesn't fire mid-update with false-positive
-                // "[QS]sitA missing" ERRORs.
+                // "base script missing" ERRORs.
                 if (selfcheck_pending) llSetTimerEvent(10.0);
             }
         }
