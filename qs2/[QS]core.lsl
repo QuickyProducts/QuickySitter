@@ -15,7 +15,7 @@
  * pose start is resolve-then-one-message, not a conversation.
  *
  * NO LISTENER, NO PERMISSIONS, NO CHANGED_LINK. Dialogs belong to
- * [QS]menu, permission to [QS]anim, occupancy to [QS]seat.
+ * [QS]menu, permission and animation to [QS]seat, occupancy too.
  *
  * POSE DATA IN LSD (written by [QS]boot)
  *

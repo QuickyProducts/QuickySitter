@@ -15,7 +15,10 @@ instead of inventing it four times.
 | `[QS]core` | 1 |
 | `[QS]seat` | 1 |
 | `[QS]menu` | 1 |
-| `[QS]anim` | N, one per seat |
+
+**No per-seat script.** `seat` drives the animations itself; permission cycling
+is synchronous and measured at 1.2 ms per seat (DESIGN.md §3). An earlier draft
+of this document had `N x [QS]anim` and a 90400-90405 wire to talk to them.
 
 ## Addressing
 
@@ -64,23 +67,6 @@ Written by `seat`, read by anyone. Reading beats asking: it is what keeps the
 
 ## Messages
 
-### Animator, 90400-90405
-
-Specified in `[QS]anim.lsl`. Summary:
-
-| Num | Name | Direction | msg | id |
-|---|---|---|---|---|
-| 90400 | `QSA_CENSUS` | seat → all | | |
-| 90401 | `QSA_HELLO` | anim → seat | handle | |
-| 90402 | `QSA_BIND` | seat → anim | handle | avatar |
-| 90403 | `QSA_READY` | anim → seat | handle | avatar |
-| 90404 | `QSA_PLAY` | seat → all | `h=anim\|h=anim` | |
-| 90405 | `QSA_RELEASE` | seat → anim | handle | |
-
-`QSA_PLAY` is one broadcast rather than one message per animator, so that every
-participating animator calls `llStartAnimation` in the same sim frame. That is
-the whole `SYNC` property.
-
 ### Seat lifecycle, 90410-90414
 
 | Num | Name | Direction | msg | id |
@@ -105,8 +91,8 @@ narrower one `core` acts on: permission has landed, pick and apply a start pose.
 
 `QSC_APPLY` carries everything already resolved: which seats take part, which
 animation each gets, and the final position and rotation after offsets. `seat`
-places the sit targets and emits one `QSA_PLAY`. One hop, which is as much wire
-as today's sitB to sitA.
+places the sit targets, then acquires and starts every participating occupant in
+that same handler. One hop, which is as much wire as today's sitB to sitA.
 
 ### Boot, 90430-90432
 
@@ -123,17 +109,22 @@ moves from `sitB` to `menu`; the sender does not notice.
 
 ## Ordering contracts
 
-**Sitting down.** `seat` sees `CHANGED_LINK` → writes `qs:occ` → `QSA_BIND` →
-`QSA_READY` → `QSS_SEATED` → `core` resolves → `QSC_APPLY` → `seat` sets sit
-targets → `QSA_PLAY`.
+**Sitting down.** `seat` sees `CHANGED_LINK` → writes `qs:occ` → `QSS_SEATED` →
+`core` resolves → `QSC_APPLY` → `seat` sets sit targets, acquires, starts.
 
-A `QSA_PLAY` arriving before `QSA_READY` is dropped by the animator, not queued.
-`seat` must not emit it early.
+Nothing has to wait for a permission grant any more: it is taken at animation
+time, not on sit.
 
-**Changing pose.** `menu` → `QSC_REQUEST` → `core` resolves → `QSC_APPLY` →
-`QSA_PLAY` + `QSC_PLAYING`.
+**Changing pose.** `menu` → `QSC_REQUEST` → `core` resolves → `QSC_APPLY` +
+`QSC_PLAYING`.
 
-**Standing up.** `seat` sees `CHANGED_LINK` → `QSA_RELEASE` → clears `qs:occ` →
-`QSS_VACATED`. Permission and the animation are already gone by then, since both
-are revoked on standup; the release is bookkeeping so the animator can be
-reassigned.
+Inside `QSC_APPLY`, `seat` runs **two passes with one shared `llSleep(0.2)`**:
+start every seat, sleep, then stop every old animation. The starts stay inside
+one frame, which is the `SYNC` property, and the overlap is what stops anyone
+dropping into their default pose for a frame. Per-avatar overlap, which is what
+v1 does, would tear the loop apart in the middle.
+
+**Standing up.** `seat` sees `CHANGED_LINK` → clears `qs:occ` → `QSS_VACATED`.
+Permission and the animation are already gone by then, both being revoked on
+standup, so the explicit stop only matters when a seat is freed while its
+occupant is still sitting on it.

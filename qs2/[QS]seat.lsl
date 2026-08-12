@@ -5,7 +5,7 @@
  * item. It owns WHO SITS WHERE. [QS]core owns WHAT GETS PLAYED.
  *
  * Responsibilities: prim binding, sit targets, the occupancy table, the
- * sit/stand lifecycle, seat swapping, and the animator fleet.
+ * sit/stand lifecycle, seat swapping, and driving the animations.
  *
  * WHY THIS IS NOT [QS]core
  *
@@ -21,12 +21,20 @@
  *           used on the wire so stock AVsitter plugins keep working
  * This script owns the mapping and is the only one that needs both.
  *
- * THE ANIMATOR FLEET. [QS]anim instances are anonymous and
- * interchangeable: no seat index, no name suffix. They announce
- * themselves with QSA_HELLO and we assign them. Permission binds to the
- * avatar rather than to the prim, so an animator serves a seat on any
- * prim regardless of where the animator itself lives — which is what
- * today's [QS]sitA instances already do.
+ * IT DRIVES THE ANIMATIONS ITSELF. There is no per-seat animator script,
+ * and an earlier draft of this design had one.
+ *
+ * Measured in-world 2026-07-29 (DESIGN.md §3): the permission grant is
+ * synchronous for an avatar already seated on the object, so a single
+ * handler can acquire and start every occupant in turn. 1.2 ms per seat,
+ * so eight seats fit inside a 22 ms frame with room to spare. That is
+ * what keeps SYNC couple poses in phase, and it is tighter than N
+ * independent scripts managed, because there is no scheduling boundary
+ * between the calls.
+ *
+ * run_time_permissions is deliberately NOT handled. It arrives after the
+ * work is already done, fires once per request, and always reports the
+ * LAST key, so it cannot even tell the requests apart.
  *
  * Wire: see qs2/PROTOCOL.md.
  *
@@ -35,13 +43,6 @@
  */
 
 string version = "0.01";
-
-integer QSA_CENSUS  = 90400;
-integer QSA_HELLO   = 90401;
-integer QSA_BIND    = 90402;
-integer QSA_READY   = 90403;
-integer QSA_PLAY    = 90404;
-integer QSA_RELEASE = 90405;
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -63,14 +64,11 @@ integer AV_SITTERGONE = 90065;
 
 // ITEMS strided 3: name, firstSeat, seatCount
 list ITEMS;
-// SEATS strided 5: name, primLink, occupant, primNameOverride, animHandle
+// SEATS strided 5: name, primLink, occupant, primNameOverride, currentAnim
 // occupant is "" when free (an LSL key defaults to "", never NULL_KEY).
 list SEATS;
 integer SEAT_STRIDE = 5;
 integer ITEM_STRIDE = 3;
-
-// Animator handles that have announced but hold no seat yet.
-list FREE_ANIMS;
 
 integer verbose = 0;
 
@@ -179,7 +177,7 @@ load_from_lsd()
     while (i < sc)
     {
         list p = llParseString2List(llLinksetDataRead("qs:s:" + (string)i), ["|"], []);
-        // name, primLink (resolved below), occupant, primName override, animHandle
+        // name, primLink (resolved below), occupant, primName override, currentAnim
         SEATS += [ llList2String(p, 0), 0, "", llList2String(p, 1), "" ];
         llLinksetDataWrite("qs:slot:" + llList2String(p, 0), (string)i);
         ++i;
@@ -281,29 +279,37 @@ set_seat_target(integer seat, vector pos, rotation rot)
     llLinkSitTarget(link, pos - <0.0, 0.0, 0.4> + llRot2Up(rot) * 0.05, rot);
 }
 
-// -------------------------------------------------------- animator pool
+// ------------------------------------------------------------ animation
 
-// Announce-don't-probe: we never look for "[QS]anim <n>" in inventory,
-// we wait to be told. See DESIGN.md §7.3.
-integer take_animator(integer seat)
+// Acquire this seat's occupant and start an animation on them.
+//
+// Permission is taken per call rather than held, because a script holds
+// it for exactly one avatar at a time (llGetPermissionsKey is single
+// valued). Acquiring it at sit time would therefore be pointless: the
+// next seat overwrites it immediately. Measured cost is 1.2 ms.
+//
+// Losing the permission does NOT stop a running animation, which is the
+// property this whole design rests on.
+integer seat_start(integer seat, string anim)
 {
-    string have = llList2String(SEATS, seat * SEAT_STRIDE + 4);
-    if (have != "") return TRUE;
-    if (llGetListLength(FREE_ANIMS) == 0) return FALSE;
-    string h = llList2String(FREE_ANIMS, 0);
-    FREE_ANIMS = llDeleteSubList(FREE_ANIMS, 0, 0);
-    SEATS = llListReplaceList(SEATS, [h], seat * SEAT_STRIDE + 4, seat * SEAT_STRIDE + 4);
+    integer row = seat * SEAT_STRIDE;
+    key av = (key)llList2String(SEATS, row + 2);
+    if (av == "") return FALSE;
+    llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return FALSE;
+    if (anim != "") llStartAnimation(anim);
     return TRUE;
 }
 
-give_back_animator(integer seat)
+seat_stop(integer seat, string anim)
 {
-    integer row = seat * SEAT_STRIDE + 4;
-    string h = llList2String(SEATS, row);
-    if (h == "") return;
-    llMessageLinked(LINK_SET, QSA_RELEASE, h, "");
-    SEATS = llListReplaceList(SEATS, [""], row, row);
-    FREE_ANIMS += h;
+    if (anim == "") return;
+    integer row = seat * SEAT_STRIDE;
+    key av = (key)llList2String(SEATS, row + 2);
+    if (av == "") return;
+    llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
+    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
+        llStopAnimation(anim);
 }
 
 // ---------------------------------------------------------- lifecycle
@@ -316,17 +322,12 @@ seat_taken(integer seat, key av)
     string addr = addr_of_seat(seat);
     llLinksetDataWrite("qs:occ:" + addr, (string)av);
 
-    if (!take_animator(seat))
-    {
-        llOwnerSay(llGetScriptName() + "[" + version + "] no free [QS]anim for "
-            + addr + ". Add one copy of [QS]anim per seat.");
-        return;
-    }
-    // BIND now; core is told only once the permission has landed
-    // (QSA_READY), because a QSA_PLAY before that is dropped, not queued.
-    llMessageLinked(LINK_SET, QSA_BIND, llList2String(SEATS, row + 4), av);
+    // core can be told straight away. The earlier design had to wait for
+    // a permission grant to land before a pose could start; permission is
+    // now taken at animation time, so there is nothing to wait for.
     llMessageLinked(LINK_SET, QSS_OCCUPIED, addr, av);
     llMessageLinked(LINK_SET, AV_NEWSITTER, (string)seat, av);
+    llMessageLinked(LINK_SET, QSS_SEATED, addr, av);
 }
 
 seat_freed(integer seat, key was)
@@ -334,8 +335,13 @@ seat_freed(integer seat, key was)
     integer row = seat * SEAT_STRIDE;
     string addr = addr_of_seat(seat);
 
-    give_back_animator(seat);
+    // Standing up revokes the permission and stops the animation by
+    // itself, so this is bookkeeping. The explicit stop matters on the
+    // other path, where the seat is freed while the avatar is still on
+    // it (a swap, or a takeover).
+    seat_stop(seat, llList2String(SEATS, row + 4));
     SEATS = llListReplaceList(SEATS, [""], row + 2, row + 2);
+    SEATS = llListReplaceList(SEATS, [""], row + 4, row + 4);
     llLinksetDataDelete("qs:occ:" + addr);
     llLinksetDataDelete("qs:cur:" + addr);
     llMessageLinked(LINK_SET, QSS_VACATED, addr, was);
@@ -407,8 +413,6 @@ boot_up()
     load_from_lsd();
     resolve_bindings();
     place_sittargets();
-    FREE_ANIMS = [];
-    llMessageLinked(LINK_SET, QSA_CENSUS, "", "");
     rescan_occupancy();
     Out(1, "ready, items=" + (string)(llGetListLength(ITEMS) / ITEM_STRIDE)
         + " seats=" + (string)(llGetListLength(SEATS) / SEAT_STRIDE)
@@ -478,63 +482,62 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
-        if (num == QSA_HELLO)
-        {
-            if (llListFindList(FREE_ANIMS, [msg]) == -1)
-            {
-                // Not already assigned to a seat either.
-                integer i = 4;
-                integer n = llGetListLength(SEATS);
-                integer used = FALSE;
-                while (i < n)
-                {
-                    if (llList2String(SEATS, i) == msg) { used = TRUE; i = n; }
-                    i += SEAT_STRIDE;
-                }
-                if (!used) FREE_ANIMS += msg;
-            }
-            return;
-        }
-
-        if (num == QSA_READY)
-        {
-            // Permission landed. Only now may core resolve and apply.
-            integer seat = seat_of_avatar(id);
-            if (seat >= 0)
-                llMessageLinked(LINK_SET, QSS_SEATED, addr_of_seat(seat), id);
-            return;
-        }
-
         if (num == QSC_APPLY)
         {
             // core has resolved everything: which seats take part, which
             // animation each gets, and the final position and rotation.
-            // We place the sit targets and fire ONE broadcast, so every
-            // animator starts in the same frame. That is the SYNC property.
+            //
+            // TWO PASSES WITH ONE SHARED SLEEP, and the shape is
+            // load-bearing. v1 overlaps per avatar (start new, sleep 0.2,
+            // stop old) so nobody drops into their default pose for a
+            // frame. That sleep would tear this loop apart in the middle,
+            // so the overlap moves outside it: start everybody, sleep
+            // once, stop everybody. The starts stay inside one frame,
+            // which is the SYNC property, and the stops end up
+            // synchronous with each other as well - something v1 never
+            // managed across N independent scripts.
+            //
+            // Verified in-world 2026-07-29, see qs2/test/permtest.lsl.
             string item = (string)id;
             list rows = llParseString2List(msg, ["|"], []);
-            string playload = "";
-            integer i = 0;
             integer n = llGetListLength(rows);
+
+            list touched;      // seat indices we started, strided 2 with old anim
+            integer i = 0;
             while (i < n)
             {
                 list f = llParseString2List(llList2String(rows, i), ["="], []);
                 integer seat = seat_by_name(item, llList2String(f, 0));
                 if (seat >= 0)
                 {
+                    string anim = llList2String(f, 1);
+                    string old  = llList2String(SEATS, seat * SEAT_STRIDE + 4);
                     set_seat_target(seat, (vector)llList2String(f, 2),
                         llEuler2Rot((vector)llList2String(f, 3) * DEG_TO_RAD));
-                    string h = llList2String(SEATS, seat * SEAT_STRIDE + 4);
-                    if (h != "")
+                    if (anim != old)
                     {
-                        if (playload != "") playload += "|";
-                        playload += h + "=" + llList2String(f, 1);
+                        if (seat_start(seat, anim))
+                        {
+                            SEATS = llListReplaceList(SEATS, [anim],
+                                seat * SEAT_STRIDE + 4, seat * SEAT_STRIDE + 4);
+                            touched += [seat, old];
+                        }
                     }
                 }
                 ++i;
             }
-            if (playload != "")
-                llMessageLinked(LINK_SET, QSA_PLAY, playload, "");
+
+            integer t = llGetListLength(touched);
+            if (t == 0) return;
+
+            llSleep(0.2);      // the overlap, once for everybody
+
+            i = 0;
+            while (i < t)
+            {
+                seat_stop(llList2Integer(touched, i), llList2String(touched, i + 1));
+                i += 2;
+            }
             return;
         }
 
