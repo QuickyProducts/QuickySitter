@@ -56,8 +56,11 @@ string version = "0.03";
 
 integer QSS_TOUCH     = 90412;
 integer QSC_REQUEST   = 90420;
-integer QS_REGISTER   = 90212;
-integer QS_UNREGISTER = 90216;
+// v1 registration wire, unchanged so plugins do not notice the receiver
+// moving from sitB to here.
+integer QSPLUG_REGISTER  = 90212;   // -> [OPTIONS]. No unregister exists.
+integer QSADJ_REGISTER   = 90213;   // -> [ADJUST]
+integer QSADJ_UNREGISTER = 90216;   // counterpart of 90213, msg = scriptName
 integer QSB_READY     = 90430;
 integer QSB_RELOAD    = 90431;
 
@@ -72,9 +75,15 @@ list OPS;
 integer OPS_STRIDE = 8;
 integer OPS_CAP = 6;
 
-// REG strided 5: label, path, channel, owner, flags
+// REG strided 5: label, dest, channel, owner, flags
+// dest is "O" for the [OPTIONS] submenu or "A" for [ADJUST].
 list REG;
 integer REG_STRIDE = 5;
+
+// Synthetic section ids, chosen below -1 so they cannot collide with a
+// real M: marker index (those are >= 0, and -1 is the root).
+integer SEC_OPTIONS = -2;
+integer SEC_ADJUST  = -3;
 
 integer PAGE = 9;           // entries per dialog page, leaving room for nav
 integer verbose = 0;
@@ -250,21 +259,32 @@ render(integer op)
         ++i;
     }
 
+    // Registered entries live in their own two submenus, exactly as v1
+    // has them: [OPTIONS] for 90212 and [ADJUST] for 90213. Neither
+    // exists as a notecard section, so both are synthesised here.
+    string want = "";
+    if (mi == SEC_OPTIONS) want = "O";
+    if (mi == SEC_ADJUST)  want = "A";
+
     integer rn = llGetListLength(REG);
+    integer nOpt = 0;
+    integer nAdj = 0;
     i = 0;
     while (i < rn)
     {
-        // Registered entries land at the root of the seat's menu; there
-        // is no path concept in the v1 model to place them deeper.
-        if (mi == -1)
+        string dest = llList2String(REG, i + 1);
+        integer flags = llList2Integer(REG, i + 4);
+        integer show = TRUE;
+        // flags bit 0 = owner-only.
+        if (flags & 1)
         {
-            integer flags = llList2Integer(REG, i + 4);
-            integer show = TRUE;
-            if (flags & 1)
-            {
-                if (av != llGetOwner()) show = FALSE;
-            }
-            if (show)
+            if (av != llGetOwner()) show = FALSE;
+        }
+        if (show)
+        {
+            if (dest == "O") ++nOpt;
+            else ++nAdj;
+            if (dest == want)
             {
                 labels += llList2String(REG, i);
                 kinds  += "R";
@@ -272,6 +292,14 @@ render(integer op)
             }
         }
         i += REG_STRIDE;
+    }
+
+    // The two doors, shown at the root only when something is behind
+    // them. v1 self-shows [ADJUST] the same way (sitB.lsl:352).
+    if (mi == -1)
+    {
+        if (nOpt) labels += "[OPTIONS]";
+        if (nAdj) labels += "[ADJUST]";
     }
 
     integer total = llGetListLength(labels);
@@ -333,9 +361,23 @@ click(integer op, string msg)
         return;
     }
 
+    if (msg == "[OPTIONS]" || msg == "[ADJUST]")
+    {
+        integer target = SEC_OPTIONS;
+        if (msg == "[ADJUST]") target = SEC_ADJUST;
+        string push = nav;
+        if (push != "") push += ",";
+        push += (string)mi;
+        OPS = llListReplaceList(OPS, [target, 0, push], row + 4, row + 6);
+        render(op);
+        return;
+    }
+
     // Re-derive the section rather than caching the page per operator.
+    // A synthetic section has no notecard entries at all.
     integer first = mi + 1;
     integer count = section_count(ch, mi);
+    if (mi < -1) count = 0;
     integer i = 0;
     while (i < count)
     {
@@ -450,10 +492,13 @@ default
             return;
         }
 
-        if (num == QS_REGISTER)
+        if (num == QSPLUG_REGISTER || num == QSADJ_REGISTER)
         {
-            // "<label>|<channel>|<owner>|<flags>|<path>". A 3-field
-            // payload is a v1 QSPLUG_REGISTER; see REGISTRY.md §3.
+            // v1 payloads, unchanged so senders do not notice:
+            //   90212  "<label>|<channel>|<scriptName>"
+            //   90213  "<label>|<channel>|<scriptName>|<flags>"
+            // Dedupe is by scriptName, so a re-announce after a reset
+            // overwrites rather than appending a duplicate.
             list f = llParseString2List(msg, ["|"], []);
             string label = llList2String(f, 0);
             integer chan = llList2Integer(f, 1);
@@ -461,22 +506,32 @@ default
             if (label == "") return;
             if (chan == 0) return;
             if (owner == "") return;
+
+            string dest = "O";
             integer flags = 0;
-            string path = "";
-            if (llGetListLength(f) > 3) flags = llList2Integer(f, 3);
-            if (llGetListLength(f) > 4) path  = llList2String(f, 4);
+            if (num == QSADJ_REGISTER)
+            {
+                dest = "A";
+                flags = llList2Integer(f, 3);
+            }
 
             integer at = reg_find(owner);
             if (at >= 0)
                 REG = llDeleteSubList(REG, at * REG_STRIDE,
                     at * REG_STRIDE + REG_STRIDE - 1);
-            REG += [label, path, chan, owner, flags];
+            REG += [label, dest, chan, owner, flags];
             return;
         }
 
-        if (num == QS_UNREGISTER)
+        if (num == QSADJ_UNREGISTER)
         {
-            reg_drop_owner((string)id);
+            // msg = scriptName, and since sitB 1.261 this drops EVERY
+            // entry that script registered, not one. Needed because the
+            // registry has no other removal path: a creator tool that
+            // self-deletes on QS_FINALIZE must send this first, or its
+            // button outlives it and dispatches to a dead channel.
+            if (msg == "") return;
+            reg_drop_owner(msg);
             return;
         }
 

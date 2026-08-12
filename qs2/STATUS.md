@@ -165,3 +165,32 @@ own look.
 
 **Still missing in `seat`:** gender-based seat assignment (above), and the
 `llUnSit` access gate that v1 runs in `sitB`'s `changed()`.
+
+## Who takes over the adjuster's jobs
+
+**Nobody: `[QS]adjuster` keeps them.** It is already a separate script, already
+authoring-only, already removed by `/5 cleanup`, and it writes straight to
+`qs:p:<ch>:<i>`, which v2 reads unchanged. That is exactly the shape the
+section-2 principle asks for, so it is left alone.
+
+The question is the other way round: **what v2 has to provide for it.**
+
+| Provided | Where |
+|---|---|
+| `[OPTIONS]` submenu, filled by 90212 | `menu`, done |
+| `[ADJUST]` submenu, filled by 90213, dropped by 90216 | `menu`, done |
+| Both doors shown at the root only when something is behind them | `menu`, done, mirrors v1's self-show |
+| `qs:p` writes landing where the engine reads | free: same schema |
+
+Not a sitter concern at all: `90215` `QS_FINALIZE` goes to creator-only plugins
+and `90266` goes to hudproxy. Neither passes through the seat engine.
+
+**The hole that is left: the end-user personal-offset UI.** v1 splits it across
+`sitB`'s `adjust_dialog()` and `sitA`'s `adjust_pose_menu()` with the
+90260/90262/90265 wire, roughly 300 lines, and in v2 it currently has no home.
+Two options, neither taken yet:
+
+* **`menu` hosts it**, which is where `sitB` had it. Simplest, restores v1
+  behaviour exactly, costs `menu` the 300 lines back.
+* **`[QS]offset` hosts it**, which owns the data already. Cleaner, and it is
+  what DESIGN.md §6.5 proposes, but that plugin has no dialog code today.

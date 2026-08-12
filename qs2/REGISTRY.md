@@ -1,5 +1,21 @@
 # QuickySitter v2 menu registration, draft spec
 
+> **Correction, 2026-07-29.** This document repeatedly pairs 90212 (register)
+> with 90216 (unregister). That is wrong. In v1 there are **two** register
+> numbers with different destinations, and 90216 is the counterpart of 90213
+> **only**:
+>
+> | Num | Name | Destination | msg |
+> |---|---|---|---|
+> | 90212 | `QSPLUG_REGISTER` | `[OPTIONS]` | `label\|chan\|scriptName` |
+> | 90213 | `QSADJ_REGISTER` | `[ADJUST]` | `label\|chan\|scriptName\|flags` |
+> | 90216 | `QSADJ_UNREGISTER` | drops **all** that script's `[ADJUST]` entries | `scriptName` |
+>
+> **`[OPTIONS]` entries have no unregister at all** and are reaped only by the
+> boot census. `[QS]menu` implements the table above, not the prose below. Any
+> placement field this document proposes has to arrive as an *extra* field on
+> 90212 or 90213 without disturbing the existing three.
+
 **Status: draft.** No implementation exists. Third document alongside
 [DESIGN.md](DESIGN.md) (runtime and migration) and [FORMAT.md](FORMAT.md)
 (notecard syntax).
