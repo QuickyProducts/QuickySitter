@@ -45,7 +45,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.20";
+string version = "0.21";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -663,7 +663,10 @@ seat_freed(integer seat, key was)
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 1, seat * SEAT_STRIDE + 1);
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
     llLinksetDataDelete("qs:occ:" + (string)seat);
-    llLinksetDataDelete("qs:cur:" + (string)seat);
+    // qs:cur deliberately SURVIVES the stand-up. In v1 a seat's CURRENT
+    // pose persists until the whole furniture empties, which is what
+    // puts a brief stand-up back into the couple pose on re-sit. core
+    // clears it on the last vacancy (QSS_VACATED handler).
     llMessageLinked(LINK_SET, QSS_VACATED, (string)seat, was);
     llMessageLinked(LINK_SET, AV_SITTERGONE, (string)seat, was);
 }

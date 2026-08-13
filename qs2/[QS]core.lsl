@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.10";
+string version = "0.11";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -275,16 +275,24 @@ start_entry(integer ch, integer i)
         {
             if (c != ch)
             {
-                if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+                integer at = find_by_name(c, name);
+                if (at >= 0)
                 {
-                    integer at = find_by_name(c, name);
-                    if (at >= 0)
+                    // qs:cur is written for EMPTY channels too, and that
+                    // is the couple-join mechanism, not bookkeeping: in
+                    // v1 the empty seat's sitA follows the SYNC broadcast
+                    // and remembers it as CURRENT, so whoever sits down
+                    // there next starts INTO the couple pose instead of
+                    // their solo default (sitA.lsl:1587, the grant path
+                    // plays CURRENT whatever it is). start_default reads
+                    // this back.
+                    llLinksetDataWrite("qs:cur:" + (string)c, label);
+                    if (llLinksetDataRead("qs:occ:" + (string)c) != "")
                     {
                         list e2 = entry(c, at);
                         payload += "|" + row_for(c, e2);
                         infos += [c, llList2String(e2, 0), llList2String(e2, 2),
                                   llList2String(e2, 3), llList2String(e2, 4)];
-                        llLinksetDataWrite("qs:cur:" + (string)c, label);
                         sitters += "@" + llLinksetDataRead("qs:occ:" + (string)c);
                     }
                 }
@@ -350,6 +358,21 @@ start_entry(integer ch, integer i)
 // First playable entry of a channel, for a fresh occupant.
 start_default(integer ch)
 {
+    // What this channel is REMEMBERED to be playing wins over the
+    // notecard default. That is v1's behaviour, not an addition: the
+    // grant path plays CURRENT_POSE_NAME unconditionally, and CURRENT
+    // survives on a seat until the whole furniture empties. It is what
+    // makes the second sitter join a couple pose the first one already
+    // chose, and what puts somebody who stood up briefly back where
+    // they were.
+    string cur = llLinksetDataRead("qs:cur:" + (string)ch);
+    if (cur != "")
+    {
+        integer at = find_by_name(ch, cur);
+        if (at == -1) at = find_by_name(ch, "P:" + cur);
+        if (at >= 0) { start_entry(ch, at); return; }
+    }
+
     integer n = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)ch);
     integer i = 0;
     while (i < n)
@@ -416,6 +439,24 @@ default
         if (num == QSS_SEATED)
         {
             start_default((integer)msg);
+            return;
+        }
+
+        if (num == QSS_VACATED)
+        {
+            // v1's reset point: a seat's remembered pose survives every
+            // individual stand-up and dies only when the whole furniture
+            // empties, gated on DFLT (sitA.lsl:1497). Without the
+            // survive-part a brief stand-up loses the couple pose;
+            // without the reset-part the furniture greets the next
+            // couple with whatever the last one was doing.
+            integer c = 0;
+            while (c < SEATS)
+            {
+                if (llLinksetDataRead("qs:occ:" + (string)c) != "") return;
+                ++c;
+            }
+            if (DFLT) llLinksetDataDeleteFound("^qs:cur:", "");
             return;
         }
 
