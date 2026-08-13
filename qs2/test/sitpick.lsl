@@ -31,8 +31,15 @@
  * rather than per prim. Mode 0 answers it without any of the rest.
  */
 
-// Three notional seats spread along X, as a sofa would be.
-list SEATS = [ <-0.7, 0.0, 0.55>, <0.0, 0.0, 0.55>, <0.7, 0.0, 0.55> ];
+// EXACTLY oneprim's slot(0/1/2), in that order, because mode 0 claims to
+// reproduce oneprim and the first attempt did not: it opened on
+// <-0.7, 0, 0.55> and re-armed to <0, 0, 0.55>, where oneprim opens on
+// <0, 0, 0.55> and re-arms to <0.7, 0, 0.55>. Whether that matters is
+// unknown, which is the point - it should not differ at all while the
+// difference is being hunted.
+//
+// Read as seats they are still a sofa: middle, right, left.
+list SEATS = [ <0.0, 0.0, 0.55>, <0.7, 0.0, 0.55>, <-0.7, 0.0, 0.55> ];
 
 // Z is deliberately WEIGHTED DOWN in the distance test. Landing heights
 // come out near the prim surface and say little about intent, while a

@@ -1220,22 +1220,17 @@ Measured in-world 2026-08-13 with `qs2/test/oneprim.lsl`, two avatars, one
 unlinked cube. The question was whether the one-prim-per-seat rule that shapes
 v1 is a platform limit or an artefact of how v1 seats people.
 
-> **STATUS 2026-08-13: NOT REPRODUCED. Do not build on this section yet.**
+> **STATUS 2026-08-13: reproduced twice with `oneprim.lsl`, not yet by any
+> other script.** Four attempts in `sitpick.lsl` failed to admit the
+> second avatar, and every explanation offered for the difference was
+> wrong: that the target must be re-armed, that it must be re-armed to a
+> *different* value, that moving the avatar or setting the camera
+> interfered. Since oneprim reproduces on demand the difference is in the
+> code, and sitpick is being converged on it one variable at a time.
 >
-> The run below is real and is quoted verbatim. But four attempts to
-> reproduce Q2 in a second probe (`sitpick.lsl`) all failed: the second
-> avatar could not sit. Every explanation offered for the difference -
-> that the target must be re-armed, that it must be re-armed to a
-> *different* value, that moving or the camera interfered - was wrong,
-> and the two scripts are equivalent for admission purposes on a
-> line-by-line comparison.
->
-> So the mechanism that let a second avatar in is NOT understood, and
-> "one prim per seat is an artefact" is currently an unexplained
-> observation rather than a finding. Re-running `oneprim.lsl` unchanged
-> is the next step: if Q2 passes again the difference is in the code and
-> can be diffed against a known-good run; if it fails, the original run
-> depended on something environmental and this section is wrong.
+> Read this section as: the behaviour is observed and repeatable, the
+> mechanism behind it is not yet understood. That is enough to keep
+> investigating and not enough to design against.
 
 ### It is an artefact
 
@@ -1254,9 +1249,13 @@ this costs less to adopt here than it would have in v1.
 
 ### Two findings that were not the question
 
-**The sit target only places the FIRST arrival.** B did not land on the
-re-aimed slot 1 `<0.7, 0, 0.55>`. B landed on `<0.34, -0.24078, 0.88>` — an
-unrounded value, so SL's own click-relative placement, not our target. Re-aiming
+**The sit target only places the FIRST arrival.** B never landed on the
+re-aimed slot `<0.7, 0, 0.55>`. Two runs of the identical script put B on
+`<0.34, -0.24078, 0.88>` and on `<0.12350, -0.33743, 0.90965>`: different
+unrounded values from the same code, which is SL's own click-relative
+placement and nothing else. **That answers the seat-choice question** — the
+landing position of arrival 2 carries the click, so choosing a seat by click
+survives on one prim, and continuously rather than per prim. Re-aiming
 the target between arrivals is therefore pointless: what actually matters is
 only that the prim stays sittable, and that `move_occupant` places each arrival
 afterwards. The design is a step simpler than the sketch it came from.
