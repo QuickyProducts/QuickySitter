@@ -1394,3 +1394,39 @@ set to sit, a left click seats instead. Stock AVsitter has the MTYPE/ETYPE click
 modes for exactly this conflict, and v2 has not built them (STATUS.md). So
 single-prim seating and touch-to-menu compete for the same gesture, and
 whichever way that is resolved has to be resolved deliberately.
+
+### A linkset is not a problem, it is the fallback
+
+Raised while weighing whether to do this before finishing stage 1: what happens
+if somebody still builds a multi-prim linkset?
+
+Nothing, if the two modes coexist rather than replace each other:
+
+```
+prims carrying #SET-slot descriptions  ->  classic binding, one prim per seat
+                                           (per-seat camera and per-prim
+                                           clicking both survive)
+otherwise                              ->  everyone on one prim, seat chosen
+                                           from the click position
+```
+
+So `resolve_bindings` does not get discarded, it becomes the branch that runs
+when the builder supplied seat prims. Every piece of furniture built to date
+keeps working untouched, and single-prim seating is an ADDITIONAL mode for new
+builds rather than a migration. That makes the change smaller than the estimate
+above, and less urgent, because nothing depends on it.
+
+Two things already generalise for free, both because `seat` is a singleton
+rather than one script per seat prim: `av_link` finds agents by walking the top
+link numbers regardless of prim count, and `move_occupant` already converts
+through the seat prim's own `PRIM_POS_LOCAL`.
+
+Two things would need deciding:
+
+- **Click action is per prim.** `llSetClickAction` affects only the prim its
+  script is in, so a linkset needs `PRIM_CLICK_ACTION` pushed across the links,
+  or only part of the furniture will seat on click.
+- **What SL does when a prim in a linkset has no sit target is UNMEASURED.** The
+  only measurement is that a lone prim without one cannot be sat on at all.
+  Whether a linkset falls back to the root's target is not known, and after this
+  investigation it will not be guessed.
