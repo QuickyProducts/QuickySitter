@@ -37,7 +37,10 @@
  * message, not a conversation.
  *
  * NO LISTENER, NO PERMISSIONS, NO CHANGED_LINK. Dialogs belong to menu,
- * permission and animation to seat, occupancy too.
+ * permission and animation to seat, occupancy too. The absorbed offset
+ * store adds exactly two events: on_rez (the RAM tier dies with a rez)
+ * and changed(CHANGED_OWNER) (privacy wipe), both from the standalone
+ * plugin unchanged.
  *
  * NOT BUILT YET, deliberately rather than forgotten:
  *   - SEQUENCE stepping
@@ -49,7 +52,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.12";
+string version = "0.13";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -74,6 +77,7 @@ integer AV_PLUGINREPLY = 90202;   // root-security -> core
 // and read its version; hudadmin forwards the version to the updater.
 // In v1 only slot-0 sitA answered so that a probe got exactly one reply;
 // a singleton has that for free.
+integer QS_ALIVE_CENSUS = 90079;   // boot wiped presence, re-stamp
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
 
@@ -100,6 +104,22 @@ integer DFLT;
 integer SET;
 
 integer verbose = 0;
+
+string LSD_RESERVE_KEY = "QPP_CFG:RESERVE";
+integer LSD_BYTES_PER_ENTRY = 80;
+integer LSD_MIN_FREE_POSES = 200;
+
+// RAM fallback tier, only used when LSD is at the reserve floor.
+// Flat list: [pose_name, user_short, slot, pos_offset, rot_offset, ...]
+// New entries at the END; LRU eviction trims from the FRONT.
+list CUSTOMS;
+integer CUSTOMS_STRIDE = 5;
+// v1's cap was 200 for a ~12 KB script. core carries the pose engine in
+// the same 64 KB, measured 25.6 KB used before the merge, so the cap is
+// halved rather than inherited. The tier only holds overflow past the
+// reserve floor; emergency_shrink below is the actual safety net.
+integer LRU_CAP = 100;
+integer EMERGENCY_FREE_BYTES = 3000;
 
 Out(integer level, string s)
 {
@@ -153,16 +173,14 @@ integer seated_anywhere(key av)
 // receiver with llParseString2List; KeepNulls would re-introduce the
 // trailing-empty bug.
 //
-// The capability list is deliberately SHORTER than v1.s. v1 advertises
-// "customs90260,dump90098,offsetlsd_v1"; v2 reads the QSO offset store
-// but implements neither the 90260 personal-offset wire nor the DUMP
-// probe yet, and claiming a capability that is absent is worse than
-// lacking it.
+// customs90260 became true when the offset store was absorbed; the DUMP
+// probe (dump90098) is still absent and stays unadvertised - claiming a
+// capability that is absent is worse than lacking it.
 alive_reply()
 {
     llMessageLinked(LINK_SET, QSALIVE_REPLY,
         "QuickySitter|" + version + "|" + (string)SEATS + "|"
-        + "offsetlsd_v1", "");
+        + "customs90260,offsetlsd_v1", "");
 }
 
 // ------------------------------------------------------------- entries
@@ -203,6 +221,298 @@ integer find_by_name(integer ch, string name)
     return -1;
 }
 
+// ------------------------------------------- personal-offset store
+//
+// ABSORBED FROM qs/[QS]offset.lsl 1.27, functions ported verbatim where
+// possible. The split was v1 architecture: sitA read the store, offset
+// owned the writes, and the RAM tier needed a push wire (90260) between
+// them. core already read the QSO store directly - the one exception to
+// "no wire on the pose-start path" - so in v2 the split bought a fifth
+// 64 KB script and an unimplemented push wire, nothing else. Absorbing
+// it closes the 90260 gap by making the RAM tier a local list.
+//
+// THE WIRE IS UNCHANGED. hudproxy and the adjuster keep speaking
+// 90261/90262/90263/90264 and keep reading qs:offset:alive (that key
+// name, not qs:alive:offset, because the HUD repo reads it cross-repo).
+// 90260 is still EMITTED for RAM-tier saves - hudproxy mirrors them -
+// and 90265 still broadcasts a wipe. From outside, the same receiver
+// under a different script name.
+//
+// [QS]offset MUST NOT be present in the same prim as this core, or
+// every save runs twice.
+
+string qso_prefix(key sitter, integer slot)
+{
+    return "QSO:" + llGetSubString((string)sitter, 0, 7) + ":"
+         + (string)slot + ":";
+}
+
+integer lsdRoomLeft()
+{
+    integer reserved = 0;
+    string sRes = llLinksetDataRead(LSD_RESERVE_KEY);
+    if (sRes != "")
+    {
+        integer r = (integer)sRes;
+        if (r > 0) reserved = r;
+    }
+    integer free = llLinksetDataAvailable() - reserved;
+    return free / LSD_BYTES_PER_ENTRY;
+}
+
+integer lsdHasRoom()
+{
+    return (lsdRoomLeft() >= LSD_MIN_FREE_POSES);
+}
+
+cull_to_cap()
+{
+    integer over = llGetListLength(CUSTOMS) / CUSTOMS_STRIDE - LRU_CAP;
+    if (over > 0)
+        CUSTOMS = llDeleteSubList(CUSTOMS, 0, over * CUSTOMS_STRIDE - 1);
+}
+
+emergency_shrink()
+{
+    integer evicted;
+    while (llGetFreeMemory() < EMERGENCY_FREE_BYTES
+           && llGetListLength(CUSTOMS) > 0)
+    {
+        CUSTOMS = llDeleteSubList(CUSTOMS, 0, CUSTOMS_STRIDE - 1);
+        ++evicted;
+    }
+    if (evicted)
+        Out(0, "WARN: emergency shrink - evicted " + (string)evicted
+            + " entries; free=" + (string)llGetFreeMemory());
+}
+
+integer ramFind(string short, integer slot, string pose_name)
+{
+    integer i = 0;
+    integer n = llGetListLength(CUSTOMS);
+    while (i < n)
+    {
+        if (llList2String(CUSTOMS, i)     == pose_name
+         && llList2String(CUSTOMS, i + 1) == short
+         && llList2Integer(CUSTOMS, i + 2) == slot)
+            return i;
+        i += CUSTOMS_STRIDE;
+    }
+    return -1;
+}
+
+ramDelete(string short, integer slot, string pose_name)
+{
+    integer idx = ramFind(short, slot, pose_name);
+    if (idx >= 0)
+        CUSTOMS = llDeleteSubList(CUSTOMS, idx, idx + CUSTOMS_STRIDE - 1);
+}
+
+// Mirror the RAM-tier count for hudproxy's storage report.
+update_ram_tier_count()
+{
+    llLinksetDataWrite("QPP_CFG:RAM_TIER_COUNT",
+        (string)(llGetListLength(CUSTOMS) / CUSTOMS_STRIDE));
+}
+
+// 90260 per RAM-tier entry of (sitter, slot). In v1 this fed sitA's
+// RAM_OVERFLOW mirror; in v2 core reads CUSTOMS directly and the push
+// exists for hudproxy, whose ramMirror is built from exactly these.
+push_customs_for(key sitter, integer slot)
+{
+    string short = llGetSubString((string)sitter, 0, 7);
+    integer i = 0;
+    integer total = llGetListLength(CUSTOMS);
+    while (i < total)
+    {
+        if (llList2String(CUSTOMS, i + 1) == short
+         && llList2Integer(CUSTOMS, i + 2) == slot)
+        {
+            llMessageLinked(LINK_THIS, 90260,
+                llList2String(CUSTOMS, i) + "|"
+                + (string)llList2Vector(CUSTOMS, i + 3) + "|"
+                + (string)llList2Vector(CUSTOMS, i + 4),
+                sitter);
+        }
+        i += CUSTOMS_STRIDE;
+    }
+}
+
+// Stock "[OFFSET ALL]" semantics: saving M#T! wipes the per-pose entries
+// for (sitter, slot) first, so the all-poses value actually wins. Both
+// tiers; M#T! itself survives (the caller overwrites it right after).
+// ZERO/ZERO 90260 per dropped RAM entry keeps hudproxy's mirror honest.
+wipe_per_pose_for_sitter_slot(key sitter, integer slot)
+{
+    string keyPrefix = qso_prefix(sitter, slot);
+    string mtKey = keyPrefix + "M#T!";
+    string short = llGetSubString((string)sitter, 0, 7);
+
+    list toDelete;
+    integer scanOff = 0;
+    integer batch = 20;
+    do
+    {
+        list keys = llLinksetDataFindKeys("^" + keyPrefix, scanOff, batch);
+        integer n = llGetListLength(keys);
+        integer i;
+        for (i = 0; i < n; i++)
+        {
+            string k = llList2String(keys, i);
+            if (k != mtKey) toDelete += [k];
+        }
+        if (n < batch) jump scanDone;
+        scanOff += batch;
+    } while (TRUE);
+    @scanDone;
+    integer j;
+    integer m = llGetListLength(toDelete);
+    for (j = 0; j < m; j++)
+        llLinksetDataDelete(llList2String(toDelete, j));
+
+    integer i2 = 0;
+    while (i2 < llGetListLength(CUSTOMS))
+    {
+        if (llList2String(CUSTOMS, i2 + 1) == short
+         && llList2Integer(CUSTOMS, i2 + 2) == slot
+         && llList2String(CUSTOMS, i2) != "M#T!")
+        {
+            string pname = llList2String(CUSTOMS, i2);
+            CUSTOMS = llDeleteSubList(CUSTOMS, i2, i2 + CUSTOMS_STRIDE - 1);
+            llMessageLinked(LINK_THIS, 90260,
+                pname + "|" + (string)ZERO_VECTOR + "|" + (string)ZERO_VECTOR,
+                sitter);
+        }
+        else i2 += CUSTOMS_STRIDE;
+    }
+    update_ram_tier_count();
+}
+
+save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
+{
+    string short = llGetSubString((string)sitter, 0, 7);
+
+    // ZERO/ZERO is the delete sentinel, for both tiers, and the 90260
+    // echo tells hudproxy's mirror to drop its copy too.
+    if (pos == ZERO_VECTOR && rot == ZERO_VECTOR)
+    {
+        ramDelete(short, slot, pose_name);
+        llLinksetDataDelete(qso_key(sitter, slot, pose_name));
+        llMessageLinked(LINK_THIS, 90260,
+            pose_name + "|" + (string)ZERO_VECTOR + "|" + (string)ZERO_VECTOR,
+            sitter);
+        update_ram_tier_count();
+        return;
+    }
+
+    if (pose_name == "M#T!")
+        wipe_per_pose_for_sitter_slot(sitter, slot);
+
+    if (lsdHasRoom())
+    {
+        ramDelete(short, slot, pose_name);
+        llLinksetDataWrite(qso_key(sitter, slot, pose_name),
+            (string)pos + "|" + (string)rot);
+        update_ram_tier_count();
+        return;
+    }
+
+    // RAM fallback. The 90260 push feeds hudproxy; core itself reads
+    // CUSTOMS directly in resolve_offset, no push needed.
+    emergency_shrink();
+    ramDelete(short, slot, pose_name);
+    CUSTOMS += [pose_name, short, slot, pos, rot];
+    cull_to_cap();
+    llMessageLinked(LINK_THIS, 90260,
+        pose_name + "|" + (string)pos + "|" + (string)rot, sitter);
+    update_ram_tier_count();
+}
+
+// Both tiers, all users. CHANGED_OWNER privacy wipe and the HUD's
+// "CLEAR offset storage". 90265 invalidates hudproxy's mirror.
+wipe_all_offsets()
+{
+    list toDelete;
+    integer off = 0;
+    integer batch = 20;
+    do
+    {
+        list keys = llLinksetDataFindKeys("^QSO:", off, batch);
+        integer n = llGetListLength(keys);
+        integer i;
+        for (i = 0; i < n; i++) toDelete += [llList2String(keys, i)];
+        if (n < batch) jump scanDone;
+        off += batch;
+    } while (TRUE);
+    @scanDone;
+    integer j;
+    integer m = llGetListLength(toDelete);
+    for (j = 0; j < m; j++)
+        llLinksetDataDelete(llList2String(toDelete, j));
+    CUSTOMS = [];
+    llMessageLinked(LINK_SET, 90265, "", NULL_KEY);
+    update_ram_tier_count();
+}
+
+// 90263 after a [HELPER] [SAVE]: the pose default changed, so pose-
+// specific offsets for that (slot, pose) are stale for every user.
+// M#T! is never sent here, per the adjuster's contract.
+drop_pose_for_slot(integer slot, string pose_name)
+{
+    string suffix = ":" + (string)slot + ":" + pose_name;
+    integer suffixLen = llStringLength(suffix);
+    list toDelete;
+    integer off = 0;
+    integer batch = 20;
+    do
+    {
+        list keys = llLinksetDataFindKeys("^QSO:", off, batch);
+        integer n = llGetListLength(keys);
+        integer i;
+        for (i = 0; i < n; i++)
+        {
+            string k = llList2String(keys, i);
+            integer kLen = llStringLength(k);
+            if (kLen > suffixLen
+                && llGetSubString(k, kLen - suffixLen, -1) == suffix)
+                toDelete += [k];
+        }
+        if (n < batch) jump scanDone;
+        off += batch;
+    } while (TRUE);
+    @scanDone;
+    integer j;
+    integer m = llGetListLength(toDelete);
+    for (j = 0; j < m; j++)
+        llLinksetDataDelete(llList2String(toDelete, j));
+
+    integer i2 = 0;
+    while (i2 < llGetListLength(CUSTOMS))
+    {
+        if (llList2String(CUSTOMS, i2) == pose_name
+         && llList2Integer(CUSTOMS, i2 + 2) == slot)
+            CUSTOMS = llDeleteSubList(CUSTOMS, i2, i2 + CUSTOMS_STRIDE - 1);
+        else i2 += CUSTOMS_STRIDE;
+    }
+    update_ram_tier_count();
+}
+
+// One name, one (sitter, seat), both tiers: LSD first, then the RAM
+// list. Returns [pos, rot] or [].
+list off_lookup(key av, integer seat, string name)
+{
+    string pers = llLinksetDataRead(qso_key(av, seat, name));
+    if (pers != "")
+    {
+        list p = llParseString2List(pers, ["|"], []);
+        return [(vector)llList2String(p, 0), (vector)llList2String(p, 1)];
+    }
+    integer at = ramFind(llGetSubString((string)av, 0, 7), seat, name);
+    if (at >= 0)
+        return [llList2Vector(CUSTOMS, at + 3), llList2Vector(CUSTOMS, at + 4)];
+    return [];
+}
+
 // -------------------------------------------------------------- offsets
 
 // Default from the entry itself (fields 3 and 4), plus the seated user's
@@ -218,25 +528,21 @@ list resolve_offset(integer seat, list e)
     key av = (key)llLinksetDataRead("qs:occ:" + (string)seat);
     if (av != "")
     {
-        // KEYED ON THE RAW NAME, PREFIX INCLUDED. This took the bare
-        // label, and the whole personal-offset store is keyed on the raw
-        // one: [QS]offset writes the pose name through verbatim as it
-        // arrives on 90262 (offset.lsl:138), the HUD sends it raw, and v1
-        // looks it up with CURRENT_POSE_NAME, which is field 0 of the
-        // stored entry (sitA.lsl:539). So a "P:Sit" entry was saved under
-        // QSO:<short>:<slot>:P:Sit and looked up as ...:Sit, and never
-        // found. Sitting down landed on the plain default, and only the
-        // first HUD press moved anything, because that path takes its
-        // position from the HUD's own cache instead of from here.
-        string pers = llLinksetDataRead(qso_key(av, seat, llList2String(e, 0)));
-        // M#T! is the reserved "same offset for every pose" entry, kept
-        // from v1 unchanged.
-        if (pers == "") pers = llLinksetDataRead(qso_key(av, seat, "M#T!"));
-        if (pers != "")
+        // KEYED ON THE RAW NAME, PREFIX INCLUDED. The store is keyed on
+        // the name exactly as it arrives on 90262; the HUD sends it raw,
+        // and v1 looks it up with CURRENT_POSE_NAME, which is field 0 of
+        // the stored entry (sitA.lsl:539). A bare label matches nothing.
+        //
+        // Tier order is v1's rule: the pose-specific entry ALWAYS beats
+        // M#T!, regardless of which tier either lives in. Since the
+        // store was absorbed, the RAM tier is a local list rather than
+        // the 90260-push mirror v1 needed.
+        list o = off_lookup(av, seat, llList2String(e, 0));
+        if (llGetListLength(o) == 0) o = off_lookup(av, seat, "M#T!");
+        if (llGetListLength(o) == 2)
         {
-            list p = llParseString2List(pers, ["|"], []);
-            pos += (vector)llList2String(p, 0);
-            rot += (vector)llList2String(p, 1);
+            pos += llList2Vector(o, 0);
+            rot += llList2Vector(o, 1);
         }
     }
     return [pos, rot];
@@ -436,6 +742,11 @@ default
         // is left believing there is one seat. Whoever starts last has to
         // speak up.
         alive_reply();
+        // The absorbed offset store: presence flag (hudproxy gates its
+        // personal-adjust path on it) and the RAM-tier counter for the
+        // storage report.
+        llLinksetDataWrite("qs:offset:alive", "1");
+        update_ram_tier_count();
         Out(1, "ready, seats=" + (string)SEATS
             + " mem=" + (string)llGetFreeMemory());
     }
@@ -656,6 +967,56 @@ default
             load_cfg();
             llMessageLinked(LINK_SET, AV_PLUGINPROBE, "", "");
             return;
+        }
+
+        // ------------------------- absorbed [QS]offset wire, unchanged
+        if (num == QS_ALIVE_CENSUS)
+        {
+            llLinksetDataWrite("qs:offset:alive", "1");
+            return;
+        }
+        if (num == 90261)
+        {
+            push_customs_for(id, (integer)msg);
+            return;
+        }
+        if (num == 90262)
+        {
+            list parts = llParseStringKeepNulls(msg, ["|"], []);
+            save_offset(id,
+                (integer)llList2String(parts, 0),
+                llList2String(parts, 1),
+                (vector)llList2String(parts, 2),
+                (vector)llList2String(parts, 3));
+            return;
+        }
+        if (num == 90263)
+        {
+            drop_pose_for_slot((integer)msg, (string)id);
+            return;
+        }
+        if (num == 90264)
+        {
+            wipe_all_offsets();
+            return;
+        }
+    }
+
+    on_rez(integer p)
+    {
+        // The RAM tier dies with a rez by design; LSD QSO:* survives.
+        llResetScript();
+    }
+
+    changed(integer c)
+    {
+        // Personal offsets are tied to previous visitors' UUIDs; on an
+        // owner change they are stale at best. Same privacy wipe the
+        // standalone plugin did.
+        if (c & CHANGED_OWNER)
+        {
+            wipe_all_offsets();
+            llResetScript();
         }
     }
 }
