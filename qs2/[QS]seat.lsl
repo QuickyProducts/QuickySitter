@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.17";
+string version = "0.18";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -346,7 +346,43 @@ set_seat_target(integer seat, vector pos, rotation rot)
 {
     integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
     if (link <= 0) return;
-    llLinkSitTarget(link, pos - <0.0, 0.0, 0.4> + llRot2Up(rot) * 0.05, rot);
+
+    // v1 suppresses the target entirely on an excluded prim
+    // (sitA.lsl:458), so a prim marked "never seat anyone here" cannot be
+    // sat on even if the binding somehow handed it out.
+    string desc = llList2String(llGetLinkPrimitiveParams(link, [PRIM_DESC]), 0);
+    desc = llGetSubString(desc, llSubStringIndex(desc, "#") + 1, 99999);
+    if (desc == "-1") return;
+
+    // SAME FRAME QUESTION AS move_occupant, and v1 answers it here with
+    // an explicit conversion (sitA.lsl:434). The pose is in the script
+    // prim's frame; a sit target is written in the TARGET prim's local
+    // frame. When they are the same prim there is nothing to do, which
+    // is the common single-seat case.
+    vector   tp = pos;
+    rotation tr = rot;
+    if (link != llGetLinkNumber())
+    {
+        vector   lp = ZERO_VECTOR;
+        rotation lr = ZERO_ROTATION;
+        if (llGetLinkNumber() > 1)
+        {
+            lp = llGetLocalPos();
+            lr = llGetLocalRot();
+        }
+        tp = lp + pos * lr;                       // -> root frame
+        tr = rot * lr;
+        if (link > 1)
+        {
+            list p = llGetLinkPrimitiveParams(link,
+                [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
+            rotation tlr = llList2Rot(p, 1);
+            tp = (tp - llList2Vector(p, 0)) / tlr;  // -> target prim frame
+            tr = tr / tlr;
+        }
+    }
+
+    llLinkSitTarget(link, tp - <0.0, 0.0, 0.4> + llRot2Up(tr) * 0.05, tr);
 }
 
 // A SEATED AVATAR IS ITS OWN LINK. Seated agents occupy link numbers
@@ -388,17 +424,32 @@ move_occupant(integer seat, vector pos, vector rotEuler)
     Out(2, "move seat " + (string)seat + " link " + (string)link
         + " to " + (string)pos + " / " + (string)rotEuler);
 
-    // The pose is expressed relative to the SEAT's prim. v1 could read
-    // llGetLocalPos/Rot because each sitA lived in its own seat prim; a
-    // singleton has to ask for the prim it is placing into.
-    integer prim = llList2Integer(SEATS, seat * SEAT_STRIDE);
+    // THE FRAME IS THIS SCRIPT'S PRIM, not the seat's, and this had it
+    // the other way round. An AVpos position is measured relative to the
+    // prim the SITTER SCRIPT lives in, the same one for every seat.
+    //
+    // The proof is in v1 rather than in any document: set_sittarget
+    // (sitA.lsl:434) converts the pose from llGetLocalPos/Rot's frame
+    // into the TARGET prim's local frame before writing the sit target.
+    // That conversion would be pointless if the pose were already
+    // expressed in the target prim's frame.
+    //
+    // Reading the seat prim here instead displaced every seat by that
+    // prim's own local position, constant across all its poses, zero for
+    // whichever seat happens to sit on the script's prim. That last
+    // property is why it hid: the measurement that finally caught the
+    // sit target was taken on prim 1, where the two frames coincide.
+    //
+    // Stage 2 intends to make offsets seat-prim-local and drop this
+    // (DESIGN.md §6.4). Until the notecard format changes with it,
+    // stage-1 data was authored under v1's rule and has to be read under
+    // v1's rule.
     vector   lp = ZERO_VECTOR;
     rotation lr = ZERO_ROTATION;
-    if (prim > 1)
+    if (llGetLinkNumber() > 1)
     {
-        list p = llGetLinkPrimitiveParams(prim, [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
-        lp = llList2Vector(p, 0);
-        lr = llList2Rot(p, 1);
+        lp = llGetLocalPos();
+        lr = llGetLocalRot();
     }
 
     // The 0.002 degree nudge is v1's and it is load-bearing: an update
