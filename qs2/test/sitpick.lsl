@@ -15,17 +15,27 @@
  * discrete; a landing position is continuous, so one long sofa prim
  * could carry seats anywhere along it.
  *
- * THE TARGET STAYS ARMED. The first version of this probe cleared it
- * entirely, on the assumption that any prim is sittable. Measured
- * 2026-08-13: it is not. With no sit target nobody could sit at all.
+ * THE TARGET IS RE-ARMED AFTER EVERY ARRIVAL, and that turns out to be
+ * the whole mechanism. Two wrong versions of this probe were needed to
+ * find it, both measured 2026-08-13:
  *
- * oneprim had already shown the configuration that does work, which is
- * a target that stays SET: B sat while the target existed and was
- * occupied, and still landed click-relative. So arrival 1 goes to the
- * target and carries no click information, and arrivals 2 and up carry
- * it. That is a weaker result than hoped, and possibly good enough:
- * "sit" on an EMPTY sofa means the default seat anyway, and choosing a
- * seat matters exactly when others are already taken.
+ *   no target at all      -> nobody can sit
+ *   target set once       -> exactly ONE person can sit
+ *   target re-armed       -> the next person can sit
+ *
+ * So a sit target is CONSUMED by whoever takes it, and each
+ * llSitTarget call admits one more. oneprim only worked because it
+ * happened to re-aim the target after the first arrival; the re-aiming
+ * was not pointless, as noted there - it is the door opener. Only the
+ * POSITION comes from somewhere else:
+ *
+ *   prim empty, target set     -> lands exactly on the target
+ *   prim occupied, re-armed    -> admitted, but placed click-relative
+ *
+ * Which is exactly what this probe is for. Arrival 1 has no click
+ * information to give, and does not need any: sitting on an EMPTY sofa
+ * means the default seat. From arrival 2 on, when choosing actually
+ * matters, the landing position carries the click.
  *
  * HOW TO RUN. Put it in a SINGLE prim, on its own, and stretch that prim
  * wide on X - about 2 m - so there is somewhere to aim. Then sit
@@ -153,7 +163,9 @@ default
         KNOWN = [];
         llOwnerSay("sitpick ready, target armed at the middle seat."
             + " Avatar 1 sits anywhere (they get the middle);"
-            + " avatar 2 right-clicks the LEFT or RIGHT end.");
+            + " avatar 2 right-clicks the LEFT or RIGHT end."
+            + " The target is re-armed after each arrival - without that,"
+            + " only one person can ever sit.");
     }
 
     touch_start(integer n)
@@ -212,6 +224,13 @@ default
                 [PRIM_POS_LOCAL, llList2Vector(SEATS, pick),
                  PRIM_ROT_LOCAL, llEuler2Rot(<0.0, 0.0, 0.002> * DEG_TO_RAD)]);
             camera_for(llGetLinkKey(l), pick);
+
+            // RE-ARM, or nobody else can ever sit down. There is a race
+            // here that a real engine has to answer: between the arrival
+            // and this call the prim admits no one, so two people
+            // clicking at once means one of them silently fails to sit.
+            llSitTarget(llList2Vector(SEATS, 1), ZERO_ROTATION);
+            llOwnerSay("   target re-armed, next avatar can sit.");
             ++i;
         }
     }
