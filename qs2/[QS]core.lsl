@@ -52,7 +52,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.14";
+string version = "0.15";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -394,6 +394,11 @@ wipe_per_pose_for_sitter_slot(key sitter, integer slot)
 save_offset(key sitter, integer slot, string pose_name, vector pos, vector rot)
 {
     string short = llGetSubString((string)sitter, 0, 7);
+    // The name is logged in brackets on purpose: an offset that saves
+    // but never applies is a KEY mismatch until proven otherwise, and
+    // the brackets make a stray space or a missing P: prefix visible.
+    Out(2, "offset save slot=" + (string)slot + " pose=[" + pose_name
+        + "] " + (string)pos);
 
     // ZERO/ZERO is the delete sentinel, for both tiers, and the 90260
     // echo tells hudproxy's mirror to drop its copy too.
@@ -546,7 +551,12 @@ list resolve_offset(integer seat, list e)
         {
             pos += llList2Vector(o, 0);
             rot += llList2Vector(o, 1);
+            Out(2, "offset hit seat=" + (string)seat + " pose=["
+                + llList2String(e, 0) + "] +" + (string)llList2Vector(o, 0));
         }
+        else
+            Out(2, "offset miss seat=" + (string)seat + " pose=["
+                + llList2String(e, 0) + "]");
     }
     return [pos, rot];
 }
