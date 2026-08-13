@@ -15,11 +15,17 @@
  * discrete; a landing position is continuous, so one long sofa prim
  * could carry seats anywhere along it.
  *
- * NO SIT TARGET AT ALL, which is the point. oneprim only cleared it for
- * arrivals 2+, so arrival 1 still went to the target and carried no
- * click information. Here nobody gets a target, which also tests the
- * second half of the assumption: that a prim with no sit target is
- * still sittable.
+ * THE TARGET STAYS ARMED. The first version of this probe cleared it
+ * entirely, on the assumption that any prim is sittable. Measured
+ * 2026-08-13: it is not. With no sit target nobody could sit at all.
+ *
+ * oneprim had already shown the configuration that does work, which is
+ * a target that stays SET: B sat while the target existed and was
+ * occupied, and still landed click-relative. So arrival 1 goes to the
+ * target and carries no click information, and arrivals 2 and up carry
+ * it. That is a weaker result than hoped, and possibly good enough:
+ * "sit" on an EMPTY sofa means the default seat anyway, and choosing a
+ * seat matters exactly when others are already taken.
  *
  * HOW TO RUN. Put it in a SINGLE prim, on its own, and stretch that prim
  * wide on X - about 2 m - so there is somewhere to aim. Then sit
@@ -139,11 +145,15 @@ default
 {
     state_entry()
     {
-        // No target. This is the experiment, not an oversight.
-        llSitTarget(ZERO_VECTOR, ZERO_ROTATION);
+        // Armed, and it STAYS armed. See the header: clearing it makes
+        // the prim unsittable for everyone. Aimed at the middle seat,
+        // which is where arrival 1 will land regardless of where they
+        // clicked - that one has no click information to give.
+        llSitTarget(llList2Vector(SEATS, 1), ZERO_ROTATION);
         KNOWN = [];
-        llOwnerSay("sitpick ready, NO sit target set."
-            + " Right-click the LEFT end and sit.");
+        llOwnerSay("sitpick ready, target armed at the middle seat."
+            + " Avatar 1 sits anywhere (they get the middle);"
+            + " avatar 2 right-clicks the LEFT or RIGHT end.");
     }
 
     touch_start(integer n)
