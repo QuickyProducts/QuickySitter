@@ -130,14 +130,6 @@ integer allowed(key av)
     return FALSE;
 }
 
-// Sitting is itself the permission; the gate above is for people who
-// are not sitting.
-integer seated_anywhere(key av)
-{
-    if (seat_of(av) != -1) return TRUE;
-    return FALSE;
-}
-
 integer seat_of(key av)
 {
     integer i = 0;
@@ -147,6 +139,14 @@ integer seat_of(key av)
         ++i;
     }
     return -1;
+}
+
+// Sitting is itself the permission; the gate above is for people who
+// are not sitting.
+integer seated_anywhere(key av)
+{
+    if (seat_of(av) != -1) return TRUE;
+    return FALSE;
 }
 
 // "<product>|<version>|<sitterCount>|<capabilityCSV>", parsed by the
