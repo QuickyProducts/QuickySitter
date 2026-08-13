@@ -1368,3 +1368,29 @@ are moved by link afterwards; it just cannot be chosen by clicking near it.
 absolute or scales with the prim. Measure by clicking progressively further out
 at 2.0 m and again at 1.0 m and recording the largest x still admitted. A failed
 sit fires no event, so only a human can observe it.
+
+### The click action is the lever, and the reach limit was a sampling artefact
+
+With the prim's click action set to sit on the object, arrival 2 was seated
+five times in a row on a 2 m prim at:
+
+```
+-0.90721   -0.82602   -0.15192   0.06047   0.67673
+```
+
+That is nearly the full half width of ±1.0, so **there is no reach limit**. The
+"nothing above 0.6" reading in the section above came from seven samples that
+happened to cluster, not from a constraint. It is left standing as a record of
+how a plausible limit can be read out of too little data.
+
+The variable that actually governed it is the click action. A prim set to sit
+on click carries the click point through; the default action does not, and that
+is why deliberate end-clicks failed. The engine can set this itself with
+`llSetClickAction(CLICK_ACTION_SIT)`, so it is a script decision rather than
+something a builder has to remember.
+
+**The cost is the menu.** v1 opens the menu on touch, and with the click action
+set to sit, a left click seats instead. Stock AVsitter has the MTYPE/ETYPE click
+modes for exactly this conflict, and v2 has not built them (STATUS.md). So
+single-prim seating and touch-to-menu compete for the same gesture, and
+whichever way that is resolved has to be resolved deliberately.
