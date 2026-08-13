@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.15";
+string version = "0.16";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -80,6 +80,8 @@ integer SEAT_STRIDE = 5;
 list GENDERS;
 
 integer MTYPE;
+integer SET;                       // cfg field 2; a prim pin only counts
+                                   // when its SET matches this furniture
 integer verbose = 0;
 
 Out(integer level, string s)
@@ -128,6 +130,7 @@ load_from_lsd()
     // own. Same string for every channel, boot writes it once at EOF.
     list cfg = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:0"), ["\n"], []);
     MTYPE = (integer)llList2String(cfg, 0);
+    SET     = (integer)llList2String(cfg, 2);
     GENDERS = llCSV2List(llList2String(cfg, 16));
 
     // Count seats by walking qs:sitter:<ch> until it runs out.
@@ -142,85 +145,88 @@ load_from_lsd()
 
 // -------------------------------------------------------- prim binding
 
-// v1 rules, unchanged, because this is a drop-in: a prim description of
-// "#<SET>-<slot>" pins that prim to that slot, "-1" excludes a prim, and
-// anything unpinned is handed out in link order.
+// A FAITHFUL PORT OF v1.s sittargets() (sitA.lsl:324), because which prim
+// a seat is bound to decides which frame its pose positions are measured
+// in. Get the binding wrong and every pose on that seat is displaced,
+// which is exactly how it showed up in-world: everything worked, the
+// positions were simply not the notecard.s.
+//
+// The first attempt here reinvented the rules and got three of them
+// wrong, all in the direction of rejecting pins that v1 accepts:
+//
+//   1. v1 takes the substring AFTER the first "#", and llSubStringIndex
+//      returns -1 when there is none, so +1 lands on 0 and the WHOLE
+//      description is used. A bare "1-0" is a pin. This required a
+//      leading "#" and read "1-0" as an unpinned prim.
+//   2. v1 only honours a pin whose SET matches this furniture.s. This
+//      ignored the SET field and pinned prims belonging to another set.
+//   3. v1 fills unpinned prims into the first still-empty slot DURING
+//      the same pass, so a later pin can overwrite a slot an earlier
+//      unpinned prim took. This collected all free prims first and
+//      distributed them afterwards, which is a different result whenever
+//      pins and unpinned prims are interleaved.
+//
+// Kept structurally close to the original so the next person can diff it
+// rather than trust this comment.
+integer is_integer(string data)
+{
+    if (data == "") return FALSE;
+    return (string)((integer)("1" + data)) == "1" + data;
+}
+
 resolve_bindings()
 {
     integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
-    integer links = llGetNumberOfPrims();
-    list free_links;
-    list pinned;                       // strided 2: slot, link
+    // Prim count WITHOUT seated avatars. llGetNumberOfPrims counts them.
+    integer prims = llGetObjectPrimCount(llGetKey());
 
-    integer l = 1;
-    while (l <= links)
+    if (seats == 1)
     {
-        // llGetNumberOfPrims COUNTS SEATED AVATARS. boot_up re-runs on
-        // QSB_READY, which can happen while somebody is sitting, and an
-        // agent link handed out as a seat prim is a seat nobody can use.
-        if (llGetAgentSize(llGetLinkKey(l)) != ZERO_VECTOR)
-        {
-            l = links;                 // agents are the top links; done
-        }
-        else
-        {
-            string desc = llList2String(llGetLinkPrimitiveParams(l, [PRIM_DESC]), 0);
-            // v1's exclusion markers (sitA.lsl:458): a bare "-1", or any
-            // description ENDING in "#-1". This only looked at "#" and
-            // then parsed "#-1" into slot 0, so a prim explicitly marked
-            // "do not seat anyone here" was pinned to seat 0 instead.
-            if (desc == "-1" || llGetSubString(desc, -3, -1) == "#-1")
-            {
-                // excluded: neither pinned nor free
-            }
-            else if (llGetSubString(desc, 0, 0) == "#")
-            {
-                list p = llParseString2List(llGetSubString(desc, 1, -1), ["-"], []);
-                integer slot = (integer)llList2String(p, 1);
-                if (slot >= 0) pinned += [slot, l];
-            }
-            else
-            {
-                free_links += l;
-            }
-        }
-        ++l;
+        // v1 uses the link the script itself sits in. For a singleton
+        // that is wherever the base set was dropped, which on
+        // single-seat furniture is the seat prim.
+        SEATS = llListReplaceList(SEATS, [llGetLinkNumber()], 0, 0);
+        return;
     }
 
-    integer s = 0;
-    integer taken = 0;
-    while (s < seats)
+    list slots;                        // link per seat, 0 = still unfilled
+    integer i = 0;
+    while (i < seats) { slots += 0; ++i; }
+
+    i = 1;
+    while (i <= prims)
     {
-        // WALK THE SLOT COLUMN, do not llListFindList the whole thing.
-        // pinned is [slot, link, slot, link, ...] and a LINK number that
-        // happens to equal the slot being looked for matched first. Two
-        // prims pinned as slots 0 and 1 on links 1 and 2 give
-        // [0,1, 1,2]: searching for slot 1 hit index 1, which is link 1,
-        // the parity guard rejected it, and seat 1 was left with no prim
-        // at all - "There aren't enough prims" on furniture that has
-        // plenty.
-        integer link = 0;
-        integer k = 0;
-        integer pn = llGetListLength(pinned);
-        while (k < pn)
+        integer next = llListFindList(slots, [0]);
+        string desc = llList2String(llGetLinkPrimitiveParams(i, [PRIM_DESC]), 0);
+        desc = llGetSubString(desc, llSubStringIndex(desc, "#") + 1, 99999);
+        if (desc != "-1")
         {
-            if (llList2Integer(pinned, k) == s)
+            list data = llParseStringKeepNulls(desc, ["-"], []);
+            if (llGetListLength(data) == 2
+                && is_integer(llList2String(data, 0))
+                && is_integer(llList2String(data, 1)))
             {
-                link = llList2Integer(pinned, k + 1);
-                k = pn;
+                if (llList2Integer(data, 0) == SET)
+                {
+                    integer slot = llList2Integer(data, 1);
+                    if (slot >= 0 && slot < seats)
+                        slots = llListReplaceList(slots, [i], slot, slot);
+                }
             }
-            else k += 2;
-        }
-        if (link == 0)
-        {
-            if (taken < llGetListLength(free_links))
+            else if (next != -1)
             {
-                link = llList2Integer(free_links, taken);
-                ++taken;
+                slots = llListReplaceList(slots, [i], next, next);
             }
         }
-        SEATS = llListReplaceList(SEATS, [link], s * SEAT_STRIDE, s * SEAT_STRIDE);
-        ++s;
+        ++i;
+    }
+
+    i = 0;
+    while (i < seats)
+    {
+        SEATS = llListReplaceList(SEATS, [llList2Integer(slots, i)],
+            i * SEAT_STRIDE, i * SEAT_STRIDE);
+        ++i;
     }
 }
 
