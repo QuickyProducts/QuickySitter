@@ -31,9 +31,13 @@
  * SYNC couple poses in phase - tighter than N independent scripts, since
  * there is no scheduling boundary between the calls.
  *
- * run_time_permissions is deliberately NOT handled. It arrives after the
- * work is done, fires once per request, and always reports the LAST key,
- * so it cannot even tell the requests apart.
+ * run_time_permissions is a FALLBACK, not the mechanism. The synchronous
+ * grant remains the design (measured, DESIGN.md §3), but it was measured
+ * on avatars seated via sit targets; a single-prim arrival occupies no
+ * target and its grant has been observed to miss the synchronous window.
+ * Those starts are parked in PENDING and retried when the grant lands.
+ * The event still cannot tell overlapping requests apart, which is why
+ * it is only ever the retry path and never the primary one.
  *
  * Wire: see qs2/PROTOCOL.md.
  *
@@ -41,7 +45,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.19";
+string version = "0.20";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -105,6 +109,12 @@ integer SET;                       // cfg field 2; a prim pin only counts
 //     still undecided)
 integer ONEPRIM;
 integer armcount;
+
+// Animation starts whose permission grant did not come back
+// synchronously, strided 3: avatar, seat, anim. Retried from
+// run_time_permissions when the grant lands. Rows for somebody who
+// stood up in the meantime die on the occupant check there.
+list PENDING;
 
 integer verbose = 0;
 
@@ -570,9 +580,28 @@ integer seat_start(integer seat, string anim)
     key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
     if (av == "") return FALSE;
     llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
-    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)) return FALSE;
-    if (anim != "") llStartAnimation(anim);
-    return TRUE;
+
+    // THE KEY CHECK IS THE WHOLE FUNCTION. Without it, a grant that is
+    // not synchronous leaves llGetPermissions() reporting the PREVIOUS
+    // holder's mask, the test passes, and llStartAnimation animates the
+    // wrong avatar: sitter 1 keeps playing, sitter 2 gets nothing. That
+    // is not hypothetical - it is the permtest keyMatches bug, shipped.
+    //
+    // The synchronous grant was measured on avatars seated via sit
+    // targets. A single-prim arrival occupies NO target, and whether the
+    // auto-grant is synchronous for them had never been measured, so the
+    // miss is parked and retried when the grant lands.
+    if (llGetPermissionsKey() == av)
+    {
+        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
+        {
+            if (anim != "") llStartAnimation(anim);
+            return TRUE;
+        }
+    }
+    Out(1, "grant for " + llKey2Name(av) + " not synchronous - parked.");
+    PENDING += [(string)av, seat, anim];
+    return FALSE;
 }
 
 // NEVER call this for an avatar who has stood up. Auto-grant only
@@ -800,6 +829,39 @@ default
     linkset_data(integer act, string name, string val)
     {
         if (name == "qs:meta:0" || act == LINKSETDATA_RESET) boot_up();
+    }
+
+    run_time_permissions(integer perm)
+    {
+        // Retry path only; see the header. Drains every parked start
+        // that belongs to the avatar this grant is for, and checks the
+        // seat still records them so a stand-up in the gap is a no-op.
+        if (!(perm & PERMISSION_TRIGGER_ANIMATION)) return;
+        key av = llGetPermissionsKey();
+        integer i = 0;
+        while (i < llGetListLength(PENDING))
+        {
+            if (llList2String(PENDING, i) == (string)av)
+            {
+                integer seat = llList2Integer(PENDING, i + 1);
+                string anim  = llList2String(PENDING, i + 2);
+                if (llList2String(SEATS, seat * SEAT_STRIDE + 1) == (string)av)
+                {
+                    string old = llList2String(SEATS, seat * SEAT_STRIDE + 2);
+                    if (anim != "") llStartAnimation(anim);
+                    SEATS = llListReplaceList(SEATS, [anim],
+                        seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
+                    // The overlap sleep is pointless here: the avatar sat
+                    // in the default pose the whole wait, so there is no
+                    // running pose to blend out of.
+                    if (old != "") { if (old != anim) llStopAnimation(old); }
+                    Out(1, "parked grant landed, seat " + (string)seat
+                        + " now playing " + anim);
+                }
+                PENDING = llDeleteSubList(PENDING, i, i + 2);
+            }
+            else i += 3;
+        }
     }
 
     changed(integer change)
