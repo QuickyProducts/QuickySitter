@@ -1220,17 +1220,22 @@ Measured in-world 2026-08-13 with `qs2/test/oneprim.lsl`, two avatars, one
 unlinked cube. The question was whether the one-prim-per-seat rule that shapes
 v1 is a platform limit or an artefact of how v1 seats people.
 
-> **STATUS 2026-08-13: reproduced twice with `oneprim.lsl`, not yet by any
-> other script.** Four attempts in `sitpick.lsl` failed to admit the
-> second avatar, and every explanation offered for the difference was
-> wrong: that the target must be re-armed, that it must be re-armed to a
-> *different* value, that moving the avatar or setting the camera
-> interfered. Since oneprim reproduces on demand the difference is in the
-> code, and sitpick is being converged on it one variable at a time.
+> **STATUS 2026-08-13: confirmed across four prim sizes by a third probe,
+> `primsize.lsl`.** A single prim admitted a second avatar at 0.5, 1.0,
+> 1.5 and 2.0 m on X, with the sit-target sequence held constant. Prim
+> size is not the limit and sofa scale is fine.
 >
-> Read this section as: the behaviour is observed and repeatable, the
-> mechanism behind it is not yet understood. That is enough to keep
-> investigating and not enough to design against.
+> ONE UNEXPLAINED FAILURE REMAINS. The same code refused a second sitter
+> in one specific hand-built 2 m prim, which is what sent this down a
+> prim-size hypothesis in the first place. That prim's other dimensions
+> and its shape were never recorded. Until it is explained, assume some
+> prim property can block admission and find out which before shipping
+> anything that depends on it.
+>
+> Five earlier explanations were wrong, every one reasoned from how SL
+> "should" behave rather than measured: that the target must be re-armed,
+> that it must be re-armed to a *different* value, that moving the avatar
+> interfered, that the camera did, that prim size governed.
 
 ### It is an artefact
 
@@ -1304,3 +1309,30 @@ Stage 1 is still being brought up and `seat` is the script under repair. This is
 recorded so the measurement is not lost, not scheduled. It is additive when it
 comes: a build with one seat prim per avatar keeps working either way, since
 the change is in how occupancy is discovered, not in how poses are applied.
+
+### How SL places arrival 2, measured
+
+Four sizes, sit-target sequence identical throughout (open `<0, 0, 0.55>`,
+re-arm `<0.7, 0, 0.55>` after arrival 1). Arrival 1 always landed exactly on
+the target plus the +0.35 SL adds. Arrival 2 landed:
+
+| prim X | half width | arrival 2 x | arrival 2 y |
+|---|---|---|---|
+| 0.5 | 0.25 | 0.066 | -0.34 |
+| 1.0 | 0.50 | 0.424 | -0.34 |
+| 1.5 | 0.75 | -0.591 | -0.34 |
+| 2.0 | 1.00 | 0.105 | -0.34 |
+
+**y is constant at -0.34** across every size and every run: a fixed lateral
+offset, carrying nothing. **x tracks the click along the prim's long axis** and
+stays inside the half width, so its usable range grows with the furniture. The
+negative value at 1.5 m was a deliberate click on the left half.
+
+That is the shape seat choice needs. Discard the magnitude of the offset from
+arrival 1, take the position along the long axis, and match it against the seat
+layout — a 2 m sofa gives roughly ±1.0 of range, ample for three seats. An
+earlier reading of the same data as "a fixed radius, only the angle varies" was
+wrong; it was drawn from three samples that happened to be at similar sizes.
+
+Not yet measured: whether x saturates near the ends, and how it behaves on a
+prim that is long on Y rather than X.
