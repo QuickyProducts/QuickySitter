@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.13";
+string version = "0.14";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -149,17 +149,34 @@ resolve_bindings()
     integer l = 1;
     while (l <= links)
     {
-        string desc = llList2String(llGetLinkPrimitiveParams(l, [PRIM_DESC]), 0);
-        if (llGetSubString(desc, 0, 0) == "#")
+        // llGetNumberOfPrims COUNTS SEATED AVATARS. boot_up re-runs on
+        // QSB_READY, which can happen while somebody is sitting, and an
+        // agent link handed out as a seat prim is a seat nobody can use.
+        if (llGetAgentSize(llGetLinkKey(l)) != ZERO_VECTOR)
         {
-            list p = llParseString2List(llGetSubString(desc, 1, -1), ["-"], []);
-            integer slot = (integer)llList2String(p, 1);
-            if (slot >= 0) pinned += [slot, l];
-            // slot -1 excludes the prim: neither pinned nor free.
+            l = links;                 // agents are the top links; done
         }
         else
         {
-            free_links += l;
+            string desc = llList2String(llGetLinkPrimitiveParams(l, [PRIM_DESC]), 0);
+            // v1's exclusion markers (sitA.lsl:458): a bare "-1", or any
+            // description ENDING in "#-1". This only looked at "#" and
+            // then parsed "#-1" into slot 0, so a prim explicitly marked
+            // "do not seat anyone here" was pinned to seat 0 instead.
+            if (desc == "-1" || llGetSubString(desc, -3, -1) == "#-1")
+            {
+                // excluded: neither pinned nor free
+            }
+            else if (llGetSubString(desc, 0, 0) == "#")
+            {
+                list p = llParseString2List(llGetSubString(desc, 1, -1), ["-"], []);
+                integer slot = (integer)llList2String(p, 1);
+                if (slot >= 0) pinned += [slot, l];
+            }
+            else
+            {
+                free_links += l;
+            }
         }
         ++l;
     }
@@ -168,11 +185,25 @@ resolve_bindings()
     integer taken = 0;
     while (s < seats)
     {
+        // WALK THE SLOT COLUMN, do not llListFindList the whole thing.
+        // pinned is [slot, link, slot, link, ...] and a LINK number that
+        // happens to equal the slot being looked for matched first. Two
+        // prims pinned as slots 0 and 1 on links 1 and 2 give
+        // [0,1, 1,2]: searching for slot 1 hit index 1, which is link 1,
+        // the parity guard rejected it, and seat 1 was left with no prim
+        // at all - "There aren't enough prims" on furniture that has
+        // plenty.
         integer link = 0;
-        integer at = llListFindList(pinned, [s]);
-        if (at != -1)
+        integer k = 0;
+        integer pn = llGetListLength(pinned);
+        while (k < pn)
         {
-            if (at % 2 == 0) link = llList2Integer(pinned, at + 1);
+            if (llList2Integer(pinned, k) == s)
+            {
+                link = llList2Integer(pinned, k + 1);
+                k = pn;
+            }
+            else k += 2;
         }
         if (link == 0)
         {
