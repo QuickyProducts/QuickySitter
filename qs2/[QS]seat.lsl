@@ -45,7 +45,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.21";
+string version = "0.22";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -115,6 +115,9 @@ integer armcount;
 // run_time_permissions when the grant lands. Rows for somebody who
 // stood up in the meantime die on the occupant check there.
 list PENDING;
+
+// Same, for the stop half of a pose change, strided 2: avatar, anim.
+list PENDING_STOP;
 
 integer verbose = 0;
 
@@ -596,6 +599,7 @@ integer seat_start(integer seat, string anim)
         if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
         {
             if (anim != "") llStartAnimation(anim);
+            Out(2, "started " + anim + " on " + llKey2Name(av));
             return TRUE;
         }
     }
@@ -626,8 +630,23 @@ seat_stop(integer seat, string anim)
     if (av_link(av) == 0) return;      // already gone
 
     llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
-    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
-        llStopAnimation(anim);
+    // SAME HOLDER CHECK AS seat_start, for the same reason: a mask-only
+    // test passes on the PREVIOUS holder.s grant, and the old animation
+    // then stops on the wrong avatar - a no-op for them, while whoever
+    // should have stopped keeps playing their old pose OVER the new one.
+    // A couple switch then looks like it half-worked: moved, new anim
+    // started, old anim still winning on one of the two.
+    if (llGetPermissionsKey() == av)
+    {
+        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
+        {
+            llStopAnimation(anim);
+            Out(2, "stopped " + anim + " on " + llKey2Name(av));
+            return;
+        }
+    }
+    Out(1, "stop of " + anim + " for " + llKey2Name(av) + " parked.");
+    PENDING_STOP += [(string)av, anim];
 }
 
 // ---------------------------------------------------------- lifecycle
@@ -841,6 +860,19 @@ default
         // seat still records them so a stand-up in the gap is a no-op.
         if (!(perm & PERMISSION_TRIGGER_ANIMATION)) return;
         key av = llGetPermissionsKey();
+
+        integer s = 0;
+        while (s < llGetListLength(PENDING_STOP))
+        {
+            if (llList2String(PENDING_STOP, s) == (string)av)
+            {
+                if (av_link(av) != 0)
+                    llStopAnimation(llList2String(PENDING_STOP, s + 1));
+                PENDING_STOP = llDeleteSubList(PENDING_STOP, s, s + 1);
+            }
+            else s += 2;
+        }
+
         integer i = 0;
         while (i < llGetListLength(PENDING))
         {
