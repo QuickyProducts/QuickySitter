@@ -319,3 +319,10 @@ run_time_permissions, which is a fallback only.
 Sit-memory shipped alongside (core 0.11 / seat 0.21): qs:cur is written for
 empty channels on a SYNC, start_default consults it, it survives individual
 stand-ups, and core clears it on the last vacancy gated on DFLT.
+
+Follow-up, same session: the ETYPE-style revert listed as missing turns out to
+ride the same wire. When one of the couple stands, the remaining sitter drops
+back to their solo pose in-world - the plugin layer reacts to the departure and
+broadcasts the solo over 90000, and core now answers it. Nothing was built for
+it; answering one wire restored the whole behaviour family. Do not implement a
+core-side revert on top, it would fire twice.
