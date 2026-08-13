@@ -116,10 +116,10 @@ before this is furniture.
 | Where | Missing | Note |
 |---|---|---|
 | `core` | **Access gating**, the whole `root-security` handoff | Nothing is gated at all right now: any avatar can drive any menu. This is the largest single gap and the one with a security shape. |
-| `core` | **Camera** (`llSetLinkCamera`, 90202) | absent entirely |
-| `seat` | **Gender-based seat assignment** | v1 picks WHICH FREE SEAT an avatar lands on from their body-shape gender (sitA.lsl:1334). Not animation variants: that was an error in an earlier draft. |
-| `core` | **`SEQUENCE`** stepping and its timer path | parsed into `qs:x:*`, not consumed |
-| `core` | **Keyframed motion** path in sit-target application | v1 pauses and resumes `llSetKeyframedMotion` around a pose change |
+| `core` | **Camera** (`llSetLinkCamera`, 90202) | absent entirely. **Deferred 2026-08-13** by decision: a notecard feature not every product uses, and it does not block a test run. |
+| `seat` | ~~Gender-based seat assignment~~ | **Done** (0.15). v1 picks WHICH FREE SEAT an avatar lands on from their body-shape gender (sitA.lsl:1334). Not animation variants: that was an error in an earlier draft. v2 cannot copy the mechanism, since the arrival is already on a prim - it swaps the prim BINDING with a free seat that wants that gender. |
+| `core` | **`SEQUENCE`** stepping and its timer path | parsed into `qs:x:*`, not consumed. **Deferred 2026-08-13** by decision. |
+| `core` | **Keyframed motion** path in sit-target application | v1 pauses and resumes `llSetKeyframedMotion` around a pose change. **Deferred 2026-08-13** by decision. |
 | `core` | Legacy 90045 pose-played broadcast | emitted; 90005 and 90060/90065 are done in seat. The rest of §7.5 is untested. |
 | `menu` | 90299/90300 | 90100/90101 back route, 90271 resync and 90301 pose-saved are done. These two are not, and their contract has not been read yet. |
 | `seat` | ~~90070~~ | **Done.** Both HUD scripts build their sitter mirror from it, and hudadmin looks the avatar up there before attaching, so omitting it stopped the HUD attaching at all. |
@@ -234,3 +234,25 @@ v2 introduced, but it is invisible from the sitter side and cost a long hunt.
 **Remaining gates inside hudadmin**, if an attach still fails: the licence check
 (`isLicensed`), the HUD object being present in the furniture inventory
 (`findObjectByPrefix`), and the six-seat cap.
+
+## Pose position accuracy is not something single-prim seating will fix
+
+Raised 2026-08-13, while weighing whether to chase a remaining position
+deviation now or let the single-prim work absorb it. It will not absorb it, and
+the reason is worth writing down because the question will come back.
+
+AVpos positions are authored **relative to the seat prim**. With one seat prim
+per avatar that frame differs per seat; with everyone on a single prim there is
+one frame for all of them. An existing notecard fed to single-prim seating would
+therefore place every seat but one wrongly. That is precisely why the two modes
+coexist (DESIGN.md §10): furniture that ships seat prims keeps the classic
+binding.
+
+So the classic mode has to be correct **on its own terms**, because it is the
+one carrying every product already sold. If v2 places poses even slightly
+differently from v1, a customer updating sees every pose in every piece of
+furniture shift. That is the drop-in promise, not a detail.
+
+The most recent suspect was `resolve_bindings`, which decides which prim a seat
+is measured against and had three rules wrong against v1 (seat 0.16). Whether
+anything remains after that is unmeasured.
