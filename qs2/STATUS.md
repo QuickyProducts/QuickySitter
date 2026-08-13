@@ -295,3 +295,27 @@ Two divergences found while diffing the Z paths, neither fixed:
   `llGetRot()` depending on cfg field 9; `menu` adds the raw axis delta. On a
   rotated prim a Z press moves in a different direction and X/Y presses leak into
   Z. The field is parsed in boot and read nowhere.
+
+## The couple-join, resolved 2026-08-14
+
+Wiretapped on the v1 copy: the join everybody attributed to the base engine is
+a PLUGIN broadcasting `90000 "Nice" id=""` right after the second sitter's HUD
+attaches. The base scripts play solos in v1 too, exactly as the code reads. The
+lesson generalises: **the plugin layer drives poses over the stock 90000 wire**
+(root-RLV's WAITPOSE/DOMPOSE, the QuickyHUD SYNC, third-party plugins), and a
+v2 that does not answer it silently loses whatever those plugins do.
+
+core answers 90000/90010 since 0.12, with v1's id semantics. Confirmed working
+in-world on the single-prim build: second sitter arrives, plugin broadcasts,
+both couple.
+
+In the same investigation, three more wrong-avatar bugs of one shared shape
+were found and fixed: seat_start (0.20) and seat_stop (0.22) checked the
+permission MASK but not the HOLDER, animating or stopping the wrong avatar
+whenever a grant was not synchronous - which single-prim arrivals, seated
+without a sit target, reliably are. Both park misses and retry them in
+run_time_permissions, which is a fallback only.
+
+Sit-memory shipped alongside (core 0.11 / seat 0.21): qs:cur is written for
+empty channels on a SYNC, start_default consults it, it survives individual
+stand-ups, and core clears it on the last vacancy gated on DFLT.
