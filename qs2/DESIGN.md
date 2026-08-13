@@ -1220,6 +1220,23 @@ Measured in-world 2026-08-13 with `qs2/test/oneprim.lsl`, two avatars, one
 unlinked cube. The question was whether the one-prim-per-seat rule that shapes
 v1 is a platform limit or an artefact of how v1 seats people.
 
+> **STATUS 2026-08-13: NOT REPRODUCED. Do not build on this section yet.**
+>
+> The run below is real and is quoted verbatim. But four attempts to
+> reproduce Q2 in a second probe (`sitpick.lsl`) all failed: the second
+> avatar could not sit. Every explanation offered for the difference -
+> that the target must be re-armed, that it must be re-armed to a
+> *different* value, that moving or the camera interfered - was wrong,
+> and the two scripts are equivalent for admission purposes on a
+> line-by-line comparison.
+>
+> So the mechanism that let a second avatar in is NOT understood, and
+> "one prim per seat is an artefact" is currently an unexplained
+> observation rather than a finding. Re-running `oneprim.lsl` unchanged
+> is the next step: if Q2 passes again the difference is in the code and
+> can be diffed against a known-good run; if it fails, the original run
+> depended on something environmental and this section is wrong.
+
 ### It is an artefact
 
 All three gates passed on the first run.
