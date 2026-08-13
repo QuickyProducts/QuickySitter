@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.16";
+string version = "0.17";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -320,22 +320,33 @@ place_sittargets()
             ["OK"], 23658);
 }
 
-// THE POSE POSITION, UNMODIFIED. v1 subtracts 0.4 on Z here and adds a
-// 0.05 nudge along the target's up axis (sitA.lsl:460), and measured
-// in-world every pose sat exactly that 0.4 too low.
+// v1's formula, restored after measuring what removing it actually did.
+// The -0.4 on Z and the 0.05 nudge along the target's up axis are from
+// sitA.lsl:460.
 //
-// The compensation only ever made sense because in v1 the sit target is
-// a throwaway: sit_using_prim_params overwrites the avatar's position
-// microseconds later on every single pose apply, so whatever the target
-// said was never what anyone saw. Here move_occupant does that job, and
-// on the one occasion the target IS what the avatar gets - the instant
-// of sitting down, before any pose has been applied - a compensated
-// value is simply wrong by 0.4.
+// IT WAS TAKEN OUT ON A WRONG READING and put back on evidence. The
+// reasoning for removing it was that the sit target is a throwaway,
+// since move_occupant overwrites the avatar's position on every pose
+// apply anyway. Measured side by side against v1 on the same furniture,
+// same avatar, same pose (qs2/test/zprobe.lsl):
+//
+//   v1   avatar Z 0.259   target Z -0.091
+//   v2   avatar Z 0.259   target Z  0.259
+//
+// The AVATAR LINK POSITIONS ARE IDENTICAL. move_occupant's arithmetic
+// was never wrong. But SL derives the seated avatar's rendered offset
+// from the SIT TARGET, not from the link position, so the target still
+// governs what anyone sees. In v1 the two agree - -0.091 plus the ~0.35
+// SL adds lands exactly on 0.259 - and removing the compensation broke
+// that agreement while leaving every reported number looking correct.
+//
+// Which is why it was invisible to five rounds of reading code: nothing
+// in either engine's own state disagreed.
 set_seat_target(integer seat, vector pos, rotation rot)
 {
     integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
     if (link <= 0) return;
-    llLinkSitTarget(link, pos, rot);
+    llLinkSitTarget(link, pos - <0.0, 0.0, 0.4> + llRot2Up(rot) * 0.05, rot);
 }
 
 // A SEATED AVATAR IS ITS OWN LINK. Seated agents occupy link numbers
