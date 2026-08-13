@@ -1,55 +1,34 @@
 /*
- * sitpick - does the landing position tell us where the user clicked?
+ * sitpick - which added behaviour stops the second avatar sitting?
  *
- * Follow-up to oneprim.lsl. That probe showed one prim can hold several
- * avatars, at the cost of seat choice by click point: with a single
- * prim there is no longer a prim per seat to click on.
+ * oneprim.lsl demonstrably let a second avatar onto the same prim.
+ * Three attempts to reproduce that here failed, each on a different
+ * guess about why, so this stops guessing and bisects instead.
  *
- * THE WAY OUT, and it comes from oneprim's own output. Arrival 2 landed
- * on <0.34, -0.24078, 0.88> - an unrounded value, so SL's own
- * click-relative placement rather than our sit target. If that position
- * tracks the click, then the seat can be chosen FROM IT: read the new
- * link's position on CHANGED_LINK and take the nearest seat.
+ * sitpick does three things oneprim did not:
+ *   1. it MOVES the arrival to a seat
+ *   2. it takes PERMISSION_CONTROL_CAMERA and sets a camera
+ *   3. it re-arms the sit target to a computed value
  *
- * That would be finer than what v1 does. v1 picks by prim, which is
- * discrete; a landing position is continuous, so one long sofa prim
- * could carry seats anywhere along it.
+ * MODE, cycled by touching the prim, adds them back one at a time.
+ * Mode 0 is oneprim's behaviour plus a report and nothing else, so it
+ * MUST work - if it does not, the difference is somewhere neither
+ * script has been looked at yet.
  *
- * THE TARGET IS RE-ARMED AFTER EVERY ARRIVAL, and that turns out to be
- * the whole mechanism. Two wrong versions of this probe were needed to
- * find it, both measured 2026-08-13:
+ *   mode 0   report only, re-arm by cycling the slot (as oneprim did)
+ *   mode 1   + move the arrival to the picked seat
+ *   mode 2   + set the per-seat camera
  *
- *   no target at all      -> nobody can sit
- *   target set once       -> exactly ONE person can sit
- *   target re-armed       -> the next person can sit
+ * Run: sit avatar 1, then avatar 2. If avatar 2 gets in, stand both up,
+ * touch to advance the mode, repeat. The mode where avatar 2 stops
+ * getting in is the answer.
  *
- * So a sit target is CONSUMED by whoever takes it, and each
- * llSitTarget call admits one more. oneprim only worked because it
- * happened to re-aim the target after the first arrival; the re-aiming
- * was not pointless, as noted there - it is the door opener. Only the
- * POSITION comes from somewhere else:
- *
- *   prim empty, target set     -> lands exactly on the target
- *   prim occupied, re-armed    -> admitted, but placed click-relative
- *
- * Which is exactly what this probe is for. Arrival 1 has no click
- * information to give, and does not need any: sitting on an EMPTY sofa
- * means the default seat. From arrival 2 on, when choosing actually
- * matters, the landing position carries the click.
- *
- * HOW TO RUN. Put it in a SINGLE prim, on its own, and stretch that prim
- * wide on X - about 2 m - so there is somewhere to aim. Then sit
- * avatars while right-clicking deliberately at the LEFT end, the MIDDLE
- * and the RIGHT end, and read which seat it picked each time. Touch
- * resets.
- *
- * WHAT TO LOOK FOR:
- *   picked seat matches where you clicked   -> click-point choice is
- *                                              recoverable, and better
- *   always the same seat                    -> SL is not using the click
- *                                              point; this is dead
- *   nobody can sit at all                   -> a prim needs a sit target
- *                                              to be sittable; also dead
+ * THE ORIGINAL QUESTION, still open behind all this: does the landing
+ * position of arrival 2 track where they clicked? oneprim's arrival 2
+ * landed on <0.34, -0.24078, 0.88>, an unrounded value, so SL's own
+ * click-relative placement rather than a sit target. If that holds,
+ * seat choice by click survives on a single prim, and continuously
+ * rather than per prim. Mode 0 answers it without any of the rest.
  */
 
 // Three notional seats spread along X, as a sofa would be.
@@ -57,90 +36,27 @@ list SEATS = [ <-0.7, 0.0, 0.55>, <0.0, 0.0, 0.55>, <0.7, 0.0, 0.55> ];
 
 // Z is deliberately WEIGHTED DOWN in the distance test. Landing heights
 // come out near the prim surface and say little about intent, while a
-// bunk bed would have two seats differing ONLY in Z. Getting this wrong
-// is the likeliest way for the whole idea to feel unreliable in use, so
-// it is a knob here rather than a constant buried in the engine.
+// bunk bed would have two seats differing ONLY in Z.
 float Z_WEIGHT = 0.3;
 
-list KNOWN;             // avatar keys already accounted for
+// Per-seat camera distances, mode 2 only. Visibly different so two
+// testers can just say which of them is close and which is far.
+list CAM_DISTANCE = [1.5, 3.0, 6.0];
+
+integer MODE;
+list    KNOWN;          // avatar keys already accounted for
 integer armcount;
 
-// RE-ARMING NEEDS A DIFFERENT VALUE, not just another call. Setting the
-// sit target to the value it already holds is discarded as a no-op and
-// admits nobody - the same rule as the 0.002 degree rotation nudge in
-// [QS]seat's move_occupant, where an identical rotation is dropped and
-// repeated presses on one axis stop having any effect.
-//
-// That is why oneprim worked and the first two versions of this probe
-// did not: oneprim happened to re-aim from slot 0 to slot 1, a genuinely
-// different vector, while this re-armed the middle seat onto itself.
-//
-// The alternating epsilon makes the difference unconditional, so it
-// holds even on furniture whose seats sit at identical positions.
+Say(string s) { llOwnerSay(s); }
+
+// Exactly what oneprim's arm() did: point the target at the next slot,
+// which is a different vector each time.
 rearm()
 {
     ++armcount;
     vector t = llList2Vector(SEATS, armcount % llGetListLength(SEATS));
-    t.z = t.z + 0.0001 * (float)(armcount % 2);
     llSitTarget(t, ZERO_ROTATION);
-    llOwnerSay("   target re-armed at " + (string)t
-        + " (call " + (string)armcount + ") - next avatar can sit.");
-}
-
-// ---------------------------------------------------------------- camera
-//
-// SECOND QUESTION, folded in so the rig only has to be built once.
-//
-// Per-seat camera is the other thing one prim appears to cost:
-// llSetLinkCamera and llSetCameraEyeOffset are prim-bound, so with a
-// single prim every sitter would share one camera.
-//
-// llSetCameraParams is NOT prim-bound, it is avatar-bound, and it needs
-// PERMISSION_CONTROL_CAMERA. For an avatar already sitting on the object
-// that permission is granted WITHOUT a dialog - the same property we
-// measured for PERMISSION_TRIGGER_ANIMATION (DESIGN.md §3), which is what
-// lets one script drive every seat. If that holds here too, the same
-// cycling works for cameras.
-//
-// So the binary question first: does the grant come back synchronously,
-// per avatar, for each of two sitters in turn? If no, this route is dead
-// and the parameter details do not matter. If yes, the details become an
-// ordinary implementation problem.
-//
-// WHAT THIS DELIBERATELY DOES NOT ANSWER. CAMERA_POSITION and
-// CAMERA_FOCUS are REGION coordinates, not object-relative, so a moving
-// or rotating piece of furniture would need them re-driven as it moves -
-// work the sim does for free with llSetLinkCamera today. Whether an
-// object-relative mode exists that avoids this is the next question, not
-// this one.
-//
-// Each seat gets a visibly different distance, so the two testers can
-// simply say which of them is close and which is far.
-list CAM_DISTANCE = [1.5, 3.0, 6.0];
-
-camera_for(key av, integer seat)
-{
-    llRequestPermissions(av, PERMISSION_CONTROL_CAMERA);
-    if (!(llGetPermissions() & PERMISSION_CONTROL_CAMERA))
-    {
-        llOwnerSay("   CAMERA: permission NOT granted synchronously for "
-            + llKey2Name(av) + " - this route is dead.");
-        return;
-    }
-    if (llGetPermissionsKey() != av)
-    {
-        llOwnerSay("   CAMERA: permission landed on the wrong avatar.");
-        return;
-    }
-    llSetCameraParams([
-        CAMERA_ACTIVE, 1,
-        CAMERA_DISTANCE, llList2Float(CAM_DISTANCE, seat),
-        CAMERA_BEHINDNESS_ANGLE, 0.0,
-        CAMERA_PITCH, 10.0
-    ]);
-    llOwnerSay("   CAMERA: granted, distance "
-        + (string)llList2Float(CAM_DISTANCE, seat)
-        + " for " + llKey2Name(av));
+    Say("   re-armed at " + (string)t + " (call " + (string)armcount + ")");
 }
 
 integer nearest_seat(vector p)
@@ -174,27 +90,33 @@ list agent_links()
     return out;
 }
 
+announce()
+{
+    string what = "report only";
+    if (MODE == 1) what = "report + MOVE";
+    if (MODE == 2) what = "report + MOVE + CAMERA";
+    Say("=== sitpick mode " + (string)MODE + ": " + what
+        + " === sit avatar 1, then avatar 2.");
+}
+
 default
 {
     state_entry()
     {
-        // Clearing it makes the prim unsittable for everyone, so it is
-        // armed here and re-armed after every arrival. Arrival 1 lands
-        // exactly on it regardless of where they clicked - that one has
-        // no click information to give.
+        MODE = 0;
         armcount = 0;
-        llSitTarget(llList2Vector(SEATS, 1), ZERO_ROTATION);
         KNOWN = [];
-        llOwnerSay("sitpick ready, target armed at the middle seat."
-            + " Avatar 1 sits anywhere (they get the middle);"
-            + " avatar 2 right-clicks the LEFT or RIGHT end."
-            + " The target is re-armed after each arrival - without that,"
-            + " only one person can ever sit.");
+        llSitTarget(llList2Vector(SEATS, 0), ZERO_ROTATION);
+        announce();
     }
 
     touch_start(integer n)
     {
-        llResetScript();
+        MODE = (MODE + 1) % 3;
+        armcount = 0;
+        KNOWN = [];
+        llSitTarget(llList2Vector(SEATS, 0), ZERO_ROTATION);
+        announce();
     }
 
     changed(integer c)
@@ -202,24 +124,19 @@ default
         if (!(c & CHANGED_LINK)) return;
 
         list a = agent_links();
-        integer i = 0;
         list fresh;
+        integer i = 0;
         while (i < llGetListLength(a))
         {
             integer l = llList2Integer(a, i);
-            string k = (string)llGetLinkKey(l);
-            if (llListFindList(KNOWN, [k]) == -1) fresh += l;
+            if (llListFindList(KNOWN, [(string)llGetLinkKey(l)]) == -1)
+                fresh += l;
             ++i;
         }
+
         if (llGetListLength(fresh) == 0)
         {
-            // Somebody left; resync so a re-sit reads as fresh again.
-            // Their camera is NOT cleared here: the permission is
-            // single-valued and by now belongs to whoever was served
-            // last, so there is nothing to clear it through. Standing up
-            // should revoke it by itself, the same way it revokes
-            // TRIGGER_ANIMATION - and whether it actually does is worth
-            // noticing during the run. Escape resets the camera if not.
+            // Somebody left. Resync so a re-sit reads as fresh again.
             KNOWN = [];
             i = 0;
             while (i < llGetListLength(a))
@@ -227,6 +144,8 @@ default
                 KNOWN += (string)llGetLinkKey(llList2Integer(a, i));
                 ++i;
             }
+            Say("   (somebody stood up, " + (string)llGetListLength(a)
+                + " left seated)");
             return;
         }
 
@@ -234,25 +153,42 @@ default
         while (i < llGetListLength(fresh))
         {
             integer l = llList2Integer(fresh, i);
-            KNOWN += (string)llGetLinkKey(l);
+            key av = llGetLinkKey(l);
+            KNOWN += (string)av;
+
             vector p = llList2Vector(
                 llGetLinkPrimitiveParams(l, [PRIM_POS_LOCAL]), 0);
             integer pick = nearest_seat(p);
-            llOwnerSay("landed at " + (string)p
-                + "  -> seat " + (string)pick
-                + " " + (string)llList2Vector(SEATS, pick)
-                + "   (" + llKey2Name(llGetLinkKey(l)) + ")");
-            // Move them there, so a wrong pick is visible and not just
-            // a number in chat.
-            llSetLinkPrimitiveParamsFast(l,
-                [PRIM_POS_LOCAL, llList2Vector(SEATS, pick),
-                 PRIM_ROT_LOCAL, llEuler2Rot(<0.0, 0.0, 0.002> * DEG_TO_RAD)]);
-            camera_for(llGetLinkKey(l), pick);
+            Say("### " + llKey2Name(av) + " link " + (string)l
+                + " landed at " + (string)p
+                + "  -> seat " + (string)pick);
 
-            // RE-ARM, or nobody else can ever sit down. There is a race
-            // here that a real engine has to answer: between the arrival
-            // and this call the prim admits no one, so two people
-            // clicking at once means one of them silently fails to sit.
+            if (MODE >= 1)
+            {
+                llSetLinkPrimitiveParamsFast(l,
+                    [PRIM_POS_LOCAL, llList2Vector(SEATS, pick),
+                     PRIM_ROT_LOCAL,
+                     llEuler2Rot(<0.0, 0.0, 0.002> * DEG_TO_RAD)]);
+                Say("   moved to " + (string)llList2Vector(SEATS, pick));
+            }
+
+            if (MODE >= 2)
+            {
+                llRequestPermissions(av, PERMISSION_CONTROL_CAMERA);
+                if (llGetPermissions() & PERMISSION_CONTROL_CAMERA)
+                {
+                    llSetCameraParams([
+                        CAMERA_ACTIVE, 1,
+                        CAMERA_DISTANCE, llList2Float(CAM_DISTANCE, pick),
+                        CAMERA_BEHINDNESS_ANGLE, 0.0,
+                        CAMERA_PITCH, 10.0
+                    ]);
+                    Say("   camera set, distance "
+                        + (string)llList2Float(CAM_DISTANCE, pick));
+                }
+                else Say("   camera permission NOT granted.");
+            }
+
             rearm();
             ++i;
         }
