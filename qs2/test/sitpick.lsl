@@ -63,6 +63,29 @@ list SEATS = [ <-0.7, 0.0, 0.55>, <0.0, 0.0, 0.55>, <0.7, 0.0, 0.55> ];
 float Z_WEIGHT = 0.3;
 
 list KNOWN;             // avatar keys already accounted for
+integer armcount;
+
+// RE-ARMING NEEDS A DIFFERENT VALUE, not just another call. Setting the
+// sit target to the value it already holds is discarded as a no-op and
+// admits nobody - the same rule as the 0.002 degree rotation nudge in
+// [QS]seat's move_occupant, where an identical rotation is dropped and
+// repeated presses on one axis stop having any effect.
+//
+// That is why oneprim worked and the first two versions of this probe
+// did not: oneprim happened to re-aim from slot 0 to slot 1, a genuinely
+// different vector, while this re-armed the middle seat onto itself.
+//
+// The alternating epsilon makes the difference unconditional, so it
+// holds even on furniture whose seats sit at identical positions.
+rearm()
+{
+    ++armcount;
+    vector t = llList2Vector(SEATS, armcount % llGetListLength(SEATS));
+    t.z = t.z + 0.0001 * (float)(armcount % 2);
+    llSitTarget(t, ZERO_ROTATION);
+    llOwnerSay("   target re-armed at " + (string)t
+        + " (call " + (string)armcount + ") - next avatar can sit.");
+}
 
 // ---------------------------------------------------------------- camera
 //
@@ -155,10 +178,11 @@ default
 {
     state_entry()
     {
-        // Armed, and it STAYS armed. See the header: clearing it makes
-        // the prim unsittable for everyone. Aimed at the middle seat,
-        // which is where arrival 1 will land regardless of where they
-        // clicked - that one has no click information to give.
+        // Clearing it makes the prim unsittable for everyone, so it is
+        // armed here and re-armed after every arrival. Arrival 1 lands
+        // exactly on it regardless of where they clicked - that one has
+        // no click information to give.
+        armcount = 0;
         llSitTarget(llList2Vector(SEATS, 1), ZERO_ROTATION);
         KNOWN = [];
         llOwnerSay("sitpick ready, target armed at the middle seat."
@@ -229,8 +253,7 @@ default
             // here that a real engine has to answer: between the arrival
             // and this call the prim admits no one, so two people
             // clicking at once means one of them silently fails to sit.
-            llSitTarget(llList2Vector(SEATS, 1), ZERO_ROTATION);
-            llOwnerSay("   target re-armed, next avatar can sit.");
+            rearm();
             ++i;
         }
     }
