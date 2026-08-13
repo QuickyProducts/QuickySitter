@@ -256,3 +256,42 @@ furniture shift. That is the drop-in promise, not a detail.
 The most recent suspect was `resolve_bindings`, which decides which prim a seat
 is measured against and had three rules wrong against v1 (seat 0.16). Whether
 anything remains after that is unmeasured.
+
+## Pose position accuracy: resolved 2026-08-13
+
+Verified side by side against v1 on the same furniture, same avatar, same pose,
+with `qs2/test/zprobe.lsl` in each copy. v2 now reports what v1 reports:
+
+```
+avatar Z 0.259000   prim Z 0.000000   target Z -0.091000
+```
+
+Two separate defects, found in that order:
+
+1. **The sit-target compensation had been removed** on a wrong reading. Restored
+   (seat 0.17). Note that the measurement did NOT show this changing the avatar's
+   position - both engines placed the link identically with different targets -
+   so this was faithfulness, not the visible bug.
+2. **The pose frame was the seat's prim instead of the script's prim**
+   (seat 0.18). This was the visible bug. Measured error on a seat bound to
+   prim 2: `0.259000 - 0.136377 = 0.122623`, exactly that prim's own local Z.
+   Constant per seat, identical for every pose on it, and **exactly zero for
+   whichever seat sits on the script's prim** - which is why the first
+   measurement, taken on prim 1, showed no difference at all.
+
+Method worth repeating: a passive probe in BOTH copies reporting the same field.
+Five rounds of reading code did not find it, because every number either engine
+reported about itself was correct.
+
+### Still open from the same pass
+
+Two divergences found while diffing the Z paths, neither fixed:
+
+- **The RAM tier of personal offsets is not read.** `[QS]offset` parks offsets in
+  RAM when LSD is at its floor and pushes them over 90260; `core` does not
+  implement that wire (stated at core.lsl's capability list). Such an offset is
+  silently zero in v2. Only bites on a full LSD, and then invisibly.
+- **The nudge ignores `REFERENCE`.** v1 divides the delta by `llGetLocalRot()` or
+  `llGetRot()` depending on cfg field 9; `menu` adds the raw axis delta. On a
+  rotated prim a Z press moves in a different direction and X/Y presses leak into
+  Z. The field is parsed in boot and read nowhere.
