@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.11";
+string version = "0.12";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -76,6 +76,20 @@ integer AV_PLUGINREPLY = 90202;   // root-security -> core
 // a singleton has that for free.
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
+
+// The stock "play pose BY NAME" wire, and it is how the plugin layer
+// drives poses: root-RLV's WAITPOSE/DOMPOSE, the QuickyHUD SYNC, any
+// third-party AVsitter plugin. Wiretapped on the v1 furniture: the
+// couple-join everybody attributed to the base engine is a plugin
+// broadcasting `90000 "Nice" id=""` after the second sitter arrives.
+// v2 not answering this wire is why that furniture would not couple.
+//   msg = bare pose name
+//   id  = "" broadcast (the sync wire), an avatar key (their seat), or
+//         a channel number
+// 90010 is the same wire bypassing the ETYPE gate; core has no ETYPE
+// behaviour yet, so they land in one handler.
+integer AV_PLAYPOSE   = 90000;
+integer AV_PLAYPOSE2  = 90010;
 
 integer AV_RESYNC     = 90271;    // hudproxy or any in-prim source
 integer AV_POSESAVED  = 90301;    // adjuster -> here, after a [SAVE]
@@ -120,13 +134,19 @@ integer allowed(key av)
 // are not sitting.
 integer seated_anywhere(key av)
 {
+    if (seat_of(av) != -1) return TRUE;
+    return FALSE;
+}
+
+integer seat_of(key av)
+{
     integer i = 0;
     while (i < SEATS)
     {
-        if (llLinksetDataRead("qs:occ:" + (string)i) == (string)av) return TRUE;
+        if (llLinksetDataRead("qs:occ:" + (string)i) == (string)av) return i;
         ++i;
     }
-    return FALSE;
+    return -1;
 }
 
 // "<product>|<version>|<sitterCount>|<capabilityCSV>", parsed by the
@@ -457,6 +477,57 @@ default
                 ++c;
             }
             if (DFLT) llLinksetDataDeleteFound("^qs:cur:", "");
+            return;
+        }
+
+        if (num == AV_PLAYPOSE || num == AV_PLAYPOSE2)
+        {
+            if (msg == "") return;
+
+            if (id == "")
+            {
+                // Broadcast. If ANY channel resolves the name to an S
+                // entry, one start_entry does the whole coupling - its
+                // S branch is this exact broadcast, done natively. Only
+                // when no S exists anywhere does each channel play its
+                // own same-named P, which is v1's behaviour for id ""
+                // (every sitB resolves independently, sitB.lsl:1015).
+                integer c = 0;
+                while (c < SEATS)
+                {
+                    integer at = find_by_name(c, msg);
+                    if (at >= 0)
+                    {
+                        if (llList2String(entry(c, at), 1) == "S")
+                        {
+                            start_entry(c, at);
+                            return;
+                        }
+                    }
+                    ++c;
+                }
+                c = 0;
+                while (c < SEATS)
+                {
+                    integer pt = find_by_name(c, "P:" + msg);
+                    if (pt >= 0) start_entry(c, pt);
+                    ++c;
+                }
+                return;
+            }
+
+            // A UUID targets the seat that avatar occupies; anything
+            // else is a channel number. LSL key truthiness is exactly
+            // "valid non-null UUID", the same test v1 uses.
+            integer ch = -1;
+            if (id) ch = seat_of(id);
+            else ch = (integer)((string)id);
+            if (ch < 0) return;
+            if (ch >= SEATS) return;
+
+            integer i2 = find_by_name(ch, msg);
+            if (i2 == -1) i2 = find_by_name(ch, "P:" + msg);
+            if (i2 >= 0) start_entry(ch, i2);
             return;
         }
 
