@@ -52,7 +52,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.13";
+string version = "0.14";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -114,11 +114,14 @@ integer LSD_MIN_FREE_POSES = 200;
 // New entries at the END; LRU eviction trims from the FRONT.
 list CUSTOMS;
 integer CUSTOMS_STRIDE = 5;
-// v1's cap was 200 for a ~12 KB script. core carries the pose engine in
-// the same 64 KB, measured 25.6 KB used before the merge, so the cap is
-// halved rather than inherited. The tier only holds overflow past the
-// reserve floor; emergency_shrink below is the actual safety net.
-integer LRU_CAP = 100;
+// v1's cap was 200 for a ~12 KB standalone script. Sized against
+// MEASUREMENT, not inherited: post-merge core reports 18.9 KB free
+// (0.13, in-world 2026-08-14), and 50 entries at ~150 bytes worst case
+// spend ~7.5 KB of it, keeping >10 KB for pose-start transients. The
+// tier only holds overflow past the LSD reserve floor, so a furniture
+// that ever has 50 RAM-tier offsets has a full LSD as its actual
+// problem. emergency_shrink below is the hard safety net either way.
+integer LRU_CAP = 50;
 integer EMERGENCY_FREE_BYTES = 3000;
 
 Out(integer level, string s)
