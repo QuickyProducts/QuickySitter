@@ -1211,3 +1211,80 @@ says outright to expect changes.
 **Correction:** an earlier note in this session cited `ll.Table2Json` /
 `ll.Json2Table` as available. Those are a feature *request* on the feedback site.
 The shipped API is `lljson.encode` / `lljson.decode`.
+
+---
+
+## 10. One prim, several seats
+
+Measured in-world 2026-08-13 with `qs2/test/oneprim.lsl`, two avatars, one
+unlinked cube. The question was whether the one-prim-per-seat rule that shapes
+v1 is a platform limit or an artefact of how v1 seats people.
+
+### It is an artefact
+
+All three gates passed on the first run.
+
+| | Question | Result |
+|---|---|---|
+| Q1 | Does re-aiming the sit target eject or drag the avatar already on it? | Neither. A stayed at `<0, 0, 0.90>` while the target moved to slot 1. |
+| Q2 | Can a second avatar then sit on the same prim? | Yes. B landed on link 3. |
+| Q3 | Can both be positioned independently by link? | Yes. `<0, 0, 0.55>` and `<0.7, 0, 0.55>`, exactly as set. |
+
+A sit target binds one avatar per prim **for the instant of sitting only**.
+Afterwards the avatar is a link of its own, and `PRIM_POS_LOCAL` on that link
+is authoritative. `seat` already does this in `move_occupant`, which is why
+this costs less to adopt here than it would have in v1.
+
+### Two findings that were not the question
+
+**The sit target only places the FIRST arrival.** B did not land on the
+re-aimed slot 1 `<0.7, 0, 0.55>`. B landed on `<0.34, -0.24078, 0.88>` — an
+unrounded value, so SL's own click-relative placement, not our target. Re-aiming
+the target between arrivals is therefore pointless: what actually matters is
+only that the prim stays sittable, and that `move_occupant` places each arrival
+afterwards. The design is a step simpler than the sketch it came from.
+
+The visible cost is a one-frame jump: arrival 2 and later appear wherever SL
+dropped them until the pose applies.
+
+**SL adds +0.35 to the sit target.** Target `Z 0.55` produced a link position of
+`0.90`. That is what v1's `-0.4` in `set_sittarget` compensates (sitA.lsl:460),
+and it settles the question from earlier the same day: the constant was never
+arbitrary. It stays removed here regardless, because `move_occupant` overwrites
+the position on every pose apply, so the target value is only ever visible in
+the instant before the first pose.
+
+Note the asymmetry: a position set BY SCRIPT lands exactly (Q3 returned the
+values we wrote), a position obtained via a sit target does not.
+
+### What it would cost
+
+`llAvatarOnLinkSitTarget` reports one avatar per prim and named only the first
+of the two throughout. `seat` uses it in exactly two places, and both are load
+bearing:
+
+- `rescan_occupancy` (seat.lsl:413), which is how occupancy is discovered at all
+- the `seat_stop` guard (seat.lsl:356), which is what stopped the standup
+  animation-permission dialog
+
+Both would have to be rebuilt on `CHANGED_LINK` differences: keep the previous
+agent-link list, diff it, and match arrivals to free seats. That is not more
+code, but it is a different failure mode — a missed event desynchronises the
+table, where the current lookup re-derives the truth every time.
+
+Also lost, and not recoverable:
+
+- **per-seat camera**, since `llSetCameraEyeOffset` is prim-bound
+- **seat choice by click point**, since there is only one prim to click
+- **`#SET-slot` prim-description pinning**, which has nothing left to pin
+
+And one risk that cannot be designed away, only locked: two avatars sitting
+inside the same frame. The current model has the sim arbitrate that, one target
+per prim; a single prim hands the arbitration to us.
+
+### Not now
+
+Stage 1 is still being brought up and `seat` is the script under repair. This is
+recorded so the measurement is not lost, not scheduled. It is additive when it
+comes: a build with one seat prim per avatar keeps working either way, since
+the change is in how occupancy is discovered, not in how poses are applied.
