@@ -51,9 +51,10 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.13";
+string version = "0.14";
 
 integer QSS_TOUCH     = 90412;
+integer QSS_SEATED    = 90413;   // seat -> here: somebody sat down
 integer AV_MENUTOUSER = 90005;   // stock "send menu to user"
 integer AV_MENUCHOICE = 90100;   // back route: inject a menu click
 integer AV_MENUNAV    = 90101;   // same, submenu navigation
@@ -860,6 +861,21 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == QSS_SEATED)
+        {
+            // AMENU, cfg field 5: open the menu by itself when somebody
+            // sits down. v1 does this from sitB and it is the reason a
+            // sitter sees anything at all without touching first; v2 had
+            // no trigger for it, so the menu only ever appeared on touch.
+            list cfg = llParseStringKeepNulls(
+                llLinksetDataRead("qs:cfg:" + msg), ["
+"], []);
+            if (llList2Integer(cfg, 5) == 0) return;
+            if (id == "") return;
+            render(op_open(id, (integer)msg));
+            return;
+        }
+
         if (num == QSS_TOUCH || num == AV_MENUTOUSER)
         {
             // 90005 is the stock "send menu to user" number and is what

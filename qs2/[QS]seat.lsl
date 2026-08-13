@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.14";
+string version = "0.15";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -73,6 +73,11 @@ integer AV_SITTERSUPD = 90070;   // "sitter list updated", msg = slot, id = avat
 // occupant is "" when free (an LSL key defaults to "", never NULL_KEY).
 list SEATS;
 integer SEAT_STRIDE = 5;
+
+// Per-seat gender from the notecard.s SITTER directives, cfg field 16:
+// 1 male, 0 female, -1 unassigned. Empty when the notecard declares
+// none, and then regender is a no-op.
+list GENDERS;
 
 integer MTYPE;
 integer verbose = 0;
@@ -123,6 +128,7 @@ load_from_lsd()
     // own. Same string for every channel, boot writes it once at EOF.
     list cfg = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:0"), ["\n"], []);
     MTYPE = (integer)llList2String(cfg, 0);
+    GENDERS = llCSV2List(llList2String(cfg, 16));
 
     // Count seats by walking qs:sitter:<ch> until it runs out.
     integer ch = 0;
@@ -216,6 +222,75 @@ resolve_bindings()
         SEATS = llListReplaceList(SEATS, [link], s * SEAT_STRIDE, s * SEAT_STRIDE);
         ++s;
     }
+}
+
+// ------------------------------------------------------------- gender
+//
+// A SITTER directive can declare a seat male, female or unassigned, and
+// boot collects those into cfg field 16. Without this a male avatar
+// simply took whichever seat came first and landed on the female pose,
+// which is what the notecard was written to prevent.
+//
+// v1 does this from sitA (sitA.lsl:1310) as part of claiming a sitter.
+// It cannot be lifted verbatim: there, each sitA owns one prim and
+// decides whether to adopt the arrival, so choosing a seat is a matter
+// of which instance says yes. Here the arrival is already physically on
+// a prim, so preferring a different seat means moving the SEAT, not the
+// avatar - the prim binding is swapped with a free seat that wants this
+// gender. Nobody is unseated and the sit target is not touched.
+
+// OBJECT_BODY_SHAPE_TYPE is 0.0 female, 1.0 male, -1.0 for non-avatars.
+// v1 truncates it with llList2Integer and this matches that deliberately:
+// a drop-in has to assign the same seats as the script it replaces, even
+// where a fresh implementation would round instead.
+integer gender_of(key av)
+{
+    return llList2Integer(llGetObjectDetails(av, [OBJECT_BODY_SHAPE_TYPE]), 0);
+}
+
+swap_prims(integer a, integer b)
+{
+    integer ra = a * SEAT_STRIDE;
+    integer rb = b * SEAT_STRIDE;
+    integer la = llList2Integer(SEATS, ra);
+    integer lb = llList2Integer(SEATS, rb);
+    SEATS = llListReplaceList(SEATS, [lb], ra, ra);
+    SEATS = llListReplaceList(SEATS, [la], rb, rb);
+}
+
+// Returns the seat this arrival should actually occupy, having swapped
+// the prim bindings if that differs from the one they sat on.
+integer regender(integer seat, key av)
+{
+    if (llGetListLength(GENDERS) == 0) return seat;
+    integer want = llList2Integer(GENDERS, seat);
+    if (want == -1) return seat;              // seat takes anybody
+    integer g = gender_of(av);
+    if (want == g) return seat;
+
+    integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
+    integer i = 0;
+    while (i < seats)
+    {
+        if (i != seat)
+        {
+            // Only ever trade with a seat that is FREE, so an occupant is
+            // never displaced to make room for somebody arriving later.
+            if (llList2String(SEATS, i * SEAT_STRIDE + 1) == "")
+            {
+                if (llList2Integer(GENDERS, i) == g)
+                {
+                    swap_prims(seat, i);
+                    Out(2, "gender: arrival is " + (string)g
+                        + ", seat " + (string)seat + " wants " + (string)want
+                        + " - moved to seat " + (string)i);
+                    return i;
+                }
+            }
+        }
+        ++i;
+    }
+    return seat;                              // no better seat free
 }
 
 // SL allows one sit target per prim, so a seat without a prim cannot be
@@ -417,7 +492,17 @@ rescan_occupancy()
         if ((string)now != before)
         {
             if (before != "") seat_freed(seat, (key)before);
-            if (now != "")    seat_taken(seat, now);
+            if (now != "")
+            {
+                // regender may hand back a different seat, having swapped
+                // the prim bindings. The rest of this scan stays correct
+                // either way: the seat it moved to now points at the prim
+                // the arrival is on, and seat_taken has already recorded
+                // them there, so that row reads as unchanged. The seat
+                // they came from now points at a free prim and reads as
+                // empty, which it is.
+                seat_taken(regender(seat, now), now);
+            }
         }
         i += SEAT_STRIDE;
         ++seat;
@@ -504,9 +589,11 @@ default
     {
         integer seat = seat_of_link(llDetectedLinkNumber(0));
         if (seat < 0) seat = 0;
-        // Stock behaviour: a touch asks for the menu on the toucher's
-        // behalf. 90005 is the v1 number and plugins listen for it.
-        llMessageLinked(LINK_SET, AV_MENUTOUSER, (string)seat, llDetectedKey(0));
+        // ONE message, not two. This also sent AV_MENUTOUSER (90005), and
+        // menu answers 90005 and QSS_TOUCH with the same handler, so every
+        // touch opened TWO dialogs. menu keeps listening on 90005 for
+        // outside senders - plugins and the HUD use it - but the touch
+        // path is internal and only needs the v2 number.
         llMessageLinked(LINK_SET, QSS_TOUCH, (string)seat, llDetectedKey(0));
     }
 

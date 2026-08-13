@@ -49,7 +49,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.09";
+string version = "0.10";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -358,6 +358,11 @@ start_default(integer ch)
         if (t == "P" || t == "S") { start_entry(ch, i); return; }
         ++i;
     }
+    // Loud, because the symptom - a sitter who is simply not animated -
+    // says nothing about whether the channel has no poses, or has none
+    // yet because boot has not finished, or was never seeded at all.
+    Out(0, "seat " + (string)ch + " has no playable pose among "
+        + (string)n + " entries - nobody will be animated there.");
 }
 
 load_cfg()
