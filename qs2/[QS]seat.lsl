@@ -41,7 +41,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.18";
+string version = "0.19";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
@@ -82,6 +82,30 @@ list GENDERS;
 integer MTYPE;
 integer SET;                       // cfg field 2; a prim pin only counts
                                    // when its SET matches this furniture
+
+// SINGLE-PRIM MODE (DESIGN.md §10). Detected, not configured: a one-prim
+// object with more than one seat cannot be classic furniture, and classic
+// furniture is never one prim, so the two modes cannot be confused.
+//
+// In this mode the sit target is a DOOR, not a place: it exists so the
+// prim is sittable at all (measured: a prim with no target cannot be sat
+// on), it is consumed by each arrival (measured: one llSitTarget call
+// admits exactly one sitter), and it is re-armed with an alternating
+// epsilon because a call that sets the value it already holds is a
+// no-op. Where the arrival LANDS is SL's click-relative placement, which
+// is what seats are picked from; where they SIT is move_occupant's job,
+// as everywhere else.
+//
+// KNOWN, ACCEPTED FOR THE PROTOTYPE:
+//   - between an arrival and the re-arm the prim admits nobody, so two
+//     people sitting in the same instant lose one of them (they simply
+//     do not sit; no event fires anywhere)
+//   - CLICK_ACTION_SIT takes the left click, so non-sitters cannot open
+//     the menu by clicking the furniture (the MTYPE/ETYPE question,
+//     still undecided)
+integer ONEPRIM;
+integer armcount;
+
 integer verbose = 0;
 
 Out(integer level, string s)
@@ -302,8 +326,74 @@ integer regender(integer seat, key av)
 // SL allows one sit target per prim, so a seat without a prim cannot be
 // sat on. Same condition as v1's "not enough prims for required
 // SitTargets" (sitA.lsl:33).
+// The door target. llSitTarget rather than llLinkSitTarget: the script
+// lives in the one prim there is, and a lone prim's link number shifts
+// between 0 and 1 depending on whether anyone is seated.
+arm_door()
+{
+    ++armcount;
+    llSitTarget(<0.0, 0.0, 0.1 + 0.0001 * (float)(armcount % 2)>,
+        ZERO_ROTATION);
+}
+
+// Where a seat "is", for matching a landing position against the layout:
+// what is currently playing there, or the seat's first playable pose
+// before anything has played. Read from the same qs:p rows core plays
+// from, so the picker and the engine cannot disagree about geometry.
+vector seat_home(integer ch)
+{
+    vector bp = llList2Vector(SEATS, ch * SEAT_STRIDE + 3);
+    if (bp != ZERO_VECTOR) return bp;
+    integer n = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)ch);
+    integer i = 0;
+    while (i < n)
+    {
+        list e = llParseStringKeepNulls(
+            llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i), ["|"], []);
+        string t = llList2String(e, 1);
+        if (t == "P" || t == "S") return (vector)llList2String(e, 3);
+        ++i;
+    }
+    return ZERO_VECTOR;
+}
+
+// Nearest FREE seat to where SL dropped the arrival. Z is weighted down
+// (qs2/test/sitpick.lsl): landing heights hug the prim surface and say
+// little about intent, but a bunk bed's two seats differ only in Z, so
+// it cannot be discarded outright either.
+integer pick_seat(vector p)
+{
+    integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
+    integer best = -1;
+    float bestd = -1.0;
+    integer i = 0;
+    while (i < seats)
+    {
+        if (llList2String(SEATS, i * SEAT_STRIDE + 1) == "")
+        {
+            vector d = p - seat_home(i);
+            d.z = d.z * 0.3;
+            float dist = llVecMag(d);
+            if (bestd < 0.0 || dist < bestd) { bestd = dist; best = i; }
+        }
+        ++i;
+    }
+    return best;
+}
+
 place_sittargets()
 {
+    if (ONEPRIM)
+    {
+        // The whole prim seats on left click, which is what carries the
+        // click point through to the landing position (measured: with
+        // the default click action, deliberate end-clicks failed to
+        // seat at all).
+        llSetClickAction(CLICK_ACTION_SIT);
+        arm_door();
+        return;
+    }
+
     integer i = 0;
     integer n = llGetListLength(SEATS);
     integer missing = 0;
@@ -344,6 +434,12 @@ place_sittargets()
 // in either engine's own state disagreed.
 set_seat_target(integer seat, vector pos, rotation rot)
 {
+    // In single-prim mode the target is the DOOR and nothing else may
+    // write it: seat 0 is bound to the prim, and letting its pose apply
+    // land here would re-aim the door at seat 0's pose - which is
+    // exactly the value an arrival must NOT inherit.
+    if (ONEPRIM) return;
+
     integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
     if (link <= 0) return;
 
@@ -494,9 +590,11 @@ seat_stop(integer seat, string anim)
     key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
     if (av == "") return;
 
-    integer link = llList2Integer(SEATS, seat * SEAT_STRIDE);
-    if (link <= 0) return;
-    if (llAvatarOnLinkSitTarget(link) != av) return;   // already gone
+    // Stop only somebody who is STILL SEATED, or the request dialog pops
+    // for a standing avatar. Checked via the agent links rather than
+    // llAvatarOnLinkSitTarget, which reports one avatar per prim and so
+    // lies about arrivals 2+ in single-prim mode.
+    if (av_link(av) == 0) return;      // already gone
 
     llRequestPermissions(av, PERMISSION_TRIGGER_ANIMATION);
     if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
@@ -544,8 +642,70 @@ seat_freed(integer seat, key was)
 // One pass over every seat prim, diffed against the occupancy column.
 // Replaces the per-instance changed() handlers of v1 and the messages
 // that kept their SITTERS lists in step.
+// Single-prim discovery: diff the agent links against the table. STILL
+// SELF-HEALING, which was the stated worry about leaving the per-prim
+// lookup: the agent links are themselves re-derivable truth, walked in
+// full on every scan, so a missed CHANGED_LINK is repaired by the next
+// one rather than desynchronising the table forever. What is genuinely
+// new is only the seat CHOICE for an arrival, which reads the landing
+// position SL computed from the click.
+rescan_oneprim()
+{
+    // Departures first, so a stand-and-resit in one event frees the seat
+    // before the arrival pass tries to pick one.
+    integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
+    integer s = 0;
+    while (s < seats)
+    {
+        string occ = llList2String(SEATS, s * SEAT_STRIDE + 1);
+        if (occ != "")
+        {
+            if (av_link((key)occ) == 0) seat_freed(s, (key)occ);
+        }
+        ++s;
+    }
+
+    // Arrivals: any agent link the table does not know yet.
+    integer n = llGetNumberOfPrims();
+    integer l = 2;
+    while (l <= n)
+    {
+        key av = llGetLinkKey(l);
+        if (llGetAgentSize(av) != ZERO_VECTOR)
+        {
+            if (seat_of_avatar(av) == -1)
+            {
+                vector p = llList2Vector(
+                    llGetLinkPrimitiveParams(l, [PRIM_POS_LOCAL]), 0);
+                integer pick = pick_seat(p);
+                if (pick == -1)
+                {
+                    // Every seat taken. v1 cannot get here - the sim
+                    // refuses the sit when all targets are occupied - so
+                    // there is no behaviour to copy, and leaving them
+                    // seated but unanimated on top of somebody would be
+                    // worse than the eject.
+                    Out(0, "no free seat for " + llKey2Name(av) + ", unsitting.");
+                    llUnSit(av);
+                }
+                else
+                {
+                    Out(2, "landed at " + (string)p + " -> seat "
+                        + (string)pick);
+                    seat_taken(regender(pick, av), av);
+                }
+                // Consumed by this arrival either way.
+                arm_door();
+            }
+        }
+        ++l;
+    }
+}
+
 rescan_occupancy()
 {
+    if (ONEPRIM) { rescan_oneprim(); return; }
+
     integer i = 0;
     integer n = llGetListLength(SEATS);
     integer seat = 0;
@@ -605,6 +765,13 @@ swap_seats(integer a, integer b)
 boot_up()
 {
     load_from_lsd();
+    // Object prim count, so seated avatars do not flip the mode off:
+    // llGetNumberOfPrims counts them and would read 3 with two sitters.
+    ONEPRIM = FALSE;
+    if (llGetObjectPrimCount(llGetKey()) == 1)
+    {
+        if (llGetListLength(SEATS) / SEAT_STRIDE > 1) ONEPRIM = TRUE;
+    }
     resolve_bindings();
     place_sittargets();
     llPassTouches(MTYPE > 2);
