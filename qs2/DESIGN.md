@@ -1336,3 +1336,35 @@ wrong; it was drawn from three samples that happened to be at similar sizes.
 
 Not yet measured: whether x saturates near the ends, and how it behaves on a
 prim that is long on Y rather than X.
+
+### The real limit: how far out arrival 2 may click
+
+Reported from in-world 2026-08-13: **clicking at the outer end fails to seat
+arrival 2; clicking near the middle succeeds.** Same prim, same script, same
+moment.
+
+That explains every failure in this investigation at once, and the cause was
+the test instructions rather than the code. `sitpick.lsl` came with "right-click
+the LEFT or RIGHT end", `oneprim.lsl` and `primsize.lsl` did not. The runs
+carrying that instruction are exactly the runs that failed, including the
+hand-built 2 m prim that sent this chasing prim geometry.
+
+It fits the measurements. Every successful arrival-2 x, across all sizes:
+
+```
+0.066   0.105   0.1235   0.34   0.34   0.424   -0.591
+```
+
+None above roughly 0.6, while the outer end of a 2 m prim is x = 1.0. So there
+appears to be a maximum offset beyond which SL will not seat an additional
+avatar at all.
+
+This is a worse constraint than prim size would have been, because it does not
+limit how large the furniture may be — it limits **how far out a seat can still
+be clicked into**. A seat beyond the reach can still be USED, since occupants
+are moved by link afterwards; it just cannot be chosen by clicking near it.
+
+**Open, and the number that decides how much this hurts:** whether the limit is
+absolute or scales with the prim. Measure by clicking progressively further out
+at 2.0 m and again at 1.0 m and recording the largest x still admitted. A failed
+sit fires no event, so only a human can observe it.
