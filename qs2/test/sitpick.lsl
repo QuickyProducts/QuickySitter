@@ -48,6 +48,62 @@ float Z_WEIGHT = 0.3;
 
 list KNOWN;             // avatar keys already accounted for
 
+// ---------------------------------------------------------------- camera
+//
+// SECOND QUESTION, folded in so the rig only has to be built once.
+//
+// Per-seat camera is the other thing one prim appears to cost:
+// llSetLinkCamera and llSetCameraEyeOffset are prim-bound, so with a
+// single prim every sitter would share one camera.
+//
+// llSetCameraParams is NOT prim-bound, it is avatar-bound, and it needs
+// PERMISSION_CONTROL_CAMERA. For an avatar already sitting on the object
+// that permission is granted WITHOUT a dialog - the same property we
+// measured for PERMISSION_TRIGGER_ANIMATION (DESIGN.md §3), which is what
+// lets one script drive every seat. If that holds here too, the same
+// cycling works for cameras.
+//
+// So the binary question first: does the grant come back synchronously,
+// per avatar, for each of two sitters in turn? If no, this route is dead
+// and the parameter details do not matter. If yes, the details become an
+// ordinary implementation problem.
+//
+// WHAT THIS DELIBERATELY DOES NOT ANSWER. CAMERA_POSITION and
+// CAMERA_FOCUS are REGION coordinates, not object-relative, so a moving
+// or rotating piece of furniture would need them re-driven as it moves -
+// work the sim does for free with llSetLinkCamera today. Whether an
+// object-relative mode exists that avoids this is the next question, not
+// this one.
+//
+// Each seat gets a visibly different distance, so the two testers can
+// simply say which of them is close and which is far.
+list CAM_DISTANCE = [1.5, 3.0, 6.0];
+
+camera_for(key av, integer seat)
+{
+    llRequestPermissions(av, PERMISSION_CONTROL_CAMERA);
+    if (!(llGetPermissions() & PERMISSION_CONTROL_CAMERA))
+    {
+        llOwnerSay("   CAMERA: permission NOT granted synchronously for "
+            + llKey2Name(av) + " - this route is dead.");
+        return;
+    }
+    if (llGetPermissionsKey() != av)
+    {
+        llOwnerSay("   CAMERA: permission landed on the wrong avatar.");
+        return;
+    }
+    llSetCameraParams([
+        CAMERA_ACTIVE, 1,
+        CAMERA_DISTANCE, llList2Float(CAM_DISTANCE, seat),
+        CAMERA_BEHINDNESS_ANGLE, 0.0,
+        CAMERA_PITCH, 10.0
+    ]);
+    llOwnerSay("   CAMERA: granted, distance "
+        + (string)llList2Float(CAM_DISTANCE, seat)
+        + " for " + llKey2Name(av));
+}
+
 integer nearest_seat(vector p)
 {
     integer best = 0;
@@ -112,6 +168,12 @@ default
         if (llGetListLength(fresh) == 0)
         {
             // Somebody left; resync so a re-sit reads as fresh again.
+            // Their camera is NOT cleared here: the permission is
+            // single-valued and by now belongs to whoever was served
+            // last, so there is nothing to clear it through. Standing up
+            // should revoke it by itself, the same way it revokes
+            // TRIGGER_ANIMATION - and whether it actually does is worth
+            // noticing during the run. Escape resets the camera if not.
             KNOWN = [];
             i = 0;
             while (i < llGetListLength(a))
@@ -139,6 +201,7 @@ default
             llSetLinkPrimitiveParamsFast(l,
                 [PRIM_POS_LOCAL, llList2Vector(SEATS, pick),
                  PRIM_ROT_LOCAL, llEuler2Rot(<0.0, 0.0, 0.002> * DEG_TO_RAD)]);
+            camera_for(llGetLinkKey(l), pick);
             ++i;
         }
     }
