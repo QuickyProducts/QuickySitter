@@ -1,4 +1,4 @@
-string version = "0.16";
+string version = "0.17";
 
 /*
  * [QS]core - QuickySitter v2 pose engine
@@ -595,13 +595,26 @@ start_entry(integer ch, integer i)
     string etype = llList2String(e, 1);
     string label = bare_name(name);
 
-    string payload = row_for(ch, e);
+    // AN EMPTY CHANNEL ONLY RECORDS. v1's empty seats follow a play by
+    // moving ANIM_INDEX/CURRENT and nothing else - sitA's broadcast and
+    // animation paths are gated on a present sitter (llGetAgentSize in
+    // apply_current_anim). Playing them fully, which this did via the
+    // 90000 P-loop, emitted QSC_APPLY rows nobody occupies, 90055 for
+    // slots hudproxy maps to nothing, and 90045 with an EMPTY id - and
+    // hudproxy builds sitter entries and slot mappings out of exactly
+    // those fields, so the ghosts polluted its tables with empty keys.
     llLinksetDataWrite("qs:cur:" + (string)ch, label);
 
     // Strided 5: seat, rawName, anim, rawPos, rawRot. See the AV_ANIMINFO
     // block below for why this is not derived from `payload`.
-    list infos = [ch, name, llList2String(e, 2),
-                  llList2String(e, 3), llList2String(e, 4)];
+    string payload = "";
+    list infos;
+    if (llLinksetDataRead("qs:occ:" + (string)ch) != "")
+    {
+        payload = row_for(ch, e);
+        infos = [ch, name, llList2String(e, 2),
+                 llList2String(e, 3), llList2String(e, 4)];
+    }
 
     if (etype == "S")
     {
@@ -629,7 +642,8 @@ start_entry(integer ch, integer i)
                     if (llLinksetDataRead("qs:occ:" + (string)c) != "")
                     {
                         list e2 = entry(c, at);
-                        payload += "|" + row_for(c, e2);
+                        if (payload != "") payload += "|";
+                        payload += row_for(c, e2);
                         infos += [c, llList2String(e2, 0), llList2String(e2, 2),
                                   llList2String(e2, 3), llList2String(e2, 4)];
                     }
@@ -637,6 +651,13 @@ start_entry(integer ch, integer i)
             }
             ++c;
         }
+    }
+
+    if (llGetListLength(infos) == 0)
+    {
+        // Nothing occupied resolved the name: pure recording, done.
+        Out(2, "recorded ch" + (string)ch + " " + label + " (nobody seated)");
+        return;
     }
 
     llMessageLinked(LINK_SET, QSC_APPLY, payload, "");
@@ -783,6 +804,37 @@ default
         // storage report.
         llLinksetDataWrite("qs:offset:alive", "1");
         update_ram_tier_count();
+
+        // ONE-SHOT REPAIR. Earlier builds let the HUD save offsets under
+        // the literal JSON_INVALID character as the pose name (its pose
+        // cache was empty; see the 90045 history). Those entries are
+        // unreachable garbage that still WINS inside hudproxy whenever
+        // its cache is empty again, teleporting the sitter to a stale
+        // value. No legitimate pose can carry that name, so deleting by
+        // suffix is safe. Collect first, delete after - deleting while
+        // llLinksetDataFindKeys pages shifts the offsets.
+        list gk;
+        integer goff = 0;
+        do
+        {
+            list page = llLinksetDataFindKeys("^QSO:", goff, 20);
+            integer gn = llGetListLength(page);
+            integer gi;
+            for (gi = 0; gi < gn; gi++)
+            {
+                string k = llList2String(page, gi);
+                if (llGetSubString(k, -1, -1) == JSON_INVALID) gk += [k];
+            }
+            if (gn < 20) jump gdone;
+            goff += 20;
+        } while (TRUE);
+        @gdone;
+        integer gm = llGetListLength(gk);
+        integer gj;
+        for (gj = 0; gj < gm; gj++)
+            llLinksetDataDelete(llList2String(gk, gj));
+        if (gm) Out(0, "purged " + (string)gm
+            + " offset entries saved under an invalid pose name.");
         Out(1, "ready, seats=" + (string)SEATS
             + " mem=" + (string)llGetFreeMemory());
     }
