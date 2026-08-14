@@ -1,4 +1,4 @@
-string version = "0.22";
+string version = "0.23";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -79,7 +79,19 @@ integer AV_SITTERSUPD = 90070;   // "sitter list updated", msg = slot, id = avat
 list SEATS;
 integer SEAT_STRIDE = 5;
 
-// Per-seat gender from the notecard.s SITTER directives, cfg field 16:
+// v2 FORK ONLY, stage 2 (DESIGN.md section 11). Strided 3: name,
+// firstChannel, channelCount, read from qs:item:<idx>. boot writes one
+// row even for a notecard with no ITEM line (unnamed, owning every
+// channel), so the two shapes need no special case here.
+list ITEMS;
+integer ITEM_STRIDE = 3;
+
+// Which item a seat belongs to, one entry per seat, derived from ITEMS.
+// Kept flat beside SEATS rather than widening it: only the scoping paths
+// ask, and every SEATS row is touched on the hot path.
+list SEAT_ITEM;
+
+// Per-seat gender from the notecard's SITTER directives, cfg field 16:
 // 1 male, 0 female, -1 unassigned. Empty when the notecard declares
 // none, and then regender is a no-op.
 list GENDERS;
@@ -171,6 +183,22 @@ load_from_lsd()
     SET     = (integer)llList2String(cfg, 2);
     GENDERS = llCSV2List(llList2String(cfg, 16));
 
+    // Item table, then the seat->item column derived from it.
+    ITEMS = [];
+    SEAT_ITEM = [];
+    integer it = 0;
+    string irow = llLinksetDataRead("qs:item:0");
+    while (irow != "")
+    {
+        list f = llParseStringKeepNulls(irow, ["|"], []);
+        ITEMS += [llList2String(f, 0), (integer)llList2String(f, 1),
+                  (integer)llList2String(f, 2)];
+        integer k = 0;
+        while (k < (integer)llList2String(f, 2)) { SEAT_ITEM += it; ++k; }
+        ++it;
+        irow = llLinksetDataRead("qs:item:" + (string)it);
+    }
+
     // Count seats by walking qs:sitter:<ch> until it runs out.
     integer ch = 0;
     while (llLinksetDataRead("qs:sitter:" + (string)ch) != "")
@@ -212,6 +240,43 @@ integer is_integer(string data)
     return (string)((integer)("1" + data)) == "1" + data;
 }
 
+// v2 FORK ONLY, stage 2 (DESIGN.md §11). THE NAME IS THE ADDRESS: a prim
+// described "#Sofa-1" is seat 1 OF THE SOFA. The number before the "-"
+// keeps its legacy meaning when it IS a number, so every existing
+// #SET-slot build parses exactly as before.
+//
+// Returns the GLOBAL channel for (itemName, localSlot), or -1 when the
+// name matches no item - which is a warning, never a silent free prim.
+// A description naming a misspelled item must not quietly become an
+// unrelated seat.
+// Do two seats belong to the same item? TRUE when the notecard declares
+// no items, so every scoped path degrades to the single-furniture
+// behaviour it had before stage 2. Safe for a == b, which matters
+// because LSL has no short-circuit and callers pair it with an
+// inequality test in the same condition.
+integer same_item(integer a, integer b)
+{
+    if (llGetListLength(SEAT_ITEM) == 0) return TRUE;
+    return llList2Integer(SEAT_ITEM, a) == llList2Integer(SEAT_ITEM, b);
+}
+
+integer channel_of(string itemName, integer localSlot)
+{
+    integer idx = 0;
+    while (idx < llGetListLength(ITEMS) / ITEM_STRIDE)
+    {
+        if (llList2String(ITEMS, idx * ITEM_STRIDE) == itemName)
+        {
+            integer first = llList2Integer(ITEMS, idx * ITEM_STRIDE + 1);
+            integer count = llList2Integer(ITEMS, idx * ITEM_STRIDE + 2);
+            if (localSlot < 0 || localSlot >= count) return -1;
+            return first + localSlot;
+        }
+        ++idx;
+    }
+    return -1;
+}
+
 resolve_bindings()
 {
     integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
@@ -240,7 +305,30 @@ resolve_bindings()
         if (desc != "-1")
         {
             list data = llParseStringKeepNulls(desc, ["-"], []);
+            // NAME BEFORE NUMBER. Checked first because the legacy branch
+            // below requires BOTH fields to be integers, so a named item
+            // can never be mistaken for one - and an item legitimately
+            // named "2" would still parse as legacy, which is why the
+            // boot-time warning below matters rather than a silent miss.
             if (llGetListLength(data) == 2
+                && !is_integer(llList2String(data, 0))
+                && is_integer(llList2String(data, 1)))
+            {
+                integer gch = channel_of(llList2String(data, 0),
+                    (integer)llList2String(data, 1));
+                if (gch == -1)
+                {
+                    Out(0, "prim " + (string)i + " is described \""
+                        + desc + "\" but no item is named \""
+                        + llList2String(data, 0)
+                        + "\" - prim left unassigned.");
+                }
+                else if (gch < seats)
+                {
+                    slots = llListReplaceList(slots, [i], gch, gch);
+                }
+            }
+            else if (llGetListLength(data) == 2
                 && is_integer(llList2String(data, 0))
                 && is_integer(llList2String(data, 1)))
             {
@@ -316,7 +404,13 @@ integer regender(integer seat, key av)
     integer i = 0;
     while (i < seats)
     {
-        if (i != seat)
+        // WITHIN THE ITEM ONLY (stage 2). Without this scope a male
+        // arriving on the sofa's female seat could be "helpfully" moved
+        // onto the armchair across the room, because the armchair's seat
+        // also wants a male and is also free. same_item is true for every
+        // pair when the notecard declares no items, so single-furniture
+        // behaviour is unchanged.
+        if (i != seat && same_item(i, seat))
         {
             // Only ever trade with a seat that is FREE, so an occupant is
             // never displaced to make room for somebody arriving later.
