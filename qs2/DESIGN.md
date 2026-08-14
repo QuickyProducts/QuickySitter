@@ -1430,3 +1430,113 @@ Two things would need deciding:
   only measurement is that a lone prim without one cannot be sat on at all.
   Whether a linkset falls back to the root's target is not known, and after this
   investigation it will not be guessed.
+
+---
+
+## 11. Stage 2: the ITEM token, as an ADDITION to AVpos
+
+Decided 2026-08-14. This supersedes the ITEM described in §4: that one belonged
+to the cancelled format change and grouped a NEW notecard syntax. This one is a
+single additive token on the EXISTING AVpos format, in line with the decision
+that cancelled §4 - old notecards stay valid unchanged and mean "one implicit
+item".
+
+### The insight: the mapping already exists
+
+v1 already supports several pieces of furniture in one linkset, through the SET
+mechanism: a SET number in the notecard, `#<SET>-<slot>` in the prim
+description, the SET field in 90045. What makes it expensive in v1 is that each
+SET needs its OWN full script set. ITEM is that mechanism served by the one
+singleton set: **a named SET, all items out of one notecard.**
+
+### Notecard
+
+```
+ITEM Sofa                <- item index 0
+SITTER 0|Girl|F          <- global channel 0, local slot 0
+SITTER 1|Guy|M           <- global channel 1, local slot 1
+...poses, menus...
+
+ITEM Sessel              <- item index 1
+SITTER 0|Solo            <- global channel 2, local slot 0
+...
+```
+
+`ITEM <name>` opens a group; every SITTER until the next ITEM belongs to it.
+SITTER numbering restarts per item (it is the local slot). A notecard with no
+ITEM line is one item, index 0, unnamed - byte-identical behaviour to today.
+
+### Prim addressing: the name is the address
+
+The prim description carries the ITEM NAME, and the number disappears from the
+builder's world entirely:
+
+```
+#Sofa-0     seat 0 of the Sofa
+#Sofa-1
+#Sessel-0
+```
+
+Parsing is a two-way split on the field before the `-`: an integer means the
+legacy `#SET-slot` reading (existing furniture, v1 muscle memory), anything
+else is an item name from the notecard. The index survives only internally and
+on the wire (90045 field 3), where plugins expect a number anyway.
+
+The name pays off where humans read: the prim description becomes
+self-documenting (`#Sofa-1` says what it is, `#0-1` says nothing), the menu
+title can show `[Sofa]`, the seat picker and DUMP output get real names.
+
+**A name that matches no item is a boot-time WARNING, never a silent free
+prim.** `#Soffa-0` must produce "prim description names unknown item 'Soffa'"
+in the self-check. The alternative - the prim quietly falling into the free
+pool - is exactly the silent-failure class this project spent a week digging
+out of.
+
+### Storage and scoping
+
+LSD gains one table and one per-channel field:
+
+```
+qs:item:<idx>   "<name>|<firstChannel>|<channelCount>"
+```
+
+(or the item index packed into qs:sitter:<ch>; decided at build time, whichever
+keeps boot's writer simpler). Channels stay globally numbered exactly as today,
+so every existing qs:p / qs:occ / qs:cur key and every QSO offset key is
+untouched.
+
+What re-scopes from "the whole linkset" to "within the item":
+
+| mechanism | note |
+|---|---|
+| SYNC broadcast (start_entry's S branch) | couples only the item's channels |
+| seat pick, gender swap, [SWAP] | within the item |
+| menu title, roster (90045 field 4) | the item's channels |
+| 90045 field 3 | the item index instead of constant -1 |
+
+That last row is the compatibility story: **to a plugin, a linkset with two
+items looks exactly like two v1 SETs**, a shape stock AVsitter and the HUD
+chain already understand. No new wire contract.
+
+### Open points, to be settled while building
+
+1. **Unpinned prims belong to item 0**, preserving today's implicit behaviour.
+   From the second item on, pinning is effectively mandatory; the self-check
+   should say so when it sees >=2 items and unpinned sit-capable prims.
+2. **`#<name>` without a slot** marks a prim as "belongs to this item, slots
+   assigned automatically" - the bridge to single-prim items (DESIGN §10), one
+   prim carrying all of an item's seats.
+3. **Global cfg fields stay global in the first pass** (BRAND, CUSTOM_TEXT,
+   AMENU, DFLT). Per-item overrides are a later, additive step.
+4. **hudproxy's six-sitter cap is per linkset, not per item.** Two four-seat
+   items exceed it; the HUD kit has to decide whether to raise or scope it.
+5. **SPOT (pose-by-clicked-cushion) docks here later**: it is the same
+   resolution chain one level finer (item -> seat -> spot), deferred by
+   decision 2026-08-14 pending the cross-axis landing measurement.
+
+### Touch points
+
+boot's parser (the fork in qs2) learns the ITEM line and the name->index table;
+seat's resolve_bindings learns the name reading and the item column in SEATS;
+core's S branch, regender and swap learn the channel-range scope; menu learns
+the item title and scoped seat pick. The wire does not change.
