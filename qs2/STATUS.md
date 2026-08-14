@@ -326,3 +326,34 @@ back to their solo pose in-world - the plugin layer reacts to the departure and
 broadcasts the solo over 90000, and core now answers it. Nothing was built for
 it; answering one wire restored the whole behaviour family. Do not implement a
 core-side revert on top, it would fire twice.
+
+## The offset saga, resolved 2026-08-14
+
+Personal offsets now save, apply on sit, and survive re-sits, verified
+in-world. It took four distinct defects stacked on top of each other, which is
+why every single fix "changed nothing" until the last one landed:
+
+1. **core+offset merge shipped while the HUD saved under a garbage key.**
+   hudproxy's pose cache ("p" in its sitter JSON) was empty, so its arrow path
+   saved offsets under the literal JSON_INVALID character. Its own lookups used
+   the same wrong key, which made the HUD internally consistent and the bug
+   invisible from its side.
+2. **v2's 90045 was wrong in every field hudproxy builds its tables from**:
+   empty sequence field, non-slot-indexed roster, one message instead of one
+   per participating seat. Fixed to be field-faithful (core 0.16).
+3. **Stale hudproxy session state.** hudproxy was never reset across weeks of
+   engine swapping and carried sitter entries and slot mappings from dead
+   tests. An in-world script reset of the HUD scripts is part of any engine
+   swap from now on - customers get this automatically via the installer.
+4. **Ghost plays on empty channels.** The 90000 broadcast made core play empty
+   channels in full, including 90045 with an EMPTY id, polluting hudproxy's
+   tables with empty keys. v1 gates all emission on a present sitter; core does
+   now too (0.17), and empty channels only record qs:cur.
+
+core 0.17 also purges the JSON_INVALID-named QSO entries once at state_entry -
+they were the jump targets whenever hudproxy's cache went empty again.
+
+Method note for the next person: the wiretap plus logging BOTH ends of the
+store (save key and lookup key, bracketed) is what cracked it. Five rounds of
+code reading found nothing because three parties (core, hudproxy, the attached
+HUD) each looked internally consistent.
