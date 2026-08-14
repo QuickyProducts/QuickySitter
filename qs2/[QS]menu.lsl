@@ -1,4 +1,4 @@
-string version = "0.15";
+string version = "0.16";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -479,7 +479,12 @@ string dialog_title(integer ch, key av, integer page, integer pages)
         t += "\n\nMenu for " + llKey2Name(occ);
     t += "\n\n";
 
-    string custom = llList2String(cfg, 13);
+    // boot stores CUSTOM_TEXT with newlines escaped to "\n" LITERALS,
+    // because the packed cfg uses real newlines as its field separator.
+    // v1 unescapes on read (sitB.lsl:559) and so must we, or the dialog
+    // shows backslash-n instead of a line break.
+    string custom = llDumpList2String(
+        llParseStringKeepNulls(llList2String(cfg, 13), ["\\n"], []), "\n");
     if (custom != "") t += custom + "\n";
 
     // The seat label from the notecard's SITTER directive, falling back
