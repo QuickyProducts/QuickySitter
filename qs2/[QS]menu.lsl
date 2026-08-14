@@ -1,4 +1,4 @@
-string version = "0.14";
+string version = "0.15";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -526,7 +526,6 @@ render(integer op)
         if (t == "P" || t == "S" || t == "T" || t == "B")
         {
             string lab = bare_name(llList2String(e, 0));
-            if (t == "T") lab = lab + " >";
             labels += lab;
             kinds  += "E";
             idx    += (first + i);
@@ -729,7 +728,6 @@ click(integer op, string msg)
         list e = entry(ch, at);
         string t = llList2String(e, 1);
         string lab = bare_name(llList2String(e, 0));
-        if (t == "T") lab = lab + " >";
 
         if (lab == msg)
         {
