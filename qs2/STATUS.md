@@ -357,3 +357,15 @@ Method note for the next person: the wiretap plus logging BOTH ends of the
 store (save key and lookup key, bracketed) is what cracked it. Five rounds of
 code reading found nothing because three parties (core, hudproxy, the attached
 HUD) each looked internally consistent.
+
+## Priorities as of 2026-08-14
+
+Access gating is DEFERRED by decision: nothing ships yet, so the root-security
+handoff stays on the pre-release checklist instead of the build queue. Do not
+re-flag it as the top gap until a release is actually planned.
+
+Build queue: **stage 2 (ITEM, DESIGN SS11)** is next. Behind it, unchanged:
+REFERENCE on the nudge, the menu leftovers (MTYPE/ETYPE, seat picker, swap
+dialog), and the deferred SEQUENCE/KFM/camera set. The two untested memory
+cases (brief stand-up rejoins the couple pose; full vacancy forgets) remain
+cheap to verify whenever two avatars are logged in.
