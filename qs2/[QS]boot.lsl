@@ -1,4 +1,4 @@
-string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
+string version = "0.02";   // qs2 dev scheme; 2.0x is reserved for the release
 
 /*
  * [QS]boot - QuickySitter loader
@@ -201,6 +201,13 @@ string CUSTOM_TEXT;
 list ADJUST_MENU;
 string RLVDesignations;
 list GENDERS;
+
+// v2 FORK ONLY, stage 2 (DESIGN.md �11). Parallel lists, one entry per
+// ITEM line: the name a prim description addresses it by, and the first
+// global channel it owns. The count is derived at flush time from the
+// next item.s first channel, so it needs no third list.
+list item_names;
+list item_first;
 
 // AUTOSYNC ticker. Owned here (rather than in [QS]hudproxy) because
 // hudproxy is bytecode-tight under 6-sitter stress; boot is mostly idle
@@ -529,6 +536,34 @@ flush_channel_sitter(integer ch)
 finalize_boot()
 {
     total_channels = current_channel + 1;
+
+    // v2 FORK ONLY, stage 2. qs:item:<idx> = "<name>|<firstChannel>|<count>".
+    // Always written, even for a notecard with no ITEM line: that case is
+    // one unnamed item owning every channel, which is exactly what the
+    // consumers will need to read so they can treat both shapes alike.
+    llLinksetDataDeleteFound("^qs:item:", "");
+    integer ni = llGetListLength(item_names);
+    if (ni == 0)
+    {
+        qs_lsd_write("qs:item:0", "|0|" + (string)total_channels);
+    }
+    else
+    {
+        integer ii = 0;
+        while (ii < ni)
+        {
+            integer f = llList2Integer(item_first, ii);
+            integer nxt = total_channels;
+            if (ii + 1 < ni) nxt = llList2Integer(item_first, ii + 1);
+            qs_lsd_write("qs:item:" + (string)ii,
+                llList2String(item_names, ii) + "|" + (string)f + "|"
+                + (string)(nxt - f));
+            if (boot_failed) return;
+            ++ii;
+        }
+        Out(1, "items: " + llDumpList2String(item_names, ", "));
+    }
+
     string cfg = qs_cfg_pack();
     integer ch;
     for (ch = 0; ch < total_channels; ++ch)
@@ -655,6 +690,9 @@ self_check_report()
 start_boot()
 {
     current_channel = -1;
+    // v2 FORK ONLY, stage 2: a re-parse must not accumulate items.
+    item_names = [];
+    item_first = [];
     boot_done = FALSE;
     boot_failed = FALSE;
     reused_variable = 0;
@@ -1399,6 +1437,34 @@ default
         string part1;
         if (llGetListLength(parts) > 1)
             part1 = llStringTrim(llDumpList2String(llList2List(parts, 1, 99999), SEP), STRING_TRIM);
+
+        // v2 FORK ONLY, stage 2 (DESIGN.md §11). Opens a named group; every
+        // SITTER until the next ITEM belongs to it. SITTER numbering is
+        // LOCAL to the item, while channels stay globally numbered, so
+        // every qs:p / qs:occ / qs:cur / QSO key keeps its current shape.
+        //
+        // A notecard without an ITEM line is one unnamed item, index 0 -
+        // byte-identical to before, which is the whole point of doing this
+        // additively rather than as the format change §4 described.
+        //
+        // NOTHING CONSUMES THIS YET. It is parsed and stored first, on
+        // purpose: the table can be inspected in-world and proven correct
+        // against a real notecard before seat, core and menu start scoping
+        // themselves by it.
+        if (command == "ITEM")
+        {
+            if (part0 == "")
+            {
+                Out(0, "ITEM without a name - ignored;"
+                    + " prims cannot address a nameless item.");
+                return;
+            }
+            // firstChannel is where the NEXT SITTER lands: current_channel
+            // is the last one seen, -1 before any.
+            item_first += (current_channel + 1);
+            item_names += part0;
+            return;
+        }
 
         if (command == "SITTER")
         {
