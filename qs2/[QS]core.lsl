@@ -1,3 +1,5 @@
+string version = "0.16";
+
 /*
  * [QS]core - QuickySitter v2 pose engine
  *
@@ -52,7 +54,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.15";
 
 integer QSS_SEATED  = 90413;
 integer QSS_VACATED = 90411;
@@ -596,7 +597,6 @@ start_entry(integer ch, integer i)
 
     string payload = row_for(ch, e);
     llLinksetDataWrite("qs:cur:" + (string)ch, label);
-    string sitters = llLinksetDataRead("qs:occ:" + (string)ch);
 
     // Strided 5: seat, rawName, anim, rawPos, rawRot. See the AV_ANIMINFO
     // block below for why this is not derived from `payload`.
@@ -632,7 +632,6 @@ start_entry(integer ch, integer i)
                         payload += "|" + row_for(c, e2);
                         infos += [c, llList2String(e2, 0), llList2String(e2, 2),
                                   llList2String(e2, 3), llList2String(e2, 4)];
-                        sitters += "@" + llLinksetDataRead("qs:occ:" + (string)c);
                     }
                 }
             }
@@ -673,6 +672,23 @@ start_entry(integer ch, integer i)
     // Field order and the per-seat str are v1's (sitB.lsl:223). The two
     // trailing fields are broadcast and speed_index, neither of which v2
     // drives yet, and neither receiver reads them.
+    // The 90045 roster is v1's SITTERS list: SLOT-INDEXED, "@"-joined,
+    // empty slots as empty fields, so slot 1's lone occupant reads
+    // "@<uuid>" with a leading separator. hudproxy carves its sitter
+    // table out of this shape; the previous "clicked occupant first"
+    // composite scrambled the slots depending on which seat was clicked.
+    string roster = "";
+    integer rc = 0;
+    while (rc < SEATS)
+    {
+        if (rc) roster += "@";
+        roster += llLinksetDataRead("qs:occ:" + (string)rc);
+        ++rc;
+    }
+
+    integer isSync = 0;
+    if (etype == "S") isSync = 1;
+
     integer r = 0;
     integer rows = llGetListLength(infos);
     while (r < rows)
@@ -681,15 +697,22 @@ start_entry(integer ch, integer i)
             llDumpList2String([llList2String(infos, r + 1),
                 llList2String(infos, r + 2), llList2String(infos, r + 3),
                 llList2String(infos, r + 4), 0, 0], "|"));
+
+        // ONE 90045 PER PARTICIPATING SEAT, exactly as v1's independent
+        // sitAs each broadcast their own (sitA.lsl:571), and with the
+        // SEQUENCE field populated. It was sent once, for the clicked
+        // channel only, with an empty field 2 - and hudproxy never got
+        // slot-correct data for the coupled partner, which left its
+        // sitter entry without a pose and made the HUD save offsets
+        // under the literal JSON_INVALID character.
+        llMessageLinked(LINK_SET, AV_POSEPLAYED,
+            llDumpList2String([llList2String(infos, r),
+                bare_name(llList2String(infos, r + 1)),
+                llList2String(infos, r + 2),
+                SET, roster, "", isSync], "|"),
+            (key)llLinksetDataRead("qs:occ:" + llList2String(infos, r)));
         r += 5;
     }
-
-    // Stock pose-played broadcast, field order from sitA.lsl:571.
-    integer isSync = 0;
-    if (etype == "S") isSync = 1;
-    llMessageLinked(LINK_SET, AV_POSEPLAYED,
-        llDumpList2String([ch, label, "", SET, sitters, 0, isSync], "|"),
-        (key)llLinksetDataRead("qs:occ:" + (string)ch));
 
     Out(2, "play ch" + (string)ch + " " + label + " type=" + etype);
 }

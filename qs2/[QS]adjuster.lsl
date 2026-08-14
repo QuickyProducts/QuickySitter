@@ -1,3 +1,5 @@
+string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
+
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -18,7 +20,6 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 

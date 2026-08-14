@@ -1,3 +1,5 @@
+string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
+
 /*
  * [QS]boot - QuickySitter loader
  *
@@ -40,7 +42,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.01";   // qs2 dev scheme; 2.0x is reserved for the release
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):

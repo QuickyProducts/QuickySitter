@@ -1,3 +1,5 @@
+string version = "0.14";
+
 /*
  * [QS]menu - QuickySitter v2 dialogs
  *
@@ -51,7 +53,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.14";
 
 integer QSS_TOUCH     = 90412;
 integer QSS_SEATED    = 90413;   // seat -> here: somebody sat down

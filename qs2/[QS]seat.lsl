@@ -1,3 +1,5 @@
+string version = "0.22";
+
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
  *
@@ -45,7 +47,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "0.22";
 
 integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
