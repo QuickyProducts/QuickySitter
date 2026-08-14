@@ -1,4 +1,4 @@
-string version = "0.02";   // qs2 dev scheme; 2.0x is reserved for the release
+string version = "0.03";   // qs2 dev scheme; 2.0x is reserved for the release
 
 /*
  * [QS]boot - QuickySitter loader
@@ -202,7 +202,7 @@ list ADJUST_MENU;
 string RLVDesignations;
 list GENDERS;
 
-// v2 FORK ONLY, stage 2 (DESIGN.md §11). Parallel lists, one entry per
+// v2 FORK ONLY, stage 2 (DESIGN.md ï¿½11). Parallel lists, one entry per
 // ITEM line: the name a prim description addresses it by, and the first
 // global channel it owns. The count is derived at flush time from the
 // next item.s first channel, so it needs no third list.
@@ -1468,12 +1468,27 @@ default
 
         if (command == "SITTER")
         {
+            // v2 FORK ONLY, stage 2: the number on a SITTER line is the
+            // LOCAL slot within the current item, and the global channel
+            // is that plus the item's first channel. Without an ITEM line
+            // the offset is zero and this is v1's arithmetic exactly.
+            //
+            // Local numbering is not cosmetic: the prim description
+            // addresses seats as "#Sofa-0", "#Sofa-1", so the notecard has
+            // to count the same way or the two would disagree about which
+            // seat is which.
             integer s_ch = (integer)part0;
+            integer nit = llGetListLength(item_first);
+            if (nit) s_ch += llList2Integer(item_first, nit - 1);
+
             // Flush the previous channel's sitter row before resetting
             // per-channel locals. qs:cfg/qs:meta wait until EOF â€” GENDERS
             // is still accumulating across the rest of the notecard.
             if (current_channel >= 0)
                 flush_channel_sitter(current_channel);
+            // GLOBAL channel 0, not the local slot: every item has a
+            // slot 0, and resetting GENDERS at each of them would drop
+            // the gender of every seat parsed so far.
             if (s_ch == 0)
                 GENDERS = [];
             integer g = -1;
