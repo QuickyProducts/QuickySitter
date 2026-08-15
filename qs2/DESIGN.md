@@ -1548,6 +1548,12 @@ and face animations. Mechanically they are ONE feature: while pose X plays on
 sitter S, additionally play animation set Y. v2 integrates that as a notecard
 line instead of a plugin script.
 
+The saving is per-furniture script count, on top of the sitter
+consolidation: those plugins ship n hand scripts + n face scripts + one
+controller = 2n+1 (a two-seater: 5 scripts, 320 KB). With OVERLAY the same
+furniture runs the feature at zero extra scripts - a two-seater lands on 4
+scripts total against 13 before (8 sitter + 5 plugin).
+
 ### Syntax
 
     OVERLAY <posename>|<anim>[|<anim>...]
