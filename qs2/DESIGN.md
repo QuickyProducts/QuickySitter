@@ -1540,3 +1540,45 @@ boot's parser (the fork in qs2) learns the ITEM line and the name->index table;
 seat's resolve_bindings learns the name reading and the item column in SEATS;
 core's S branch, regender and swap learn the channel-range scope; menu learns
 the item title and scoped seat pick. The wire does not change.
+
+## 12. OVERLAY: extra animations riding on a pose
+
+Third-party plugins exist for hand poses (grip anims so held props sit right)
+and face animations. Mechanically they are ONE feature: while pose X plays on
+sitter S, additionally play animation set Y. v2 integrates that as a notecard
+line instead of a plugin script.
+
+### Syntax
+
+    OVERLAY <posename>|<anim>[|<anim>...]
+
+Inside a SITTER block, AFTER the pose's own line - the same ordering rule as
+`{posename}` splices, and for the same reason: the lookup is against the
+entries seeded so far. The pose name matches bare or `P:`-prefixed, exactly
+like the splice lookup. Stock AVsitter ignores the unknown keyword, so cards
+stay portable in the read direction.
+
+### Storage and flow
+
+    qs:ov:<ch>:<i>    SEP-joined anim list, keyed by the ENTRY INDEX
+
+Written by boot at seed time, only for entries that declare overlays: a card
+without OVERLAY lines costs nothing anywhere. core appends the set as field 5
+of the QSC_APPLY row (row_for). seat starts the new set with the same
+per-avatar permission it uses for the pose anim, and retires whatever fell
+out of the previous set after the shared overlap sleep - an anim present in
+both sets is never stopped, so it cannot flicker.
+
+SYNC is covered without any extra mechanism: start_entry emits one row per
+participating seat, each from that seat's OWN channel entry, so each
+participant gets their own overlays - the hand-pose plugin's per-sitter
+couple lines map 1:1.
+
+### Deliberately not built
+
+- The face plugin's numeric third field (`ANIM name|B1|3`) - semantics
+  unverified (likely a re-trigger interval for non-looping face anims).
+  Measure the plugin in-world before deciding; a repeat would need a timer
+  in seat, gated on an active repeating overlay.
+- Alias tables (`face = B1 | BJ1`): the creator writes anim names directly.
+  Revisit only if a real card repeats one anim across dozens of lines.

@@ -1,4 +1,4 @@
-string version = "0.30";
+string version = "0.31";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -80,6 +80,13 @@ integer AV_SITTERSUPD = 90070;   // "sitter list updated", msg = slot, id = avat
 list SEATS;
 integer SEAT_STRIDE = 5;
 
+// OVERLAY animations currently running per seat (DESIGN.md §12), one
+// SEP-joined string per seat, indexed by seat. A parallel list rather
+// than a sixth SEATS field because every SEATS row is touched on the
+// hot path and overlays are rare.
+list OVL;
+string SEP;                        // U+FFFD, the v1 intra-field separator
+
 // v2 FORK ONLY, stage 2 (DESIGN.md section 11). Strided 3: name,
 // firstChannel, channelCount, read from qs:item:<idx>. boot writes one
 // row even for a notecard with no ITEM line (unnamed, owning every
@@ -128,7 +135,7 @@ integer SET;                       // cfg field 2; a prim pin only counts
 integer armcount;
 
 // Animation starts whose permission grant did not come back
-// synchronously, strided 3: avatar, seat, anim. Retried from
+// synchronously, strided 4: avatar, seat, anim, isMain. Retried from
 // run_time_permissions when the grant lands. Rows for somebody who
 // stood up in the meantime die on the occupant check there.
 list PENDING;
@@ -810,6 +817,18 @@ move_occupant(integer seat, vector pos, vector rotEuler)
 
 // ------------------------------------------------------------ animation
 
+string ov_get(integer seat)
+{
+    if (seat >= llGetListLength(OVL)) return "";
+    return llList2String(OVL, seat);
+}
+
+ov_set(integer seat, string v)
+{
+    while (llGetListLength(OVL) <= seat) OVL += "";
+    OVL = llListReplaceList(OVL, [v], seat, seat);
+}
+
 // Permission is taken per call rather than held, because a script holds
 // it for exactly one avatar at a time (llGetPermissionsKey is single
 // valued). Acquiring at sit time would be pointless: the next seat
@@ -817,7 +836,15 @@ move_occupant(integer seat, vector pos, vector rotEuler)
 //
 // Losing the permission does NOT stop a running animation, which is the
 // property this whole design rests on.
-integer seat_start(integer seat, string anim)
+//
+// main says whether this is the seat's POSE animation or an overlay
+// riding on it. The started call is identical; the flag exists for the
+// PARKED path, where the drain must know whether the landed anim
+// becomes SEATS' currentAnim and retires the previous one, or is just
+// one more anim on top. Feeding an overlay through the main path there
+// overwrote currentAnim, and the next pose change then 'stopped' a
+// grip anim instead of the pose.
+integer seat_start(integer seat, string anim, integer main)
 {
     key av = (key)llList2String(SEATS, seat * SEAT_STRIDE + 1);
     if (av == "") return FALSE;
@@ -843,7 +870,7 @@ integer seat_start(integer seat, string anim)
         }
     }
     Out(1, "grant for " + llKey2Name(av) + " not synchronous - parked.");
-    PENDING += [(string)av, seat, anim];
+    PENDING += [(string)av, seat, anim, main];
     return FALSE;
 }
 
@@ -920,6 +947,10 @@ seat_freed(integer seat, key was)
     // somebody who just stood up.
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 1, seat * SEAT_STRIDE + 1);
     SEATS = llListReplaceList(SEATS, [""], seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
+    // The overlay set died with the revoke too. Left in place it would
+    // be 'stopped' on the NEXT occupant's first pose change - harmless
+    // calls, but a lie in the books.
+    ov_set(seat, "");
     llLinksetDataDelete("qs:occ:" + (string)seat);
     // qs:cur deliberately SURVIVES the stand-up. In v1 a seat's CURRENT
     // pose persists until the whole furniture empties, which is what
@@ -1165,6 +1196,7 @@ default
         // every CENSUS, so a stamp only counts while we are here to
         // re-place it.
         llLinksetDataWrite("qs:alive:seat", "1");
+        SEP = llUnescapeURL("%EF%BF%BD");
         boot_up();
     }
 
@@ -1203,22 +1235,30 @@ default
             {
                 integer seat = llList2Integer(PENDING, i + 1);
                 string anim  = llList2String(PENDING, i + 2);
+                integer main = llList2Integer(PENDING, i + 3);
                 if (llList2String(SEATS, seat * SEAT_STRIDE + 1) == (string)av)
                 {
-                    string old = llList2String(SEATS, seat * SEAT_STRIDE + 2);
                     if (anim != "") llStartAnimation(anim);
-                    SEATS = llListReplaceList(SEATS, [anim],
-                        seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
-                    // The overlap sleep is pointless here: the avatar sat
-                    // in the default pose the whole wait, so there is no
-                    // running pose to blend out of.
-                    if (old != "") { if (old != anim) llStopAnimation(old); }
+                    // ONLY a main anim owns currentAnim and retires the
+                    // previous one. An overlay landing here is just one
+                    // more anim on top; its retirement is the overlay
+                    // diff on the next QSC_APPLY.
+                    if (main)
+                    {
+                        string old = llList2String(SEATS, seat * SEAT_STRIDE + 2);
+                        SEATS = llListReplaceList(SEATS, [anim],
+                            seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
+                        // The overlap sleep is pointless here: the avatar
+                        // sat in the default pose the whole wait, so there
+                        // is no running pose to blend out of.
+                        if (old != "") { if (old != anim) llStopAnimation(old); }
+                    }
                     Out(1, "parked grant landed, seat " + (string)seat
                         + " now playing " + anim);
                 }
-                PENDING = llDeleteSubList(PENDING, i, i + 2);
+                PENDING = llDeleteSubList(PENDING, i, i + 3);
             }
-            else i += 3;
+            else i += 4;
         }
     }
 
@@ -1270,14 +1310,19 @@ default
             // managed across N independent scripts.
             //
             // Verified in-world 2026-07-29, see qs2/test/permtest.lsl.
-            // Payload rows: "<seat>=<anim>=<pos>=<rot>", "|" separated.
+            // Payload rows: "<seat>=<anim>=<pos>=<rot>[=<overlays>]",
+            // "|" separated; overlays SEP-joined (row_for in core).
+            // KeepNulls, because the fields are POSITIONAL: with the
+            // dropping parse an entry whose anim is empty shifted the
+            // position into the anim slot the moment a fifth field
+            // appeared behind it.
             list rows = llParseString2List(msg, ["|"], []);
             integer n = llGetListLength(rows);
             list touched;                      // strided 2: seat, old anim
             integer i = 0;
             while (i < n)
             {
-                list f = llParseString2List(llList2String(rows, i), ["="], []);
+                list f = llParseStringKeepNulls(llList2String(rows, i), ["="], []);
                 integer seat = (integer)llList2String(f, 0);
                 if (seat >= 0)
                 {
@@ -1297,12 +1342,46 @@ default
                         move_occupant(seat, bp, br);
                         if (anim != old)
                         {
-                            if (seat_start(seat, anim))
+                            if (seat_start(seat, anim, TRUE))
                             {
                                 SEATS = llListReplaceList(SEATS, [anim],
                                     seat * SEAT_STRIDE + 2, seat * SEAT_STRIDE + 2);
                                 touched += [seat, old];
                             }
+                        }
+
+                        // OVERLAYS (DESIGN.md §12). Start the new set
+                        // first; whatever fell out of the old one retires
+                        // after the shared sleep below, through the same
+                        // `touched` list as the pose anims - so an anim
+                        // in BOTH sets is started (a no-op on a running
+                        // loop) and never stopped, and cannot flicker.
+                        // Independent of the anim!=old gate on purpose:
+                        // two poses may share their animation and still
+                        // grip different props.
+                        string ov = llList2String(f, 4);
+                        string oldov = ov_get(seat);
+                        if (ov != oldov)
+                        {
+                            list want = llParseString2List(ov, [SEP], []);
+                            integer k = 0;
+                            integer kn = llGetListLength(want);
+                            while (k < kn)
+                            {
+                                seat_start(seat, llList2String(want, k), FALSE);
+                                ++k;
+                            }
+                            list had = llParseString2List(oldov, [SEP], []);
+                            kn = llGetListLength(had);
+                            k = 0;
+                            while (k < kn)
+                            {
+                                string oa = llList2String(had, k);
+                                if (llListFindList(want, [oa]) == -1)
+                                    touched += [seat, oa];
+                                ++k;
+                            }
+                            ov_set(seat, ov);
                         }
                     }
                 }

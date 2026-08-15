@@ -1,4 +1,4 @@
-string version = "0.20";
+string version = "0.21";
 
 /*
  * [QS]core - QuickySitter v2 pose engine
@@ -609,12 +609,22 @@ apply_camera(integer seat)
 // The label is no longer a parameter: both the animation and the
 // offset key come out of the entry itself, and for a SYNC each
 // participating seat has its OWN entry with its own raw name.
-string row_for(integer seat, list e)
+//
+// Field 5 is the pose's OVERLAY set (DESIGN.md §12), SEP-joined as boot
+// stored it, appended only when one exists so a card without overlays
+// costs nothing here either. The index is the entry index in THIS
+// seat's channel - for a SYNC that is the partner's own entry, so each
+// participant gets their own overlays, which is what makes the feature
+// sync-correct for free.
+string row_for(integer seat, list e, integer i)
 {
     list o = resolve_offset(seat, e);
-    return (string)seat + "=" + llList2String(e, 2)
+    string row = (string)seat + "=" + llList2String(e, 2)
          + "=" + (string)llList2Vector(o, 0)
          + "=" + (string)llList2Vector(o, 1);
+    string ov = llLinksetDataRead("qs:ov:" + (string)seat + ":" + (string)i);
+    if (ov != "") row += "=" + ov;
+    return row;
 }
 
 // Play entry <i> of channel <ch>, and everything it couples to.
@@ -643,7 +653,7 @@ start_entry(integer ch, integer i)
     list infos;
     if (llLinksetDataRead("qs:occ:" + (string)ch) != "")
     {
-        payload = row_for(ch, e);
+        payload = row_for(ch, e, i);
         infos = [ch, name, llList2String(e, 2),
                  llList2String(e, 3), llList2String(e, 4)];
     }
@@ -680,7 +690,7 @@ start_entry(integer ch, integer i)
                     {
                         list e2 = entry(c, at);
                         if (payload != "") payload += "|";
-                        payload += row_for(c, e2);
+                        payload += row_for(c, e2, at);
                         infos += [c, llList2String(e2, 0), llList2String(e2, 2),
                                   llList2String(e2, 3), llList2String(e2, 4)];
                     }

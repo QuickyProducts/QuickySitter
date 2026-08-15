@@ -1,4 +1,4 @@
-string version = "0.04";   // qs2 dev scheme; 2.0x is reserved for the release
+string version = "0.05";   // qs2 dev scheme; 2.0x is reserved for the release
 
 /*
  * [QS]boot - QuickySitter loader
@@ -1505,6 +1505,9 @@ default
             // Same for the page-oriented sidecar (qs:nm/qs:nt) — a re-seed with
             // fewer submenus must not leave higher-index sidecar keys behind.
             llLinksetDataDeleteFound("^qs:n[mt]:" + (string)s_ch + ":", "");
+            // And the pose overlays: a removed OVERLAY line must not keep
+            // playing off a stale key, and entry indexes shift on re-seed.
+            llLinksetDataDeleteFound("^qs:ov:" + (string)s_ch + ":", "");
             if (llGetListLength(parts) > 1)
                 SITTER_INFO = llList2List(parts, 1, 99999);
             return;
@@ -1537,6 +1540,42 @@ default
         // surface), stock-style. A leftover AUTHORING line falls
         // through as an unknown command, ignored like on stock.
         if (command == "BRAND")  { BRAND = part0; return; }
+        if (command == "OVERLAY")
+        {
+            // QS extension, v2 only (DESIGN.md §12): extra animations
+            // played ALONGSIDE a pose on this sitter - hand grips, face
+            // anims, held props. One line per pose, any number of anims:
+            //
+            //   OVERLAY <posename>|<anim>[|<anim>...]
+            //
+            // Stored as qs:ov:<ch>:<i> keyed by the ENTRY INDEX the pose
+            // seeded at, so core's start path is one LSD read and a card
+            // without OVERLAY lines costs nothing. The line must come
+            // AFTER its pose's own line, same rule as {posename} splices.
+            // Stock AVsitter ignores the unknown keyword, so cards stay
+            // portable in the read direction.
+            if (current_channel < 0)
+            {
+                Out(0, "OVERLAY before any SITTER - ignored.");
+                return;
+            }
+            if (part1 == "")
+            {
+                Out(0, "OVERLAY " + part0 + " names no animation - ignored.");
+                return;
+            }
+            integer oi = qs_seed_find(current_channel, part0);
+            if (oi == -1)
+            {
+                Out(0, "OVERLAY " + part0 + " matches no pose above it in"
+                    + " SITTER " + (string)current_channel + " - ignored.");
+                return;
+            }
+            // part1 is already SEP-joined, which is the stored shape.
+            qs_lsd_write("qs:ov:" + (string)current_channel + ":"
+                + (string)oi, part1);
+            return;
+        }
         if (command == "ONSIT")  { onSit = part0; return; }
         if (command == "ROLES")  { RLVDesignations = (string)parts; return; }
         if (command == "TEXT")
@@ -1710,7 +1749,7 @@ default
                 // the wipe (presence isn't notecard-derived; the plugins
                 // re-seed it themselves on their own state_entry).
                 llMessageLinked(LINK_SET, QS_BOOT_WIPE, "", "");
-                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|nm|nt|boot):", "");
+                llLinksetDataDeleteFound("^qs:(meta|cfg|sitter|p|nm|nt|ov|boot):", "");
                 llResetScript();
             }
             else
