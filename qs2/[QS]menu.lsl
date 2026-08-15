@@ -1,4 +1,4 @@
-string version = "0.31";
+string version = "0.32";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -636,7 +636,7 @@ adj_dialog(integer op, integer a)
             s1,     s2,          s3,
             bTL,    bTM,         bTR,
             bML,    "◎ Default", bMR,
-            toggle, bBM,         "[BACK]"]),
+            toggle, bBM,         "[POSES]"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -1003,14 +1003,23 @@ click(integer op, string msg)
         return;
     }
 
-    // The nudge dialog swallows its own clicks, including [BACK], which
-    // leaves it rather than navigating the menu tree.
+    // The nudge dialog swallows its own clicks, including its exit,
+    // which leaves the pad rather than navigating the menu tree.
+    //
+    // THE EXIT GOES TO THE TOP MENU, NOT BACK. It used to render
+    // whatever section the pad was opened from, which is [ADJUST] - and
+    // nobody wants to land in [ADJUST] after nudging. Resetting the
+    // section, page and nav stack is what makes the label true.
+    //
+    // It is also why it must not be called [BACK]: a [BACK] on a pad
+    // reads as "undo my last nudge", and every press is already saved.
     integer a = adj_of(av);
     if (a >= 0)
     {
-        if (msg == "[BACK]")
+        if (msg == "[POSES]")
         {
             adj_drop(av);
+            OPS = llListReplaceList(OPS, [-1, 0, ""], row + 4, row + 6);
             render(op);
             return;
         }
