@@ -1582,9 +1582,11 @@ couple lines map 1:1.
 
 ### Deliberately not built
 
-- The face plugin's numeric third field (`ANIM name|B1|3`) - semantics
-  unverified (likely a re-trigger interval for non-looping face anims).
-  Measure the plugin in-world before deciding; a repeat would need a timer
-  in seat, gated on an active repeating overlay.
+- A re-trigger timer. The suspicion was that face anims run out and need
+  re-firing (the plugin's numeric third field, `ANIM name|B1|3`, read like
+  an interval). Resolved 2026-08-15: these animations LOOP, so a started
+  overlay stays up until the pose changes and the field is moot for us.
+  Should a non-looping overlay anim ever turn up, this is where the timer
+  would go - in seat, gated on an active overlay, one-shot per fire.
 - Alias tables (`face = B1 | BJ1`): the creator writes anim names directly.
   Revisit only if a real card repeats one anim across dozens of lines.
