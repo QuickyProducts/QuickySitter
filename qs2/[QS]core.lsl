@@ -1,4 +1,4 @@
-string version = "0.18";
+string version = "0.19";
 
 /*
  * [QS]core - QuickySitter v2 pose engine
@@ -790,8 +790,18 @@ start_default(integer ch)
     {
         integer at = find_by_name(ch, cur);
         if (at == -1) at = find_by_name(ch, "P:" + cur);
-        if (at >= 0) { start_entry(ch, at); return; }
+        if (at >= 0)
+        {
+            // Loud on purpose: "why did I not land on the default pose"
+            // is answered entirely by whether this line appears.
+            Out(2, "seat " + (string)ch + " remembers [" + cur
+                + "] - playing that instead of the notecard default.");
+            start_entry(ch, at);
+            return;
+        }
     }
+    Out(2, "seat " + (string)ch + " has no memory, using the first"
+        + " playable entry.");
 
     integer n = (integer)llLinksetDataRead("qs:cfg:slots:" + (string)ch);
     integer i = 0;
@@ -917,18 +927,32 @@ default
             integer cend = ITEM_FIRST + ITEM_COUNT;
             while (c < cend)
             {
-                if (llLinksetDataRead("qs:occ:" + (string)c) != "") return;
+                if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+                {
+                    Out(2, "seat " + msg + " vacated, but its item still"
+                        + " has seat " + (string)c + " occupied - memory kept.");
+                    return;
+                }
                 ++c;
             }
-            if (DFLT)
+            if (!DFLT)
             {
-                c = ITEM_FIRST;
-                while (c < cend)
-                {
-                    llLinksetDataDelete("qs:cur:" + (string)c);
-                    ++c;
-                }
+                // DEFAULT 0 in the notecard means "keep the last pose".
+                // Worth saying, because it looks identical to the bug it
+                // is not: the memory is meant to survive here.
+                Out(2, "item of seat " + msg + " is empty, but DEFAULT is 0"
+                    + " - memory deliberately kept.");
+                return;
             }
+            c = ITEM_FIRST;
+            while (c < cend)
+            {
+                llLinksetDataDelete("qs:cur:" + (string)c);
+                ++c;
+            }
+            Out(2, "item of seat " + msg + " is empty - memory cleared for"
+                + " seats " + (string)ITEM_FIRST + ".."
+                + (string)(cend - 1) + ".");
             return;
         }
 
