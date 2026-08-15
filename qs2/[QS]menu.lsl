@@ -1,4 +1,4 @@
-string version = "0.32";
+string version = "0.33";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -636,7 +636,7 @@ adj_dialog(integer op, integer a)
             s1,     s2,          s3,
             bTL,    bTM,         bTR,
             bML,    "◎ Default", bMR,
-            toggle, bBM,         "[POSES]"]),
+            toggle, bBM,         "[POSE MENU]"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -1016,7 +1016,7 @@ click(integer op, string msg)
     integer a = adj_of(av);
     if (a >= 0)
     {
-        if (msg == "[POSES]")
+        if (msg == "[POSE MENU]")
         {
             adj_drop(av);
             OPS = llListReplaceList(OPS, [-1, 0, ""], row + 4, row + 6);
