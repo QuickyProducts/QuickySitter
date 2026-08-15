@@ -422,7 +422,9 @@ can stack-heap-crash the script.
 
 Immediate relief taken in 0.33: the dead QSS_SWAP handler + swap_seats
 went (nothing sent 90414 since the seat-swap became the item move), and
-the staged readings went with it.
+the staged readings went with it. Measured on the same build: 2946 free
+at ready (0.32) -> 5810 (0.33), +2.9 KB. Enough headroom for normal
+operation; the decision below stays parked but is no longer urgent.
 
 THE DECISION, parked by agreement until the next functional change to
 seat, whichever comes first:
