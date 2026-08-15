@@ -1,4 +1,4 @@
-string version = "0.25";
+string version = "0.26";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -545,8 +545,11 @@ adj_dialog(integer op, integer a)
 {
     integer row = op * OPS_STRIDE;
     integer r = a * ADJ_STRIDE;
-    string mode = "POSITION";
-    if (llList2Integer(ADJ, r + 5)) mode = "ROTATION";
+    // MOVE / ROTATE, the kit's wording, so the header line and the
+    // toggle button below agree with each other: pressing "↻ Rotate"
+    // puts you in ROTATE, and the button then offers "✛ Move" back.
+    string mode = "MOVE";
+    if (llList2Integer(ADJ, r + 5)) mode = "ROTATE";
     float step = llList2Float(ADJ, r + 6);
 
     // THE PAD, in the layout the QuickyHUD kit taught people. Named
@@ -570,12 +573,20 @@ adj_dialog(integer op, integer a)
     else if (step <= 0.06)  s2 = "● Middle step";
     else                    s3 = "● Large step";
 
+    // Show what a press ACTUALLY does, not the stored ladder value: the
+    // rotate path scales it by 100, and printing 0.05 next to a five
+    // degree turn would just be wrong.
     string unit = " m";
-    if (llList2Integer(ADJ, r + 5)) unit = "°";
+    float shown = step;
+    if (llList2Integer(ADJ, r + 5))
+    {
+        unit = "°";
+        shown = step * 100.0;
+    }
 
     dialog_safe((key)llList2String(OPS, row),
         "\n✛ Adjust : " + mode
-        + "\nStep " + (string)step + unit
+        + "\nStep " + (string)shown + unit
         + "\nEvery press is saved as personal offset.",
         reorder_rows([
             s1,       s2,          s3,
@@ -649,6 +660,13 @@ integer adj_click(integer op, integer a, string msg)
 
     float s = step;
     if (at > 2) s = -step;
+
+    // ROTATION USES THE SAME LADDER, SCALED BY 100. The step values are
+    // metres; as degrees they would be 0.05 of one, which is invisible,
+    // so a rotate press looked like nothing happening at all. v1 applies
+    // exactly this factor in both places that rotate (sitA.lsl:861 and
+    // hudproxy's fScale), which is why one ladder can serve both modes.
+    if (isRot) s = s * 100.0;
     integer axis = at % 3;
     vector dir;
     if (axis == 0) dir.x = 1.0;
