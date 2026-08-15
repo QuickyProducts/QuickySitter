@@ -1,4 +1,4 @@
-string version = "0.22";
+string version = "0.23";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -627,8 +627,9 @@ integer adj_click(integer op, integer a, string msg)
         // Same division v1 uses (sitA.lsl:866), against the frame the
         // pose is measured in rather than v1's LROT choice: with items
         // that is the item's own prim, so the arrows and the positions
-        // cannot disagree.
-        if (!isRot) step_v = step_v / frame_rot(seat);
+        // cannot disagree. The seat lives in field 1 of the ADJ row.
+        if (!isRot)
+            step_v = step_v / frame_rot(llList2Integer(ADJ, r + 1));
     }
     d += step_v;
 
