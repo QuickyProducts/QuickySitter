@@ -1,4 +1,4 @@
-string version = "0.19";
+string version = "0.20";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -104,7 +104,7 @@ integer SEC_ADJUST  = -3;
 // make the pose visibly jump into place.
 list ADJ;
 integer ADJ_STRIDE = 7;
-integer QSS_SWAP    = 90414;   // menu -> seat, exchange two seats
+integer QSS_MOVE    = 90416;   // menu -> seat, change item without standing
 integer QSS_NUDGE   = 90415;   // menu -> seat, live sit-target preview
 integer QSO_SAVE    = 90262;   // -> [QS]offset, save personal offset
 
@@ -147,31 +147,31 @@ string item_of(integer ch)
     return "";
 }
 
-// The seat to swap with when [SWAP ITEM] is pressed: the first occupied
-// seat belonging to a DIFFERENT item. -1 when there is nothing to do,
-// which is also what hides the button.
+// The item to offer moving to: the first one that is NOT the seat.s own
+// and still has a free seat. "" when there is nothing to offer, which is
+// also what hides the button.
 //
-// First-match rather than a picker on purpose. Two items is the case
-// that exists; a picker for three would be a second dialog for a
-// situation nobody has built yet, and the seat picker is the right home
-// for that when it arrives.
-integer swap_item_target(integer ch)
+// First match rather than a picker on purpose. Two items is the case
+// that exists today; a picker belongs with the seat picker when a build
+// with three turns up.
+string move_item_target(integer ch)
 {
-    if (llLinksetDataRead("qs:item:1") == "") return -1;   // one item
+    if (llLinksetDataRead("qs:item:1") == "") return "";   // one item
     string mine = item_of(ch);
     integer c = 0;
     while (llLinksetDataRead("qs:sitter:" + (string)c) != "")
     {
-        if (c != ch)
+        // A FREE seat elsewhere. The full-item case is refused by seat
+        // with a message rather than hidden here, because the button
+        // disappearing mid-session reads as a bug.
+        if (llLinksetDataRead("qs:occ:" + (string)c) == "")
         {
-            if (llLinksetDataRead("qs:occ:" + (string)c) != "")
-            {
-                if (item_of(c) != mine) return c;
-            }
+            string other = item_of(c);
+            if (other != mine && other != "") return other;
         }
         ++c;
     }
-    return -1;
+    return "";
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -666,7 +666,8 @@ render(integer op)
         // is seated, another item exists, and somebody is on it. Showing
         // a button that answers "nobody to swap with" is worse than not
         // showing one.
-        if (swap_item_target(ch) != -1) tail += "[SWAP ITEM]";
+        string moveTo = move_item_target(ch);
+        if (moveTo != "") tail += "> " + moveTo;
         if (nOpt) tail += "[OPTIONS]";
         if (nAdj || hasPad) tail += "[ADJUST]";
     }
@@ -772,12 +773,12 @@ click(integer op, string msg)
         return;
     }
 
-    if (msg == "[SWAP ITEM]")
+    // "> Sofa": move to that item without standing up. The label is
+    // rebuilt the same way render does, so the comparison holds.
+    string mv = move_item_target(ch);
+    if (mv != "" && msg == "> " + mv)
     {
-        integer other = swap_item_target(ch);
-        if (other != -1)
-            llMessageLinked(LINK_SET, QSS_SWAP,
-                (string)ch + "|" + (string)other, av);
+        llMessageLinked(LINK_SET, QSS_MOVE, (string)ch + "|" + mv, av);
         render(op);
         return;
     }
