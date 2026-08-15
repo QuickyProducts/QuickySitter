@@ -1,4 +1,4 @@
-string version = "0.20";
+string version = "0.21";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -172,6 +172,24 @@ string move_item_target(integer ch)
         ++c;
     }
     return "";
+}
+
+// The WORLD rotation of the prim a seat is bound to, which is the frame
+// its pose positions are measured in. seat publishes the binding as
+// qs:prim:<ch>.
+//
+// Falls back to the root rotation when the key is missing or names the
+// root, which is also what a build without items gives: there the pose
+// frame is the script prim, and the base set lives in the root.
+rotation frame_rot(integer ch)
+{
+    integer link = (integer)llLinksetDataRead("qs:prim:" + (string)ch);
+    if (link > 1)
+    {
+        return llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0)
+             * llGetRootRotation();
+    }
+    return llGetRootRotation();
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -497,9 +515,26 @@ integer adj_click(integer op, integer a, string msg)
     float s = step;
     if (at > 2) s = -step;
     integer axis = at % 3;
-    if (axis == 0) d.x += s;
-    if (axis == 1) d.y += s;
-    if (axis == 2) d.z += s;
+    vector step_v;
+    if (axis == 0) step_v.x = s;
+    if (axis == 1) step_v.y = s;
+    if (axis == 2) step_v.z = s;
+
+    // TURN THE PRESS INTO THE FRAME THE POSE LIVES IN. Without this the
+    // raw axis delta is added directly, so on furniture standing at an
+    // angle "forward" pushes sideways and an X press leaks into Y.
+    //
+    // v1 does the same division (sitA.lsl:866) and picks its divisor
+    // from the notecard's LROT: the script prim's WORLD rotation by
+    // default, its local rotation when LROT is 1. Here the divisor is
+    // the rotation of the prim the seat is bound to, which with items
+    // declared is the item's own prim - the same frame seat measures
+    // positions in, so the two cannot disagree.
+    //
+    // Rotation deltas are NOT transformed: they are Euler degrees added
+    // to the pose's own rotation, already expressed in that frame.
+    if (!isRot) step_v = step_v / frame_rot(seat);
+    d += step_v;
 
     if (isRot) ADJ = llListReplaceList(ADJ, [d], r + 4, r + 4);
     else       ADJ = llListReplaceList(ADJ, [d], r + 3, r + 3);

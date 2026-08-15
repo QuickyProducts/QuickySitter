@@ -1,4 +1,4 @@
-string version = "0.29";
+string version = "0.30";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -1133,6 +1133,20 @@ boot_up()
 {
     load_from_lsd();
     resolve_bindings();
+
+    // Publish seat -> prim so menu can transform an adjust arrow into the
+    // frame the pose lives in. seat owns the binding and is the only
+    // script that can answer it; a one-line LSD key is cheaper than a
+    // request-and-reply on the hot path of a button press.
+    integer pi = 0;
+    integer pn = llGetListLength(SEATS) / SEAT_STRIDE;
+    while (pi < pn)
+    {
+        llLinksetDataWrite("qs:prim:" + (string)pi,
+            (string)llList2Integer(SEATS, pi * SEAT_STRIDE));
+        ++pi;
+    }
+
     place_sittargets();
     llPassTouches(MTYPE > 2);
     rescan_occupancy();
