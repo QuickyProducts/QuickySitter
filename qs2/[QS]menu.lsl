@@ -1,4 +1,4 @@
-string version = "0.16";
+string version = "0.17";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -66,6 +66,7 @@ integer QSPLUG_REGISTER  = 90212;   // -> [OPTIONS]. No unregister exists.
 integer QSADJ_REGISTER   = 90213;   // -> [ADJUST]
 integer QSADJ_UNREGISTER = 90216;   // counterpart of 90213, msg = scriptName
 integer QS_ALIVE_CENSUS = 90079;   // boot wiped presence, re-stamp
+integer QSDLG_RENDER  = 90279;   // plugin -> here: render this dialog
 integer QSB_READY     = 90430;
 integer QSB_RELOAD    = 90431;
 
@@ -865,6 +866,34 @@ default
 
     link_message(integer sender, integer num, string msg, key id)
     {
+        if (num == QSDLG_RENDER)
+        {
+            // A PLUGIN'S DIALOG, RENDERED BY US. msg is
+            // "<chan>|<text>|<b0>|...|<b11>", id the sitter it is for.
+            // The plugin keeps its own listener on <chan> and hears the
+            // reply as agent chat; we render and forget.
+            //
+            // Why it is not the plugin's own llDialog: that call force-
+            // sleeps the CALLING script for 1.0 s, so a plugin serving
+            // several sitters serializes them behind each other. v1 had
+            // one sitB per seat and therefore a sleep lane per sitter
+            // (sitB.lsl:1237). A singleton has ONE lane for everybody,
+            // which is the one place this consolidation costs something
+            // rather than saving it - and it is why huddialog's pad
+            // never appeared: nobody answered 90279 at all.
+            //
+            // The other half of the reason is dialog replacement: a
+            // window only replaces a previous one from the SAME script,
+            // so rendering here is what stops the pad stacking on top of
+            // the pose menu instead of taking its place.
+            if (id == "") return;
+            if (seat_of((key)id) == -1) return;   // not one of ours
+            list dp = llParseStringKeepNulls(msg, ["|"], []);
+            dialog_safe((key)id, llList2String(dp, 1),
+                llList2List(dp, 2, 13), (integer)llList2String(dp, 0));
+            return;
+        }
+
         if (num == QSS_SEATED)
         {
             // AMENU, cfg field 5: open the menu by itself when somebody
