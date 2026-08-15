@@ -1,4 +1,4 @@
-string version = "0.30";
+string version = "0.31";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -283,18 +283,28 @@ vector cam_turn(vector dir, integer idx, integer isRot)
 // v1 does this with four fixed llList2List slices over exactly twelve
 // buttons. This walks rows instead, so a short page behaves too: for
 // twelve entries the output is identical to v1's.
+// A PAGE THAT IS NOT A MULTIPLE OF THREE HAS A SHORT ROW, AND SL PUTS
+// THAT SHORT ROW AT THE TOP - llDialog groups its own list in threes
+// from index 0, so the leftovers end up in the last, topmost row.
+//
+// Walking the rows from the FRONT, which is what this did until 0.31,
+// made the short row the last one instead. Every button on such a page
+// then slid one slot and [BACK] left the top-left corner, which is the
+// "the BACK button wanders" report. Anchoring at the END fixes it and is
+// also what v1 does, by way of four negative slices (sitB.lsl:247) over
+// a list that is always exactly twelve long.
 list reorder_rows(list b)
 {
     list out;
     integer n = llGetListLength(b);
-    integer start = ((n - 1) / 3) * 3;
-    while (start >= 0)
+    integer rem = n % 3;          // width of the short TOP row, 0 = none
+    integer start = n - 3;
+    while (start >= rem)
     {
-        integer stop = start + 2;
-        if (stop > n - 1) stop = n - 1;
-        out += llList2List(b, start, stop);
+        out += llList2List(b, start, start + 2);
         start -= 3;
     }
+    if (rem) out += llList2List(b, 0, rem - 1);
     return out;
 }
 
