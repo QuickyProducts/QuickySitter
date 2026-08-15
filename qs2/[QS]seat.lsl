@@ -1,4 +1,4 @@
-string version = "0.25";
+string version = "0.26";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -135,6 +135,12 @@ list PENDING;
 // Same, for the stop half of a pose change, strided 2: avatar, anim.
 list PENDING_STOP;
 
+// THE FRAME A POSE POSITION IS MEASURED IN, filled by frame_of. Out-
+// params rather than a return value: an LSL function returns one thing
+// and both halves are always wanted together.
+vector   FRAME_POS;
+rotation FRAME_ROT;
+
 integer verbose = 0;
 
 Out(integer level, string s)
@@ -261,6 +267,48 @@ integer same_item(integer a, integer b)
 {
     if (llGetListLength(SEAT_ITEM) == 0) return TRUE;
     return llList2Integer(SEAT_ITEM, a) == llList2Integer(SEAT_ITEM, b);
+}
+
+// Did the notecard declare items? boot writes qs:item:0 either way, but
+// leaves the name EMPTY for a card with no ITEM line. That emptiness is
+// the whole opt-in test.
+integer items_declared()
+{
+    if (llGetListLength(ITEMS) == 0) return FALSE;
+    return llList2String(ITEMS, 0) != "";
+}
+
+// v1 measures every pose against the prim the SITTER SCRIPT lives in -
+// one frame for the whole linkset. That is right for one piece of
+// furniture and wrong for several: move the chair prim and its poses
+// stay behind, because they were never anchored to it.
+//
+// With items declared, each seat is measured against ITS OWN prim, so an
+// item is a self-contained thing a builder can move, rotate and relink
+// without touching a single coordinate. Personal offsets need no
+// separate handling: they are added to the pose position before this
+// transform, so they live in the same space and travel with it.
+//
+// WHY IT IS CONDITIONAL. Switching unconditionally would displace every
+// pose in every notecard ever authored - precisely the defect hunted
+// down to five decimal places in seat 0.18. No existing card has an ITEM
+// line, so writing one is the author declaring v2 semantics.
+frame_of(integer seat)
+{
+    FRAME_POS = ZERO_VECTOR;
+    FRAME_ROT = ZERO_ROTATION;
+
+    integer link = llGetLinkNumber();          // v1: the script's prim
+    if (items_declared())
+    {
+        link = llList2Integer(SEATS, seat * SEAT_STRIDE);
+        if (link <= 0) return;
+    }
+    if (link <= 1) return;                     // root frame is identity
+
+    list p = llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
+    FRAME_POS = llList2Vector(p, 0);
+    FRAME_ROT = llList2Rot(p, 1);
 }
 
 integer item_index(string itemName)
@@ -659,31 +707,29 @@ set_seat_target(integer seat, vector pos, rotation rot)
     if (desc == "-1") return;
 
     // SAME FRAME QUESTION AS move_occupant, and v1 answers it here with
-    // an explicit conversion (sitA.lsl:434). The pose is in the script
-    // prim's frame; a sit target is written in the TARGET prim's local
-    // frame. When they are the same prim there is nothing to do, which
-    // is the common single-seat case.
+    // an explicit conversion (sitA.lsl:434). A sit target is always
+    // written in the TARGET prim's own local frame, so the pose has to
+    // be carried from whatever frame it was authored in into that one.
+    //
+    // With items declared those two ARE the same prim, and the whole
+    // conversion collapses to nothing - which is the point of anchoring
+    // a pose to its item rather than to the script.
     vector   tp = pos;
     rotation tr = rot;
-    if (link != llGetLinkNumber())
+
+    frame_of(seat);
+    vector   lp = FRAME_POS;
+    rotation lr = FRAME_ROT;
+
+    tp = lp + pos * lr;                           // -> root frame
+    tr = rot * lr;
+    if (link > 1)
     {
-        vector   lp = ZERO_VECTOR;
-        rotation lr = ZERO_ROTATION;
-        if (llGetLinkNumber() > 1)
-        {
-            lp = llGetLocalPos();
-            lr = llGetLocalRot();
-        }
-        tp = lp + pos * lr;                       // -> root frame
-        tr = rot * lr;
-        if (link > 1)
-        {
-            list p = llGetLinkPrimitiveParams(link,
-                [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
-            rotation tlr = llList2Rot(p, 1);
-            tp = (tp - llList2Vector(p, 0)) / tlr;  // -> target prim frame
-            tr = tr / tlr;
-        }
+        list p = llGetLinkPrimitiveParams(link,
+            [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
+        rotation tlr = llList2Rot(p, 1);
+        tp = (tp - llList2Vector(p, 0)) / tlr;    // -> target prim frame
+        tr = tr / tlr;
     }
 
     llLinkSitTarget(link, tp - <0.0, 0.0, 0.4> + llRot2Up(tr) * 0.05, tr);
@@ -744,17 +790,14 @@ move_occupant(integer seat, vector pos, vector rotEuler)
     // property is why it hid: the measurement that finally caught the
     // sit target was taken on prim 1, where the two frames coincide.
     //
-    // Stage 2 intends to make offsets seat-prim-local and drop this
-    // (DESIGN.md §6.4). Until the notecard format changes with it,
-    // stage-1 data was authored under v1's rule and has to be read under
-    // v1's rule.
-    vector   lp = ZERO_VECTOR;
-    rotation lr = ZERO_ROTATION;
-    if (llGetLinkNumber() > 1)
-    {
-        lp = llGetLocalPos();
-        lr = llGetLocalRot();
-    }
+    // ...UNLESS THE NOTECARD DECLARES ITEMS, in which case the frame is
+    // the seat's own prim. See frame_prim: ITEM is the opt-in, because
+    // no existing card has one.
+    vector   lp;
+    rotation lr;
+    frame_of(seat);
+    lp = FRAME_POS;
+    lr = FRAME_ROT;
 
     // The 0.002 degree nudge is v1's and it is load-bearing: an update
     // that resolves to the identical rotation is dropped, so a repeated
