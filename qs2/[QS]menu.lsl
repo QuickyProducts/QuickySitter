@@ -1,4 +1,4 @@
-string version = "0.29";
+string version = "0.30";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -767,7 +767,7 @@ string dialog_title(integer ch, key av, integer page, integer pages)
     // reply stays "QuickySitter" because every receiver matches on it
     // literally - sitB, hudadmin, boot's self-check - and renaming it
     // would read as "no sitter present" to all of them at once.
-    if (t == "") t = "QuickySitter™ 2 " + version;
+    if (t == "") t = "QuickySitter™ 2 v" + version;
 
     // "Menu for X" only when the operator is not the person in the seat,
     // which is what tells a second reader whose seat is being driven.
