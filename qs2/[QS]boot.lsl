@@ -64,19 +64,10 @@ OutForce(string msg)
 {
     llOwnerSay(llGetScriptName() + "[" + version + "] " + msg);
 }
-// camera plugin name is an AVsitter protocol constant — stock plugin
-// probes and replies by literal script name. Once [QS]camera adopts
-// QSDUMP_HELLO (like [QS]faces 0.902 and [QS]prop do), this constant
-// can go too.
-string camera_script = "[AV]camera";
-
-// QSDUMP — DUMP plugin discovery via announce/probe handshake, mirroring
-// the QSALIVE pattern. Plugins announce themselves on state_entry/on_rez;
-// boot probes once during its state_entry to wake plugins that came up
-// before boot. See qs/PROTOCOL.md § QSDUMP for the full contract.
-integer QSDUMP_PROBE = 90094;
-integer QSDUMP_HELLO = 90095;
-list dump_plugins;
+// The [DUMP] pipeline (readout, plugin cascade, web upload) lived here
+// until 0.05 and now is [QS]dump - an authoring-time script that ships
+// and leaves with the adjuster. boot only seeds; dump reads it back.
+// QSDUMP discovery (90094/90095) moved with it.
 
 // QS_ALIVE_CENSUS — boot broadcasts this on plugin add/remove (a
 // CHANGED_INVENTORY with the notecard asset key unchanged). Each presence
@@ -155,33 +146,6 @@ integer QSALIVE_REPLY = 90097;
 integer core_seen;
 integer has_prop_in_notecard;
 integer selfcheck_pending;
-
-// [DUMP] output pipeline. Migrated from adjuster: cache fills via
-// Readout_Say, web() flushes to the settings receiver every
-// ~1024 escaped chars or on force(TRUE) at the end of the cascade.
-//
-// Both dump modes post to the self-hosted receiver (qs/php/settings.php
-// at slquicky.com, same w/c/t POST + ?q GET protocol as the retired
-// stock avsitter.com service). `url` serves the loud [HELPER] path
-// (since 1.25 — avsitter.com stopped working with QS output, issue #66;
-// chat output remains that path's primary deliverable, see
-// http_response), `url_qs` the quiet [QUICKYHUD] path. Two constants
-// kept so the modes can be split again if a stock endpoint revives.
-// web() picks the endpoint per-request based on `dump_quiet`.
-// http_response sets `dump_failed` when the QS endpoint returns non-200
-// on a quiet dump so the end-of-cascade URL shout can fall back to a
-// chat-only failure hint instead of a dead link.
-string url    = "https://slquicky.com/quicky-sitter/dump/settings.php";
-string url_qs = "https://slquicky.com/quicky-sitter/dump/settings.php";
-string cache;
-string webkey;
-integer webcount;
-integer dump_failed;
-// Note: web() reads `notecard_lines` directly for the &n=<lines>
-// QUICKYHUD-progress param. `notecard_lines` is populated by the
-// dataserver callback from state_entry's unconditional
-// llGetNumberOfNotecardLines call — works on both fresh-seed and
-// skip-seed paths, no LSD persist or per-dump iteration needed.
 
 // Settings parsed from notecard (one set, applied to every channel).
 integer MTYPE;
@@ -302,55 +266,6 @@ integer lsd_low_warned;
 // Wipe-confirmation dialog state. dialog_channel is per-instance random.
 integer dialog_channel;
 integer dialog_handle;
-
-// Streaming-dump state. Boot owns [DUMP] now (the qs:cfg/qs:sitter/
-// qs:p:* keys it writes during seed are exactly what dump emits back).
-// Adjuster sends 90098 to start a channel; boot streams V: synchronously,
-// then ticks via 90099 — one qs:p entry per event — so per-iteration
-// locals are released and the 90022 echo queue drains between ticks.
-// Idle when qs_dump_ch == -1.
-//
-// dump_quiet: when TRUE, Readout_Say feeds the web cache only and
-// skips the per-line llRegionSayTo to the owner — including the
-// `--✄--COPY ABOVE/BELOW--✄--` banners (they still land in the web
-// cache because the AVpos paste format expects them, just not in chat).
-// The only chat output in quiet mode is the one-shot start hint from
-// the 90098 handler and either the final `Settings copy: <url>` shout
-// or a `[DUMP] Upload failed` hint (per dump_failed below) after
-// web(TRUE). Set from the initial 90098 trigger's id field (id="quiet"
-// → quiet, anything else → loud, preserving stock-style helper [DUMP]
-// behavior). Reset at end of the cascade. See qs/PROTOCOL.md § DUMP.
-//
-// The quiet path also drives endpoint selection: dump_url() returns
-// url_qs (self-hosted) when dump_quiet, else stock url (avsitter.com).
-// See globals near `string url` for the endpoint-pair rationale.
-integer qs_dump_ch = -1;
-integer qs_dump_pi;
-integer dump_quiet;
-
-// Cascade watchdog. The 90021 plugin-probe cascade sends 90020 to each
-// DUMP-capable plugin, then waits for it to echo 90021 back — with no
-// built-in timeout. A non-conformant plugin that never echoes (a third-party
-// DUMP plugin, or a mismatched camera) would park the dump forever, stalling
-// exactly where the next "SITTER" line should print, with no footer. After
-// each 90020 we arm a one-shot inactivity timer; every dump line the plugin
-// emits (90022) re-arms it, so a slow but working plugin is never falsely
-// skipped — only true silence trips it. On trip we re-emit the channel-done
-// 90021 ourselves, naming the silent plugin, so the cascade skips past it and
-// the dump finishes (minus that plugin's lines) instead of hanging.
-integer qs_cascade_pending;        // TRUE while waiting for a probed plugin's 90021
-integer qs_cascade_ch = -1;        // channel whose cascade is active (-1 = none)
-string  qs_cascade_wait;           // script we sent 90020 to and are waiting on
-float   QS_CASCADE_TIMEOUT = 5.0;  // seconds of plugin silence before we skip it
-
-// Dump pacing. The stream is throttle-paced like stock AVsitter's per-line
-// llSleep(0.2): instead of firing the next 90099 tick immediately, qs_dump_tick
-// arms a one-shot timer and timer() fires it after QS_DUMP_PACE. Keeps the
-// dump's HTTP POSTs well under SL's ~1/sec llHTTPRequest throttle (a big config
-// otherwise bursts ~25 chunk-POSTs and trips "Too many HTTP requests too fast")
-// while staying event-driven — peak RAM is still one entry, no blocking loop.
-integer qs_pace_pending;           // TRUE while a paced 90099 self-tick is timer-armed
-float   QS_DUMP_PACE = 0.2;        // seconds between dump entries (stock parity)
 
 // Notecard cursor.
 key notecard_query;
@@ -725,155 +640,6 @@ arm_autosync()
     llSetTimerEvent((float)s);
 }
 
-// ========================================================================
-// [DUMP] output pipeline. Format + chat + HTTP upload, also migrated from
-// adjuster so the entire dump (producer + receiver) lives in boot.
-// ========================================================================
-
-string FormatFloat(float f, integer num_decimals)
-{
-    f += ((integer)(f > 0) - (integer)(f < 0)) * ((float)(".5e-" + (string)num_decimals) - .5e-6);
-    string ret = llGetSubString((string)f, 0, num_decimals - (!num_decimals) - 7);
-    if (num_decimals)
-    {
-        num_decimals = -1;
-        while (llGetSubString(ret, num_decimals, num_decimals) == "0")
-        {
-            --num_decimals;
-        }
-        if (llGetSubString(ret, num_decimals, num_decimals) == ".")
-        {
-            --num_decimals;
-        }
-
-        return llGetSubString(ret, 0, num_decimals);
-    }
-    return ret;
-}
-
-// Resolve the endpoint for the current dump. Stays a tiny helper so
-// the URL choice is in one place (web POST + end-of-cascade shout both
-// call it).
-string dump_url()
-{
-    if (dump_quiet) return url_qs;
-    return url;
-}
-
-web(integer force)
-{
-    if (llStringLength(llEscapeURL(cache)) > 1024 || force)
-    {
-        if (force)
-        {
-            cache += "\n\nend";
-        }
-        webcount++;
-        // Quiet-mode adds &n=<lines> so settings.php can render
-        // progress as "X of ~Y lines". The `> 0` gate handles the
-        // tiny race where boot just reset and dataserver hasn't yet
-        // populated notecard_lines (first chunk would still send &n=
-        // once that response lands). Loud-mode skips it (stock
-        // endpoint ignores unknown params anyway).
-        string params = "w=" + webkey + "&c=" + (string)webcount;
-        if (dump_quiet && notecard_lines > 0)
-        {
-            params += "&n=" + (string)notecard_lines;
-        }
-        params += "&t=" + llEscapeURL(cache);
-        // Throttle guard: llHTTPRequest returns NULL_KEY *synchronously* when the
-        // per-object HTTP rate limit (~25 req / 20s) is hit — the chunk is
-        // dropped, not queued. Flag it so the quiet-mode end-of-cascade message
-        // reports an incomplete upload instead of advertising a truncated link.
-        // Also catches the final web(TRUE) chunk, which the async http_response
-        // non-200 check can miss. (Loud mode posts to the stock endpoint and the
-        // chat output is the real deliverable, so it intentionally ignores this.)
-        if (llHTTPRequest(dump_url(), [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/x-www-form-urlencoded", HTTP_VERIFY_CERT, FALSE], params) == NULL_KEY)
-            dump_failed = TRUE;
-        cache = "";
-    }
-}
-
-Readout_Say(string say)
-{
-    cache += say + "\n";
-    if (!dump_quiet)
-    {
-        string objectname = llGetObjectName();
-        llSetObjectName("");
-        llRegionSayTo(llGetOwner(), 0, "◆" + say);
-        llSetObjectName(objectname);
-    }
-    say = "";
-    web(FALSE);
-}
-
-// ========================================================================
-// [DUMP] streaming. Symmetric to the seed phase: read what we wrote, emit
-// AVpos-style 90022 lines for the Readout_Say/web pipeline above. Runs
-// off 90098 (start) + 90099 (per-entry tick) so peak memory stays small.
-// ========================================================================
-
-// Build and emit the V: line synchronously, then queue the first tick.
-qs_dump_start(integer ch)
-{
-    list p = llParseStringKeepNulls(llLinksetDataRead("qs:cfg:" + (string)ch), ["\n"], []);
-    string vline = "V:" + llDumpList2String(
-        [ version,
-          (integer)llList2String(p, 0),                  // MTYPE
-          (integer)llList2String(p, 1),                  // ETYPE
-          (integer)llList2String(p, 2),                  // SET
-          (integer)llList2String(p, 3),                  // SWAP
-          llLinksetDataRead("qs:sitter:" + (string)ch),  // sitter blob
-          qs_str_replace(llList2String(p, 13), "\\n", "\n"),  // CUSTOM_TEXT
-          llList2String(p, 14),                          // ADJUST_MENU (raw, SEP-joined)
-          (integer)llList2String(p, 4),                  // SELECT
-          (integer)llList2String(p, 5),                  // AMENU
-          (integer)llList2String(p, 6)                   // OLD_HELPER_METHOD
-        ], "|");
-    p = [];
-    llMessageLinked(LINK_THIS, 90022, vline, (string)ch);
-    qs_dump_ch = ch;
-    qs_dump_pi = 0;
-    qs_cascade_ch = ch;   // watchdog: this channel's 90021 echoes are now valid
-    llMessageLinked(LINK_THIS, 90099, (string)ch, "");
-}
-
-// Process exactly one qs:p:<ch>:<pi> entry per call. When the channel is
-// exhausted, send 90021 so adjuster's plugin-probe / next-channel cascade
-// runs. Returning to the event loop between ticks lets adjuster drain its
-// queued 90022 echoes and frees `parts`/`val`.
-qs_dump_tick()
-{
-    if (qs_dump_ch == -1) return;
-    string val = llLinksetDataRead(qs_p_key(qs_dump_ch, qs_dump_pi));
-    if (val == "")
-    {
-        integer ch = qs_dump_ch;
-        qs_dump_ch = -1;
-        llMessageLinked(LINK_THIS, 90021, (string)ch, "");
-        return;
-    }
-    list parts = llParseStringKeepNulls(val, ["|"], []);
-    val = "";
-    llMessageLinked(LINK_THIS, 90022,
-        "S:" + llList2String(parts, 0) + "|" + llList2String(parts, 2),
-        (string)qs_dump_ch);
-    string pos = llList2String(parts, 3);
-    if (pos != "")
-    {
-        llMessageLinked(LINK_THIS, 90022,
-            "{" + llList2String(parts, 0) + "}" + pos + llList2String(parts, 4),
-            (string)qs_dump_ch);
-    }
-    parts = [];
-    ++qs_dump_pi;
-    // Throttle-pace: arm a one-shot timer instead of firing 90099 now, so the
-    // POST flushes stay under SL's HTTP rate limit on big configs (see globals).
-    qs_pace_pending = TRUE;
-    llSetTimerEvent(QS_DUMP_PACE);
-}
-
 default
 {
     state_entry()
@@ -910,9 +676,9 @@ default
             && llLinksetDataRead("qs:cfg:slots:0") != "")
         {
             // Already seeded for this notecard — skip the re-parse.
-            // The base set reads LSD directly; we just rebuild total_channels
-            // (needed by the DUMP cascade), re-arm the timer, and re-probe
-            // DUMP plugins so the cached steady state resumes.
+            // The base set reads LSD directly; we just rebuild
+            // total_channels (for the status line below) and re-arm the
+            // timer so the cached steady state resumes.
             integer ch = 0;
             while (llLinksetDataRead("qs:meta:" + (string)ch) != "")
                 ++ch;
@@ -952,9 +718,6 @@ default
         {
             start_boot();
         }
-        // Wake any DUMP plugins that came up before boot. Late starters
-        // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
-        llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
         // Self-check probe. The reply lands in core_seen via link_message;
         // seat and menu answer the CENSUS above with an LSD stamp instead,
         // and linkset_data completes the check when the last one arrives.
@@ -982,28 +745,6 @@ default
 
     timer()
     {
-        if (qs_pace_pending)
-        {
-            // Paced dump tick: the inter-entry delay elapsed — fire the next
-            // streaming step (replaces qs_dump_tick's old immediate 90099).
-            qs_pace_pending = FALSE;
-            llMessageLinked(LINK_THIS, 90099, (string)qs_dump_ch, "");
-            return;
-        }
-        if (qs_cascade_pending)
-        {
-            // Cascade watchdog tripped: the plugin we probed went silent (no
-            // 90022, no 90021) past the timeout. Warn the owner, then re-emit
-            // the channel-done 90021 naming the silent plugin so the 90021
-            // handler finds it via llListFindList, ++i skips past it, and the
-            // cascade continues (next plugin / next channel / finalize). The
-            // dump completes without that plugin's lines instead of hanging.
-            qs_cascade_pending = FALSE;
-            llRegionSayTo(llGetOwner(), 0,
-                "[DUMP] plugin '" + qs_cascade_wait + "' didn't respond — lines omitted.");
-            llMessageLinked(LINK_THIS, 90021, (string)qs_cascade_ch, qs_cascade_wait);
-            return;
-        }
         if (selfcheck_pending)
         {
             // One-shot self-check tick (armed in finalize_boot). Stop
@@ -1077,16 +818,6 @@ default
         // Lalou - Lima Ottoman. Each handler validates payload itself;
         // spoofing from other child-prim scripts in the same linkset is
         // out of scope (owner-controlled assets).
-        if (num == QSDUMP_HELLO)
-        {
-            // DUMP plugin announce. id = announcer's script name. Dedup
-            // so repeat announces (on_rez, probe-reply, state_entry race)
-            // don't grow the list.
-            string plugin = (string)id;
-            if (plugin != "" && llListFindList(dump_plugins, [plugin]) == -1)
-                dump_plugins += plugin;
-            return;
-        }
         if (num == QSALIVE_REPLY)
         {
             // [QS]core, the single answerer. seat and menu prove
@@ -1094,295 +825,6 @@ default
             // reads directly.
             core_seen = TRUE;
             try_complete_selfcheck();
-            return;
-        }
-        if (num == 90098)
-        {
-            // Initial trigger (msg == "0") consumes the id field as a
-            // mode marker: id="quiet" → QUICKYHUD-path web-only dump,
-            // anything else → stock-style loud dump (full chat output).
-            // Cascade re-emits for additional channels (msg >= 1, see
-            // 90021 handler) leave dump_quiet untouched so the mode
-            // persists across all channels of a multi-channel furniture.
-            //
-            // Reject gate: initial triggers while a cascade is already
-            // running would clobber webkey + cache + qs_dump_pi mid-stream
-            // (qs_dump_start unconditionally resets them and emits a fresh
-            // V: line), producing a half-uploaded "abc" file on the web
-            // service and duplicated pose entries in the "def" file. The
-            // gate is keyed on ch == 0 so it only fires for initial
-            // triggers — cascade re-emits (ch >= 1) always have
-            // qs_dump_ch == -1 (qs_dump_tick clears it before sending 90021,
-            // and the 90021 handler advances synchronously), so the gate
-            // never blocks normal channel progression.
-            integer ch = (integer)msg;
-            if (ch == 0 && qs_dump_ch != -1)
-            {
-                llRegionSayTo(llGetOwner(), 0,
-                    "[QS] DUMP already running — wait for URL.");
-                return;
-            }
-            if (ch == 0)
-            {
-                dump_quiet = ((string)id == "quiet");
-                dump_failed = FALSE;
-                // No start-hint here — the V: handler (90022 branch
-                // below) emits the live-view URL the moment the webkey
-                // is generated, which happens in the next event-loop
-                // tick. Adding a hint here would just be two rapid-fire
-                // chat lines saying the same thing.
-                //
-                // No total-lines fetch needed — web() reads
-                // `notecard_lines` (populated unconditionally at
-                // state_entry) directly in quiet mode.
-            }
-            qs_dump_start(ch);
-            return;
-        }
-        if (num == 90099)
-        {
-            qs_dump_tick();
-            return;
-        }
-        if (num == 90021)
-        {
-            // Plugin probe + next-channel cascade. Boot owns this now —
-            // when one channel finishes (qs_dump_tick sends 90021, or a
-            // plugin script's 90020 worker echoes back 90021), probe the
-            // remaining plugin scripts (dump_plugins, populated dynamically
-            // via QSDUMP_HELLO; plus the hardcoded stock plugins for which
-            // we don't yet control the source) for this channel; once
-            // they're done, advance to the next channel via 90098 (back to
-            // qs_dump_start) or finalize the upload and shout the URL.
-            integer script_channel = (integer)msg;
-            // Watchdog: drop a stale 90021 echoed by a plugin we already
-            // skipped on a now-finished channel — processing it would
-            // double-advance / duplicate output. Only qs_cascade_ch's echoes
-            // are currently valid (it is -1 after finalize, so late echoes
-            // arriving post-dump are dropped too).
-            if (script_channel != qs_cascade_ch) return;
-            // A valid 90021 arrived (channel-done, or a plugin echo): whatever
-            // we were waiting on has answered, so disarm the wait. The probe
-            // loop below re-arms it if it sends a fresh 90020.
-            qs_cascade_pending = FALSE;
-            // [QS]faces (≥ 0.902) announces via QSDUMP_HELLO, so it lands
-            // in dump_plugins automatically. camera_script stays hardcoded
-            // until [QS]camera fork exists.
-            list scripts = dump_plugins + [camera_script];
-            integer i = llListFindList(scripts, [(string)id]);
-            while (i < llGetListLength(scripts))
-            {
-                ++i;
-                string lookfor = llList2String(scripts, i);
-                if (lookfor == camera_script && script_channel > 0)
-                {
-                    lookfor = lookfor + " " + (string)script_channel;
-                }
-                if (llGetInventoryType(lookfor) == INVENTORY_SCRIPT)
-                {
-                    string probed = llList2String(scripts, i);
-                    Out(3, "[DUMP] probing plugin '" + probed + "' for channel " + (string)script_channel);
-                    llMessageLinked(LINK_THIS, 90020, (string)script_channel, probed);
-                    // Arm the inactivity watchdog: if `probed` neither emits a
-                    // dump line (90022) nor echoes 90021 before the timeout,
-                    // the timer skips it. Re-armed per 90022 in the receiver.
-                    qs_cascade_pending = TRUE;
-                    qs_cascade_wait = probed;
-                    llSetTimerEvent(QS_CASCADE_TIMEOUT);
-                    return;
-                }
-            }
-            if (script_channel + 1 < total_channels)
-            {
-                // Channel done, no more plugins → advance to the next channel.
-                // Clear the active cascade channel (qs_dump_start re-sets it)
-                // so a late stale echo from THIS channel is dropped, and hand
-                // the timer back to AUTOSYNC (the watchdog only runs during
-                // plugin probes).
-                qs_cascade_ch = -1;
-                arm_autosync();
-                llMessageLinked(LINK_THIS, 90098, (string)(script_channel + 1), "");
-            }
-            else
-            {
-                // Dump complete — release the cascade watchdog and restore the
-                // AUTOSYNC timer before finalizing.
-                qs_cascade_ch = -1;
-                arm_autosync();
-                Readout_Say("");
-                Readout_Say("--✄--COPY ABOVE INTO \"AVpos\" NOTECARD--✄--");
-                Readout_Say("");
-                web(TRUE);
-                // End-of-cascade chat. Quiet mode already gave the URL
-                // upfront, so we only emit a completion / failure
-                // signal here. Loud mode keeps the stock end-of-dump
-                // URL shout (URL wasn't emitted earlier in that path).
-                if (dump_quiet)
-                {
-                    if (dump_failed)
-                    {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Upload failed — link may be incomplete.");
-                    }
-                    else
-                    {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Done — link finalized.");
-                    }
-                }
-                else
-                {
-                    llRegionSayTo(llGetOwner(), 0,
-                        "Settings copy: " + dump_url() + "?q=" + webkey);
-                }
-                dump_quiet = FALSE;
-            }
-            return;
-        }
-        if (num == 90022)
-        {
-            // Watchdog: a dump line from the plugin we're waiting on proves it
-            // is alive and working — push the timeout back so a slow, many-line
-            // plugin is never falsely skipped. Only relevant during a plugin
-            // probe (qs_cascade_pending); boot's own pose lines stream with the
-            // watchdog idle.
-            if (qs_cascade_pending) llSetTimerEvent(QS_CASCADE_TIMEOUT);
-            // Format one dump line and Readout_Say it. Sources: boot's
-            // own qs_dump_start/qs_dump_tick (V:/S:/{}) and plugin
-            // scripts (announced via QSDUMP — [QS]prop, [QS]faces —
-            // plus the hardcoded camera_script) that the 90021 cascade
-            // wakes via 90020.
-            list data = llParseStringKeepNulls(msg, ["|"], []);
-            if (llGetSubString(msg, 0, 3) == "S:M:" || llGetSubString(msg, 0, 3) == "S:T:")
-            {
-                msg = qs_str_replace(msg, "*|", "|");
-            }
-            if (llGetSubString(msg, 0, 1) == "V:")
-            {
-                if (!(integer)((string)id))
-                {
-                    webkey = (string)llGenerateKey();
-                    webcount = 0;
-                    // Quiet-mode live-view URL: shouted upfront so the
-                    // owner can open the link the moment the dump
-                    // starts and watch chunks accumulate in the
-                    // browser (settings.php serves partial content +
-                    // Refresh: 3 until the .done marker lands).
-                    if (dump_quiet)
-                    {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Live view: " + dump_url() + "?q=" + webkey);
-                    }
-                    Readout_Say("");
-                    Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
-                    Readout_Say("");
-                    // The DUMP header a creator pastes back into AVpos.
-                    // Display name, so it carries the 2; the QSALIVE wire
-                    // token stays plain "QuickySitter".
-                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "QuickySitter 2 "));
-                    if (llList2Integer(data, 1))
-                    {
-                        Readout_Say("MTYPE " + llList2String(data, 1));
-                    }
-                    if (llList2Integer(data, 2) != 1)
-                    {
-                        Readout_Say("ETYPE " + llList2String(data, 2));
-                    }
-                    if (llList2Integer(data, 3) > -1)
-                    {
-                        Readout_Say("SET " + llList2String(data, 3));
-                    }
-                    if (llList2Integer(data, 4) != 2)
-                    {
-                        Readout_Say("SWAP " + llList2String(data, 4));
-                    }
-                    if (llList2String(data, 6) != "")
-                    {
-                        Readout_Say("TEXT " + qs_str_replace(llList2String(data, 6), "\n", "\\n"));
-                    }
-                    if (llList2String(data, 7) != "")
-                    {
-                        Readout_Say("ADJUST " + qs_str_replace(llList2String(data, 7), SEP, "|"));
-                    }
-                    if (llList2Integer(data, 8))
-                    {
-                        Readout_Say("SELECT " + llList2String(data, 8));
-                    }
-                    if (llList2Integer(data, 9) != 2)
-                    {
-                        Readout_Say("AMENU " + llList2String(data, 9));
-                    }
-                    if (llList2Integer(data, 10))
-                    {
-                        Readout_Say("HELPER " + llList2String(data, 10));
-                    }
-                    // VERBOSE is global (not per-channel) — read from
-                    // qs:cfg:verbose directly. Emit only when > 0; stock
-                    // AVsitter parses it as unknown-command and ignores,
-                    // so the dumped notecard stays portable.
-                    string vstr = llLinksetDataRead("qs:cfg:verbose");
-                    if (vstr != "" && (integer)vstr > 0)
-                    {
-                        Readout_Say("VERBOSE " + vstr);
-                    }
-                }
-                Readout_Say("");
-                if (total_channels > 1 || llList2String(data, 5) != "")
-                {
-                    string SITTER_TEXT;
-                    if (llList2String(data, 5) != "")
-                    {
-                        SITTER_TEXT = "|" + qs_str_replace(llList2String(data, 5), SEP, "|");
-                    }
-                    Readout_Say("SITTER " + (string)id + SITTER_TEXT);
-                    Readout_Say("");
-                }
-                return;
-            }
-            else if (llGetSubString(msg, 0, 0) == "{")
-            {
-                msg = qs_str_replace(msg, "{P:", "{");
-                list parts = llParseStringKeepNulls(llDumpList2String(llParseString2List(llGetSubString(msg, llSubStringIndex(msg, "}") + 1, 99999), [" "], [""]), ""), ["<"], []);
-                vector pos2 = (vector)("<" + llList2String(parts, 1));
-                vector rot2 = (vector)("<" + llList2String(parts, 2));
-                string result = "<" + FormatFloat(pos2.x, 3) + "," + FormatFloat(pos2.y, 3) + "," + FormatFloat(pos2.z, 3) + ">";
-                result += "<" + FormatFloat(rot2.x, 1) + "," + FormatFloat(rot2.y, 1) + "," + FormatFloat(rot2.z, 1) + ">";
-                msg = llGetSubString(msg, 0, llSubStringIndex(msg, "}")) + result;
-            }
-            else if (llGetSubString(msg, 1, 1) == ":")
-            {
-                msg = qs_str_replace(msg, "S:P:", "POSE ");
-                msg = qs_str_replace(msg, "S:M:", "MENU ");
-                msg = qs_str_replace(msg, "S:T:", "TOMENU ");
-                if (llGetSubString(msg, -6, -1) == "|90210")
-                {
-                    msg = qs_str_replace(msg, "S:B:", "SEQUENCE ");
-                    msg = qs_str_replace(msg, "|90210", "");
-                }
-                else
-                {
-                    msg = qs_str_replace(msg, "S:B:", "BUTTON ");
-                    if (llSubStringIndex(msg, SEP) == -1)
-                    {
-                        msg = qs_str_replace(msg, "|90200", "");
-                    }
-                }
-                msg = qs_str_replace(msg, "S:", "SYNC ");
-                msg = qs_str_replace(msg, SEP, "|");
-            }
-            if (llGetSubString(msg, -1, -1) == "*")
-            {
-                msg = llGetSubString(msg, 0, -2);
-            }
-            if (llGetSubString(msg, -1, -1) == "|")
-            {
-                msg = llGetSubString(msg, 0, -2);
-            }
-            if (llGetSubString(msg, 0, 3) == "MENU")
-            {
-                Readout_Say("");
-            }
-            Readout_Say(msg);
             return;
         }
     }
@@ -1773,26 +1215,6 @@ default
                 // "base script missing" ERRORs.
                 if (selfcheck_pending) llSetTimerEvent(10.0);
             }
-        }
-    }
-
-    // QS DUMP-endpoint failure detection. Loud dumps post to the
-    // self-hosted endpoint too (since 1.25) but are deliberately NOT
-    // flagged — the chat output is that path's primary deliverable, a
-    // dead link degrades exactly like the stock avsitter.com behavior.
-    // Quiet dumps go to url_qs (self-hosted) — if any chunk POST
-    // returns non-200, set dump_failed so the end-of-cascade URL
-    // shout flips to a chat-only failure hint instead of advertising
-    // a dead/incomplete link. Race note: web(TRUE) is async, so the
-    // FINAL chunk's response may not have arrived when the URL shout
-    // fires (HTTP responses come after the next event loop tick).
-    // Intermediate-chunk failures are caught reliably; same-connection
-    // final-chunk-only failures are rare in practice.
-    http_response(key request_id, integer status, list metadata, string body)
-    {
-        if (dump_quiet && status != 200)
-        {
-            dump_failed = TRUE;
         }
     }
 }

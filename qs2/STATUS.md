@@ -438,3 +438,28 @@ seat, whichever comes first:
 
 Whoever touches seat next: re-measure first (one llGetFreeMemory print
 at boot_up entry), numbers over guesses.
+
+## boot cleanup: the [DUMP] pipeline moved out (0.05, 2026-08-16)
+
+boot was the tightest script of the set and its parse transients ride on
+the free rest - while the whole [DUMP] apparatus in it (readout
+formatting, plugin cascade, watchdog, HTTP upload, QSDUMP discovery,
+~300 lines) is creator-time only. It now lives in **[QS]dump 0.01**, an
+authoring tool that ships and leaves with the adjuster:
+
+- The only trigger is the adjuster's dialog (90098); hudproxy never
+  sends it (verified across both repos), so finalised furniture had no
+  dump path anyway.
+- Self-removal on '/5 cleanup' via the existing QS_FINALIZE (90215)
+  broadcast - no adjuster change needed.
+- The wire is unchanged: 90098/90099/90020/90021/90022 and QSDUMP
+  90094/90095 all as before, same prim.
+- AUTOSYNC stayed in boot ON PURPOSE: hudadmin writes QPP_CFG:AUTOSYNC
+  on end-user furniture and the timer fires the 90271 re-sync - that is
+  runtime, not authoring. (The extraction proposal originally had it
+  moving; the code said otherwise.)
+- total_channels is re-derived from qs:meta:* at every dump start, so a
+  re-seed between dumps cannot leave it stale.
+
+Measure: boot prints Mem= in its "Load complete" / "Cached boot" line;
+compare before/after on the same build.
