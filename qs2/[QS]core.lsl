@@ -1,4 +1,4 @@
-string version = "0.19";
+string version = "0.20";
 
 /*
  * [QS]core - QuickySitter v2 pose engine
@@ -982,11 +982,24 @@ default
                     }
                     ++c;
                 }
+                // OCCUPIED CHANNELS ONLY. An empty channel has nobody to
+                // animate, and start_entry would still record the name
+                // as that seat's memory - so a broadcast triggered on
+                // the chair wrote "Sit" into both sofa seats, and the
+                // next person to move there inherited it instead of the
+                // notecard default. Recording is the couple-join
+                // mechanism and belongs to the S branch, which is item
+                // scoped; a plugin broadcast is furniture-wide by v1
+                // definition and must not leave marks in items nobody is
+                // sitting in.
                 c = 0;
                 while (c < SEATS)
                 {
-                    integer pt = find_by_name(c, "P:" + msg);
-                    if (pt >= 0) start_entry(c, pt);
+                    if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+                    {
+                        integer pt = find_by_name(c, "P:" + msg);
+                        if (pt >= 0) start_entry(c, pt);
+                    }
                     ++c;
                 }
                 return;
