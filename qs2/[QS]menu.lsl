@@ -1,4 +1,4 @@
-string version = "0.24";
+string version = "0.25";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -558,31 +558,30 @@ adj_dialog(integer op, integer a)
     // into llDialog's bottom-up fill. The result is the same button
     // arrangement [QS]huddialog sent over 90279, which is the point:
     // absorbing that pad must not cost anyone their muscle memory.
-    string toggle = "Rotate";
-    if (llList2Integer(ADJ, r + 5)) toggle = "Move";
+    string toggle = "↻ Rotate";
+    if (llList2Integer(ADJ, r + 5)) toggle = "✛ Move";
 
-    // The active step is the filled marker. Three fixed sizes beat one
+    // The active step is the FILLED circle. Three fixed sizes beat one
     // cycling button: you can see which you are on without pressing.
-    string s1 = "- Small";
-    string s2 = "- Medium";
-    string s3 = "- Large";
-    if (step <= 0.006)      s1 = "* Small";
-    else if (step <= 0.06)  s2 = "* Medium";
-    else                    s3 = "* Large";
+    string s1 = "○ Small step";
+    string s2 = "○ Middle step";
+    string s3 = "○ Large step";
+    if (step <= 0.006)      s1 = "● Small step";
+    else if (step <= 0.06)  s2 = "● Middle step";
+    else                    s3 = "● Large step";
 
     string unit = " m";
-    if (llList2Integer(ADJ, r + 5)) unit = " deg";
+    if (llList2Integer(ADJ, r + 5)) unit = "°";
 
     dialog_safe((key)llList2String(OPS, row),
-        "\nAdjust: " + mode
-        + "\nPose " + llList2String(ADJ, r + 2)
+        "\n✛ Adjust : " + mode
         + "\nStep " + (string)step + unit
-        + "\nEvery press is saved as your personal offset.",
+        + "\nEvery press is saved as personal offset.",
         reorder_rows([
-            s1,       s2,        s3,
-            "Up",     "Fwd",     "Down",
-            "Left",   "Default", "Right",
-            toggle,   "Back",    "[BACK]"]),
+            s1,       s2,          s3,
+            "⇑ Up",   "▲ Fwd",     "⇓ Down",
+            "◄ Left", "◎ Default", "Right ►",
+            toggle,   "▼ Back",    "[BACK]"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -596,7 +595,7 @@ integer adj_click(integer op, integer a, string msg)
     vector d = llList2Vector(ADJ, r + 3);
     if (isRot) d = llList2Vector(ADJ, r + 4);
 
-    if (msg == "Rotate" || msg == "Move")
+    if (msg == "↻ Rotate" || msg == "✛ Move")
     {
         ADJ = llListReplaceList(ADJ, [!isRot], r + 5, r + 5);
         adj_dialog(op, a);
@@ -613,7 +612,7 @@ integer adj_click(integer op, integer a, string msg)
         adj_dialog(op, a);
         return TRUE;
     }
-    if (llSubStringIndex(msg, "Medium") != -1)
+    if (llSubStringIndex(msg, "Middle") != -1)
     {
         ADJ = llListReplaceList(ADJ, [0.05], r + 6, r + 6);
         adj_dialog(op, a);
@@ -625,7 +624,7 @@ integer adj_click(integer op, integer a, string msg)
         adj_dialog(op, a);
         return TRUE;
     }
-    if (msg == "Default")
+    if (msg == "◎ Default")
     {
         ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 3, r + 3);
         ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 4, r + 4);
@@ -645,7 +644,7 @@ integer adj_click(integer op, integer a, string msg)
     // index%3 names the axis. SL's own convention, +X forward, +Y left,
     // +Z up, is what makes the labels line up with the vectors.
     integer at = llListFindList(
-        ["Fwd", "Left", "Up", "Back", "Right", "Down"], [msg]);
+        ["▲ Fwd", "◄ Left", "⇑ Up", "▼ Back", "Right ►", "⇓ Down"], [msg]);
     if (at == -1) return FALSE;
 
     float s = step;
