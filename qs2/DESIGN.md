@@ -1541,37 +1541,40 @@ seat's resolve_bindings learns the name reading and the item column in SEATS;
 core's S branch, regender and swap learn the channel-range scope; menu learns
 the item title and scoped seat pick. The wire does not change.
 
-### 11.1 One notecard per item: `QSpos <Name>` (SPEC, not built)
+### 11.1 One notecard per item: `QS#<Name>` (SPEC, not built)
 
 Agreed 2026-08-16, to be built later against this spec. A boot-only change:
 seat, core and menu read the LSD schema and cannot tell how many cards it
 came from.
 
 **The pairing rule.** An item is a PRIM plus a CARD joined by one name: a
-prim whose description pins `#Sofa` pairs with a notecard named `QSpos
-Sofa`. The description already carries the binding today; the same name now
-also fetches the content. Both halves copy between builds - move the prim,
-drop the card, done. `#Sofa-0`/`#Sofa-1` (one prim per seat) collapse onto
-the same item exactly as today.
+prim whose description pins `#Sofa` pairs with a notecard named
+`QS#Sofa`. The card name is LITERALLY `QS` + the description pin, so
+the match needs no name surgery on either side (`#` is legal in inventory
+names; the Firestorm bridge ships as `#Firestorm LSL Bridge`). The
+description already carries the binding today; the same name now also
+fetches the content. Both halves copy between builds - move the prim, drop
+the card, done. `#Sofa-0`/`#Sofa-1` (one prim per seat) collapse onto the
+same item exactly as today, pairing with the one `QS#Sofa` card.
 
 **Naming.** The BASE card keeps the legacy name `AVpos` - that name cannot
 be retired without breaking every existing build and workflow. Everything
 NEW deliberately avoids the AVsitter brand (trademark policy, and the
-scripts are `[QS]*` anyway), hence `QSpos <Name>`. The prefix is mandatory:
+scripts are `[QS]*` anyway), hence `QS#<Name>`. The prefix is mandatory:
 furniture inventories are full of landmark and instruction notecards, and a
 stray card named just "Sofa" must never silently become an item. Side
 effect: every pose card sorts together in the inventory.
 
-**What each card contains.** A `QSpos` card is SITTER blocks with local
+**What each card contains.** A `QS#` card is SITTER blocks with local
 slot numbers, poses, positions, OVERLAYs - the same dialect as today's ITEM
 block, without the ITEM token. The card says how many seats the item has
 (its SITTER blocks); the description says where it lives. Channel order is
 link order of the item prims: deterministic, no numbering in card names.
 
 **AVpos stays base + root menu.** Global directives (BRAND, VERBOSE, onSit,
-CUSTOM_TEXT, ...) live ONLY there; in a `QSpos` card they are an error with
+CUSTOM_TEXT, ...) live ONLY there; in a `QS#` card they are an error with
 a message, because card order must never decide a global. A build with no
-QSpos cards behaves exactly as today, nothing migrates.
+QS# cards behaves exactly as today, nothing migrates.
 
 **Conflict rules.**
 
@@ -1582,7 +1585,7 @@ QSpos cards behaves exactly as today, nothing migrates.
 | both, plus an ITEM token of the same name in AVpos | error with a message; the card wins nothing silently |
 
 **Re-seed.** `qs:boot:asset` becomes the joined asset-key chain of AVpos
-plus every paired QSpos card, so swapping ONE item card triggers the
+plus every paired QS# card, so swapping ONE item card triggers the
 re-seed. CHANGED_INVENTORY already fires on card swaps.
 
 **Why bother:** the viewer's notecard editor truncates near 48 KB, which a
