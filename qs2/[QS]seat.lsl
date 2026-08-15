@@ -1,4 +1,4 @@
-string version = "0.24";
+string version = "0.25";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -263,6 +263,17 @@ integer same_item(integer a, integer b)
     return llList2Integer(SEAT_ITEM, a) == llList2Integer(SEAT_ITEM, b);
 }
 
+integer item_index(string itemName)
+{
+    integer idx = 0;
+    while (idx < llGetListLength(ITEMS) / ITEM_STRIDE)
+    {
+        if (llList2String(ITEMS, idx * ITEM_STRIDE) == itemName) return idx;
+        ++idx;
+    }
+    return -1;
+}
+
 integer channel_of(string itemName, integer localSlot)
 {
     integer idx = 0;
@@ -308,12 +319,50 @@ resolve_bindings()
         if (desc != "-1")
         {
             list data = llParseStringKeepNulls(desc, ["-"], []);
-            // NAME BEFORE NUMBER. Checked first because the legacy branch
-            // below requires BOTH fields to be integers, so a named item
-            // can never be mistaken for one - and an item legitimately
-            // named "2" would still parse as legacy, which is why the
-            // boot-time warning below matters rather than a silent miss.
-            if (llGetListLength(data) == 2
+
+            // "#Sofa" - NO SLOT: the whole item lives on this prim, and
+            // every one of its seats binds here. That makes the prim a
+            // door (is_door counts >1 seat), so arrivals are placed by
+            // landing position within the item.
+            //
+            // This was specified in DESIGN section 11 and then not
+            // built, so a description carrying only a name fell through
+            // BOTH branches below and was treated as an unpinned prim -
+            // sitting on the chair handed out a sofa seat, in link
+            // order. An empty description still means unpinned, which is
+            // why the emptiness test comes first.
+            if (llGetListLength(data) == 1 && desc != ""
+                && !is_integer(desc))
+            {
+                integer ii = item_index(desc);
+                if (ii == -1)
+                {
+                    Out(0, "prim " + (string)i + " is described \"" + desc
+                        + "\" but no item has that name"
+                        + " - prim left unassigned.");
+                }
+                else
+                {
+                    integer ifirst = llList2Integer(ITEMS, ii * ITEM_STRIDE + 1);
+                    integer icount = llList2Integer(ITEMS, ii * ITEM_STRIDE + 2);
+                    integer k = 0;
+                    while (k < icount)
+                    {
+                        integer gch = ifirst + k;
+                        if (gch < seats)
+                            slots = llListReplaceList(slots, [i], gch, gch);
+                        ++k;
+                    }
+                    Out(2, "prim " + (string)i + " carries item \"" + desc
+                        + "\", seats " + (string)ifirst + ".."
+                        + (string)(ifirst + icount - 1));
+                }
+            }
+            // "#Sofa-1" - NAME AND SLOT: one specific seat on this prim.
+            // Checked before the legacy branch, which requires BOTH
+            // fields to be integers, so a named item can never be
+            // mistaken for one.
+            else if (llGetListLength(data) == 2
                 && !is_integer(llList2String(data, 0))
                 && is_integer(llList2String(data, 1)))
             {
