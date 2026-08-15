@@ -1,4 +1,4 @@
-string version = "0.27";
+string version = "0.28";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -54,6 +54,7 @@ integer QSS_TOUCH    = 90412;
 integer QSS_SEATED   = 90413;
 integer QSS_SWAP     = 90414;
 integer QSS_NUDGE    = 90415;   // menu -> seat, live offset preview
+integer QSS_MOVE     = 90416;   // menu -> seat, change item without standing
 
 integer QSC_APPLY   = 90421;
 integer QSC_RESYNC  = 90423;
@@ -989,29 +990,62 @@ rescan_occupancy()
         ++s;
     }
 
-    // Classic seats: the sit target names its occupant, which re-derives
-    // the truth on every scan instead of accumulating it.
+    // CLASSIC SEATS, IN TWO PASSES, and the split is what lets somebody
+    // change seats without standing up.
+    //
+    // One pass would re-adopt them instantly: a seat re-derives its
+    // occupant from llAvatarOnLinkSitTarget, and after a move that
+    // target still names the avatar who is now recorded elsewhere. That
+    // self-healing is worth keeping - it is why a missed event cannot
+    // desynchronise the table - so instead of overriding it, the adopt
+    // pass gains ONE rule: an avatar occupies exactly one seat. A target
+    // naming somebody already recorded on another seat describes a seat
+    // that is, from the engine's point of view, empty.
+    //
+    // Freeing before adopting also fixes an ordering hazard that
+    // predates the move feature: somebody re-sitting on a different prim
+    // within one event would otherwise be skipped if the new seat was
+    // scanned before the old one was released.
     s = 0;
     while (s < seats)
     {
         integer clink = llList2Integer(SEATS, s * SEAT_STRIDE);
-        if (clink > 0)
+        string before = llList2String(SEATS, s * SEAT_STRIDE + 1);
+        if (clink > 0 && before != "")
         {
             if (!is_door(clink))
             {
                 key now = llAvatarOnLinkSitTarget(clink);
                 if (now == NULL_KEY) now = "";
-                string before = llList2String(SEATS, s * SEAT_STRIDE + 1);
-                if ((string)now != before)
+                if ((string)now != before) seat_freed(s, (key)before);
+            }
+        }
+        ++s;
+    }
+
+    s = 0;
+    while (s < seats)
+    {
+        integer clink = llList2Integer(SEATS, s * SEAT_STRIDE);
+        if (clink > 0 && llList2String(SEATS, s * SEAT_STRIDE + 1) == "")
+        {
+            if (!is_door(clink))
+            {
+                key now = llAvatarOnLinkSitTarget(clink);
+                if (now != NULL_KEY && now != "")
                 {
-                    if (before != "") seat_freed(s, (key)before);
-                    // regender may hand back a different seat, having
-                    // swapped the prim bindings. The scan stays correct
-                    // either way: the seat it moved to now points at the
-                    // arrival's prim and has been recorded, so that row
-                    // reads unchanged; the seat they came from points at
-                    // a free prim and reads empty, which it is.
-                    if (now != "") seat_taken(regender(s, now), now);
+                    // The one-seat rule. Without it a deliberate move
+                    // would be undone here, one event later.
+                    if (seat_of_avatar(now) == -1)
+                    {
+                        // regender may hand back a different seat, having
+                        // swapped the prim bindings. The scan stays
+                        // correct either way: the seat it moved to points
+                        // at the arrival's prim and has been recorded, so
+                        // it reads unchanged; the seat they came from
+                        // points at a free prim and reads empty.
+                        seat_taken(regender(s, now), now);
+                    }
                 }
             }
         }
@@ -1072,39 +1106,10 @@ rescan_occupancy()
 
 // A row swap plus new sit targets. In v1 this was ~80 lines of protocol
 // between two independent script instances (90030/90031).
-// SWAPPING ACROSS ITEMS IS ONLY POSSIBLE ON DOOR PRIMS, and the reason
-// is worth stating because it looks like an arbitrary restriction.
-//
-// A swap exchanges the OCCUPANT column and nothing physical: SL still
-// believes each avatar sits where they sat, and move_occupant then
-// places them at their new seat's position, in that seat's frame. For a
-// door prim that is the whole story, because occupancy there is tracked.
-//
-// A classic seat RE-DERIVES its occupant from llAvatarOnLinkSitTarget on
-// every scan. That self-healing property is the reason a missed event
-// cannot desynchronise the table - and it also means the sit target,
-// which still names the original sitter, would revert the swap on the
-// next CHANGED_LINK. Overriding it would trade a permanent guarantee for
-// one feature, which is not a trade worth making.
-//
-// Within one item both seats share a prim by construction, so the
-// ordinary [SWAP] is unaffected either way.
-integer swap_possible(integer a, integer b)
-{
-    if (same_item(a, b)) return TRUE;
-    integer pa = llList2Integer(SEATS, a * SEAT_STRIDE);
-    integer pb = llList2Integer(SEATS, b * SEAT_STRIDE);
-    if (is_door(pa) && is_door(pb)) return TRUE;
-    Out(0, "cross-item swap needs both items on their own prim"
-        + " (a description like \"#Sofa\" rather than \"#Sofa-0\").");
-    return FALSE;
-}
-
 swap_seats(integer a, integer b)
 {
     if (a < 0 || b < 0) return;
     if (a == b) return;
-    if (!swap_possible(a, b)) return;
     integer ra = a * SEAT_STRIDE;
     integer rb = b * SEAT_STRIDE;
     string occA = llList2String(SEATS, ra + 1);
@@ -1355,6 +1360,58 @@ default
         {
             list f = llParseString2List(msg, ["|"], []);
             swap_seats((integer)llList2String(f, 0), (integer)llList2String(f, 1));
+            return;
+        }
+
+        if (num == QSS_MOVE)
+        {
+            // CHANGE ITEM WITHOUT STANDING UP. msg = "<fromSeat>|<item>".
+            // On a moving vehicle - a ship under way - standing up means
+            // going overboard, so this is the only way to change places
+            // at all, not a convenience.
+            //
+            // Nothing physical happens: SL still believes the avatar
+            // sits where they sat. The seat assignment moves, and
+            // move_occupant places them at the new seat in the new
+            // item's frame. rescan's one-seat rule is what stops the old
+            // seat's sit target claiming them back.
+            list f = llParseString2List(msg, ["|"], []);
+            integer from = (integer)llList2String(f, 0);
+            integer seats = llGetListLength(SEATS) / SEAT_STRIDE;
+            if (from < 0 || from >= seats) return;
+            if (llList2String(SEATS, from * SEAT_STRIDE + 1) != (string)id) return;
+
+            integer ii = item_index(llList2String(f, 1));
+            if (ii == -1) return;
+            integer first = llList2Integer(ITEMS, ii * ITEM_STRIDE + 1);
+            integer count = llList2Integer(ITEMS, ii * ITEM_STRIDE + 2);
+
+            // Refused, out loud, when the target item is full: silently
+            // doing nothing would read as a broken button, and the
+            // person asking is on a vehicle they cannot leave.
+            integer to = -1;
+            integer k = 0;
+            while (k < count && to == -1)
+            {
+                integer cand = first + k;
+                if (cand < seats)
+                {
+                    if (llList2String(SEATS, cand * SEAT_STRIDE + 1) == "")
+                        to = cand;
+                }
+                ++k;
+            }
+            if (to == -1)
+            {
+                llRegionSayTo(id, 0, "\"" + llList2String(f, 1)
+                    + "\" is full - no free seat there.");
+                return;
+            }
+
+            seat_freed(from, id);
+            seat_taken(to, id);
+            Out(1, "moved " + llKey2Name(id) + " from seat " + (string)from
+                + " to seat " + (string)to);
             return;
         }
 
