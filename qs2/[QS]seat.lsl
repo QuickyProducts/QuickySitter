@@ -1,4 +1,4 @@
-string version = "0.31";
+string version = "0.32";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -1162,8 +1162,20 @@ swap_seats(integer a, integer b)
 
 boot_up()
 {
+    // STAGED MEMORY READINGS, verbose 1+. The ready line alone cannot
+    // say whether a low number is bytecode (permanent, needs a code
+    // diet) or a boot transient (Mono never returns grown heap, so one
+    // greedy pass depresses free memory for the script's whole life
+    // and the fix is to make THAT pass allocate less). Four readings
+    // bracket the suspects. The first is CAPTURED before load_from_lsd
+    // and printed after it, because that call is where verbose itself
+    // is loaded.
+    integer m0 = llGetFreeMemory();
     load_from_lsd();
+    Out(1, "mem at boot_up " + (string)m0
+        + ", after load_from_lsd " + (string)llGetFreeMemory());
     resolve_bindings();
+    Out(1, "mem after resolve_bindings " + (string)llGetFreeMemory());
 
     // Publish seat -> prim so menu can transform an adjust arrow into the
     // frame the pose lives in. seat owns the binding and is the only
