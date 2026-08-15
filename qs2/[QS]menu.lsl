@@ -1,4 +1,4 @@
-string version = "0.21";
+string version = "0.22";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -176,11 +176,7 @@ string move_item_target(integer ch)
 
 // The WORLD rotation of the prim a seat is bound to, which is the frame
 // its pose positions are measured in. seat publishes the binding as
-// qs:prim:<ch>.
-//
-// Falls back to the root rotation when the key is missing or names the
-// root, which is also what a build without items gives: there the pose
-// frame is the script prim, and the base set lives in the root.
+// qs:prim:<ch>. Used as the FALLBACK when the camera is unknown.
 rotation frame_rot(integer ch)
 {
     integer link = (integer)llLinksetDataRead("qs:prim:" + (string)ch);
@@ -190,6 +186,93 @@ rotation frame_rot(integer ch)
              * llGetRootRotation();
     }
     return llGetRootRotation();
+}
+
+// ------------------------------------------------- camera-relative arrows
+//
+// AN ARROW MEANS WHAT THE USER SEES, not what the furniture thinks is
+// forward. Pressing left moves left on screen whether you look at the
+// sofa from the front or from behind.
+//
+// This is the one thing that made a second pose pad necessary: v1's
+// built-in arrows are prim-relative, so the QuickyHUD kit shipped
+// [QS]huddialog beside them to offer camera-relative ones. Both live in
+// the FURNITURE - PERMISSION_TRACK_CAMERA is auto-granted, without a
+// dialog, to a script in an object the agent sits on - so there was
+// never a reason for two, only history.
+//
+// Ported from hudproxy's getCamIndex / applyDirTransform, which are the
+// working implementation. The idea: flatten the avatar's facing to the
+// nearest 90 degrees, take the camera's bearing around them, and the
+// difference in quadrants says how far to rotate the pressed axis.
+//
+// PERMISSION IS SINGLE-VALUED, so it is re-acquired per clicker rather
+// than held. Holding it would silently transform a second sitter's
+// press with the first one's viewpoint - the same one-holder trap that
+// animated the wrong avatar in seat_start and seat_stop.
+integer cam_index(key av, vector camPos)
+{
+    list d = llGetObjectDetails(av, [OBJECT_POS, OBJECT_ROT]);
+    if (llGetListLength(d) < 2) return -1;
+
+    vector camDir = llVecNorm(camPos - llList2Vector(d, 0));
+    float camBearing = llAtan2(camDir.y, camDir.x) * RAD_TO_DEG;
+    if (camBearing < 0.0) camBearing += 360.0;
+
+    // Flatten the avatar's facing onto the horizontal plane before
+    // rounding: a seated avatar can be pitched or rolled by the pose,
+    // and the raw forward vector would then quantise to the wrong
+    // quadrant.
+    vector fwd = llRot2Fwd(llList2Rot(d, 1));
+    vector up = <0.0, 0.0, 1.0>;
+    vector left;
+    if (llFabs(fwd.z) > 0.999) left = llVecNorm(<0.0, 1.0, 0.0> % fwd);
+    else                       left = llVecNorm(up % fwd);
+    vector flat = llVecNorm(left % up);
+    float avZ = llRound(llAtan2(flat.y, flat.x) * RAD_TO_DEG / 90.0) * 90.0;
+
+    float diff = camBearing - avZ;
+    while (diff >  180.0) diff -= 360.0;
+    while (diff < -180.0) diff += 360.0;
+    return (llRound(diff / 90.0) + 4) % 4;
+}
+
+// Rotate a pressed axis into the quadrant the camera sits in. Z is never
+// turned: up is up from every viewpoint.
+vector cam_turn(vector dir, integer idx, integer isRot)
+{
+    if (dir.z != 0.0) return dir;
+
+    if (idx == 0)
+    {
+        if (dir.x != 0.0) dir = <-1.0, 0.0, 0.0>;
+        else              dir = <0.0, -1.0, 0.0>;
+    }
+    else if (idx == 1)
+    {
+        if (dir.x != 0.0) dir = <0.0, -1.0, 0.0>;
+        else              dir = <1.0,  0.0, 0.0>;
+    }
+    else if (idx == 2)
+    {
+        if (dir.x != 0.0) dir = <1.0, 0.0, 0.0>;
+        else              dir = <0.0, 1.0, 0.0>;
+    }
+    else
+    {
+        if (dir.x != 0.0) dir = <0.0,  1.0, 0.0>;
+        else              dir = <-1.0, 0.0, 0.0>;
+    }
+
+    // A rotation press is about the axis PERPENDICULAR to the movement
+    // the same button would make, which is why it gets a further quarter
+    // turn rather than the same mapping.
+    if (isRot)
+    {
+        if      (dir.x != 0.0) dir = <0.0, dir.x, 0.0>;
+        else if (dir.y != 0.0) dir = <-dir.y, 0.0, 0.0>;
+    }
+    return dir;
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -515,25 +598,38 @@ integer adj_click(integer op, integer a, string msg)
     float s = step;
     if (at > 2) s = -step;
     integer axis = at % 3;
-    vector step_v;
-    if (axis == 0) step_v.x = s;
-    if (axis == 1) step_v.y = s;
-    if (axis == 2) step_v.z = s;
+    vector dir;
+    if (axis == 0) dir.x = 1.0;
+    if (axis == 1) dir.y = 1.0;
+    if (axis == 2) dir.z = 1.0;
 
-    // TURN THE PRESS INTO THE FRAME THE POSE LIVES IN. Without this the
-    // raw axis delta is added directly, so on furniture standing at an
-    // angle "forward" pushes sideways and an X press leaks into Y.
-    //
-    // v1 does the same division (sitA.lsl:866) and picks its divisor
-    // from the notecard's LROT: the script prim's WORLD rotation by
-    // default, its local rotation when LROT is 1. Here the divisor is
-    // the rotation of the prim the seat is bound to, which with items
-    // declared is the item's own prim - the same frame seat measures
-    // positions in, so the two cannot disagree.
-    //
-    // Rotation deltas are NOT transformed: they are Euler degrees added
-    // to the pose's own rotation, already expressed in that frame.
-    if (!isRot) step_v = step_v / frame_rot(seat);
+    // CAMERA FIRST, PRIM AS FALLBACK. The permission is auto-granted to
+    // a seated avatar, so the camera path is the normal one; the prim
+    // rotation only covers the moment before a grant lands, or an
+    // operator who is not seated at all.
+    key who = (key)llList2String(ADJ, r);
+    integer idx = -1;
+    llRequestPermissions(who, PERMISSION_TRACK_CAMERA);
+    if (llGetPermissionsKey() == who)
+    {
+        if (llGetPermissions() & PERMISSION_TRACK_CAMERA)
+            idx = cam_index(who, llGetCameraPos());
+    }
+
+    vector step_v;
+    if (idx != -1)
+    {
+        step_v = cam_turn(dir, idx, isRot) * s;
+    }
+    else
+    {
+        step_v = dir * s;
+        // Same division v1 uses (sitA.lsl:866), against the frame the
+        // pose is measured in rather than v1's LROT choice: with items
+        // that is the item's own prim, so the arrows and the positions
+        // cannot disagree.
+        if (!isRot) step_v = step_v / frame_rot(seat);
+    }
     d += step_v;
 
     if (isRot) ADJ = llListReplaceList(ADJ, [d], r + 4, r + 4);
