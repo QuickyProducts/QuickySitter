@@ -1,4 +1,4 @@
-string version = "0.17";
+string version = "0.18";
 
 /*
  * [QS]core - QuickySitter v2 pose engine
@@ -104,6 +104,13 @@ integer SEATS;                    // channel count
 integer DFLT;
 integer SET;
 
+// v2 FORK ONLY, stage 2: the channel range of one item, filled by
+// item_range. Out-params because an LSL function returns one thing.
+// Defaults to the whole linkset, which is what a notecard without ITEM
+// lines means and why every scoped loop below needs no special case.
+integer ITEM_FIRST;
+integer ITEM_COUNT;
+
 integer verbose = 0;
 
 string LSD_RESERVE_KEY = "QPP_CFG:RESERVE";
@@ -185,6 +192,31 @@ alive_reply()
     llMessageLinked(LINK_SET, QSALIVE_REPLY,
         "QuickySitter|" + version + "|" + (string)SEATS + "|"
         + "customs90260,offsetlsd_v1", "");
+}
+
+// Which channels belong to the same item as this one. Read on demand:
+// pose starts are not frequent enough to justify a cache that would
+// need invalidating on every re-seed.
+item_range(integer ch)
+{
+    ITEM_FIRST = 0;
+    ITEM_COUNT = SEATS;
+    integer i = 0;
+    string row = llLinksetDataRead("qs:item:0");
+    while (row != "")
+    {
+        list f = llParseStringKeepNulls(row, ["|"], []);
+        integer first = (integer)llList2String(f, 1);
+        integer count = (integer)llList2String(f, 2);
+        if (ch >= first && ch < first + count)
+        {
+            ITEM_FIRST = first;
+            ITEM_COUNT = count;
+            return;
+        }
+        ++i;
+        row = llLinksetDataRead("qs:item:" + (string)i);
+    }
 }
 
 // ------------------------------------------------------------- entries
@@ -618,12 +650,17 @@ start_entry(integer ch, integer i)
 
     if (etype == "S")
     {
-        // The broadcast. Every OTHER occupied channel looks for an entry
-        // of its own with this name and plays that one. A channel that
-        // has no such entry is simply not touched, which is how v1
-        // scopes a SYNC without any grouping token.
-        integer c = 0;
-        while (c < SEATS)
+        // The broadcast, SCOPED TO THIS ITEM. Every other channel of the
+        // same item looks for an entry of its own with this name and
+        // plays that one; one without such an entry is simply not
+        // touched, which is how v1 scopes a SYNC without any grouping
+        // token. The item bound is stage 2's addition: a couple pose on
+        // the sofa has no business reaching the armchair, even if both
+        // happen to carry a pose of that name.
+        item_range(ch);
+        integer c = ITEM_FIRST;
+        integer cend = ITEM_FIRST + ITEM_COUNT;
+        while (c < cend)
         {
             if (c != ch)
             {
@@ -864,18 +901,34 @@ default
         if (num == QSS_VACATED)
         {
             // v1's reset point: a seat's remembered pose survives every
-            // individual stand-up and dies only when the whole furniture
+            // individual stand-up and dies only when the furniture
             // empties, gated on DFLT (sitA.lsl:1497). Without the
             // survive-part a brief stand-up loses the couple pose;
             // without the reset-part the furniture greets the next
             // couple with whatever the last one was doing.
-            integer c = 0;
-            while (c < SEATS)
+            //
+            // PER ITEM, not per linkset. Checking every channel meant an
+            // occupied armchair kept the sofa's memory alive forever, so
+            // the next person on the sofa inherited a stranger's pose
+            // instead of the notecard default - which is how it showed
+            // up: moving to another item did not land on its HIDDEN Sit.
+            item_range((integer)msg);
+            integer c = ITEM_FIRST;
+            integer cend = ITEM_FIRST + ITEM_COUNT;
+            while (c < cend)
             {
                 if (llLinksetDataRead("qs:occ:" + (string)c) != "") return;
                 ++c;
             }
-            if (DFLT) llLinksetDataDeleteFound("^qs:cur:", "");
+            if (DFLT)
+            {
+                c = ITEM_FIRST;
+                while (c < cend)
+                {
+                    llLinksetDataDelete("qs:cur:" + (string)c);
+                    ++c;
+                }
+            }
             return;
         }
 
