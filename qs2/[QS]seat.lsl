@@ -1,4 +1,4 @@
-string version = "0.28";
+string version = "0.29";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -1389,18 +1389,41 @@ default
             // Refused, out loud, when the target item is full: silently
             // doing nothing would read as a broken button, and the
             // person asking is on a vehicle they cannot leave.
+            // GENDER FIRST, then any free seat. Taking simply the first
+            // free one put a male arrival on the sofa's female seat and
+            // played her pose - the same rule regender applies to an
+            // ordinary arrival, which a move has no reason to skip.
+            //
+            // regender itself is deliberately NOT reused: it works by
+            // swapping PRIM BINDINGS, which is right when the avatar is
+            // physically on the wrong prim of one item, and wrong here,
+            // where the whole point is that nobody moves physically.
+            integer g = gender_of(id);
             integer to = -1;
+            integer any = -1;
             integer k = 0;
-            while (k < count && to == -1)
+            while (k < count)
             {
                 integer cand = first + k;
                 if (cand < seats)
                 {
                     if (llList2String(SEATS, cand * SEAT_STRIDE + 1) == "")
-                        to = cand;
+                    {
+                        if (any == -1) any = cand;
+                        if (to == -1)
+                        {
+                            integer want = -1;
+                            if (llGetListLength(GENDERS) > cand)
+                                want = llList2Integer(GENDERS, cand);
+                            // -1 is "takes anybody", and only an exact
+                            // match beats the plain first-free fallback.
+                            if (want == g) to = cand;
+                        }
+                    }
                 }
                 ++k;
             }
+            if (to == -1) to = any;
             if (to == -1)
             {
                 llRegionSayTo(id, 0, "\"" + llList2String(f, 1)
