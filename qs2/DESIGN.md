@@ -1612,6 +1612,11 @@ and face animations. Mechanically they are ONE feature: while pose X plays on
 sitter S, additionally play animation set Y. v2 integrates that as a notecard
 line instead of a plugin script.
 
+VERIFIED IN-WORLD for both plugin classes: hand grips (gripR overlays,
+2026-08-15) and faces (BJ1 riding the "Suck this" SYNC on the item-test
+build, 2026-08-16). The anims loop, so an overlay stays up for the pose's
+whole life without a re-trigger.
+
 The saving is per-furniture script count, on top of the sitter
 consolidation: those plugins ship n hand scripts + n face scripts + one
 controller = 2n+1 (a two-seater: 5 scripts, 320 KB). With OVERLAY the same
