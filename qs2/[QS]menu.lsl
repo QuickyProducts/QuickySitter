@@ -1,4 +1,4 @@
-string version = "0.33";
+string version = "0.34";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -577,12 +577,18 @@ adj_dialog(integer op, integer a)
 
     // The active step is the FILLED circle. Three fixed sizes beat one
     // cycling button: you can see which you are on without pressing.
-    string s1 = "○ Small step";
-    string s2 = "○ Middle step";
-    string s3 = "○ Large step";
-    if (step <= 0.02)       s1 = "● Small step";
-    else if (step <= 0.06)  s2 = "● Middle step";
-    else                    s3 = "● Large step";
+    //
+    // NO "step" IN THE LABEL. The viewer clips a dialog button well
+    // before the 24-character limit dialog_safe guards - "○ Middle step"
+    // came out as "○ Middle ste" - and the word is already in the header
+    // line above the pad. adj_click matches these on the bare size word,
+    // so the wording can be trimmed without touching the dispatch.
+    string s1 = "○ Small";
+    string s2 = "○ Middle";
+    string s3 = "○ Large";
+    if (step <= 0.02)       s1 = "● Small";
+    else if (step <= 0.06)  s2 = "● Middle";
+    else                    s3 = "● Large";
 
     // EACH MODE HAS ITS OWN LABELS AND ITS OWN AXIS PLACES. Rotating is
     // not "moving around a corner", so Up/Fwd/Left would name the wrong
