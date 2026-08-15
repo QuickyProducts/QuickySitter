@@ -369,3 +369,45 @@ REFERENCE on the nudge, the menu leftovers (MTYPE/ETYPE, seat picker, swap
 dialog), and the deferred SEQUENCE/KFM/camera set. The two untested memory
 cases (brief stand-up rejoins the couple pose; full vacancy forgets) remain
 cheap to verify whenever two avatars are logged in.
+
+## Stage 2 (ITEM) in-world status, 2026-08-15
+
+Working on the two-item test build (`#Sofa` two seats, `#Chair` one):
+
+- `ITEM <name>` parsed, item table in `qs:item:<idx>`, SITTER numbering local
+  to the item and remapped to a global channel (boot 0.03)
+- prim addressed BY NAME: `#Sofa` binds the whole item to one prim, `#Sofa-1`
+  one seat; legacy `#SET-slot` untouched; an unknown name warns (seat 0.25)
+- a door is per prim, derived from "more than one seat bound here", so both
+  build shapes coexist in one linkset (seat 0.24)
+- with items declared, poses and offsets are measured from the ITEM's own prim,
+  so a builder can move and rotate an item freely. Conditional on the ITEM line
+  precisely because no existing notecard has one (seat 0.26)
+- SYNC broadcast and pose-memory reset scoped to the item (core 0.18)
+- item named in the dialog title, suppressed below two items (menu 0.18)
+- **change item without standing up** (`> Sofa`), gender-aware seat pick, and a
+  spoken refusal when the target item is full (seat 0.29, menu 0.20)
+
+### Two defects worth remembering, both found by wire trace rather than reading
+
+**A plugin broadcast wrote pose memory into empty items.** The stock 90000 P
+fallback walked every channel; `start_entry` records `qs:cur`, so sitting on the
+chair left a memory on both sofa seats and the next arrival there inherited it
+instead of the notecard default. Recording is the couple-join mechanism and
+belongs to the item-scoped S branch (core 0.20).
+
+**The move ignored gender**, landing a male on the sofa's female seat and
+playing her hidden default. Ordinary arrivals had gone through regender since
+0.15. regender is deliberately not reused on the move path: it works by
+swapping PRIM BINDINGS, which is right when somebody is physically on the wrong
+prim and wrong for a move, where nobody moves physically (seat 0.29).
+
+### The vehicle case is why the move exists
+
+On a ship under way, standing up means going overboard. That ruled out an
+earlier draft restricting cross-item moves to door prims, since ships are
+exactly the builds with one prim per seat. Resolved without giving up the
+self-healing occupancy model: the adopt pass gained one rule - an avatar
+occupies exactly one seat, so a sit target naming somebody already recorded
+elsewhere describes an empty seat. Classic seats are scanned free-then-adopt,
+which also fixed an ordering hazard that predates the feature.
