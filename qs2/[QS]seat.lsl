@@ -1,4 +1,4 @@
-string version = "0.32";
+string version = "0.33";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -7,7 +7,7 @@ string version = "0.32";
  * WHO SITS WHERE. [QS]core owns WHAT GETS PLAYED.
  *
  * Responsibilities: sit targets, the occupancy table, the sit/stand
- * lifecycle, seat swapping, and driving the animations.
+ * lifecycle, the item move, and driving the animations.
  *
  * DROP-IN REPLACEMENT. Together with core and menu this replaces the 2N
  * [QS]sitA / [QS]sitB instances. It reads the schema today's [QS]boot
@@ -52,7 +52,10 @@ integer QSS_OCCUPIED = 90410;
 integer QSS_VACATED  = 90411;
 integer QSS_TOUCH    = 90412;
 integer QSS_SEATED   = 90413;
-integer QSS_SWAP     = 90414;
+// 90414 QSS_SWAP is retired: the seat-swap became the item move below,
+// and nothing sent it anymore. Removed for bytecode, not for taste -
+// seat runs nearest the 64 KB ceiling of the four (measured 2026-08-15,
+// 4378 free at boot on the item-test build). The number stays reserved.
 integer QSS_NUDGE    = 90415;   // menu -> seat, live offset preview
 integer QSS_MOVE     = 90416;   // menu -> seat, change item without standing
 
@@ -1135,47 +1138,15 @@ rescan_occupancy()
     }
 }
 
-// A row swap plus new sit targets. In v1 this was ~80 lines of protocol
-// between two independent script instances (90030/90031).
-swap_seats(integer a, integer b)
-{
-    if (a < 0 || b < 0) return;
-    if (a == b) return;
-    integer ra = a * SEAT_STRIDE;
-    integer rb = b * SEAT_STRIDE;
-    string occA = llList2String(SEATS, ra + 1);
-    string occB = llList2String(SEATS, rb + 1);
-
-    SEATS = llListReplaceList(SEATS, [occB], ra + 1, ra + 1);
-    SEATS = llListReplaceList(SEATS, [occA], rb + 1, rb + 1);
-
-    if (occB != "") llLinksetDataWrite("qs:occ:" + (string)a, occB);
-    else            llLinksetDataDelete("qs:occ:" + (string)a);
-    if (occA != "") llLinksetDataWrite("qs:occ:" + (string)b, occA);
-    else            llLinksetDataDelete("qs:occ:" + (string)b);
-
-    // Rows swapped; the running animations have not. core re-resolves,
-    // which reapplies both with the new occupants and their own personal
-    // offsets.
-    llMessageLinked(LINK_SET, QSC_RESYNC, "", "");
-}
-
 boot_up()
 {
-    // STAGED MEMORY READINGS, verbose 1+. The ready line alone cannot
-    // say whether a low number is bytecode (permanent, needs a code
-    // diet) or a boot transient (Mono never returns grown heap, so one
-    // greedy pass depresses free memory for the script's whole life
-    // and the fix is to make THAT pass allocate less). Four readings
-    // bracket the suspects. The first is CAPTURED before load_from_lsd
-    // and printed after it, because that call is where verbose itself
-    // is loaded.
-    integer m0 = llGetFreeMemory();
+    // Staged memory readings sat here for one release (0.32). Verdict,
+    // so nobody re-instruments: 4378 free BEFORE any boot work - the
+    // weight is bytecode, not a boot transient, and the split-or-diet
+    // decision is parked until the next functional change to this
+    // script (STATUS.md).
     load_from_lsd();
-    Out(1, "mem at boot_up " + (string)m0
-        + ", after load_from_lsd " + (string)llGetFreeMemory());
     resolve_bindings();
-    Out(1, "mem after resolve_bindings " + (string)llGetFreeMemory());
 
     // Publish seat -> prim so menu can transform an adjust arrow into the
     // frame the pose lives in. seat owns the binding and is the only
@@ -1458,13 +1429,6 @@ default
             // the pose without a [SAVE] puts things back.
             move_occupant(seat, (vector)llList2String(f, 0),
                 (vector)llList2String(f, 1));
-            return;
-        }
-
-        if (num == QSS_SWAP)
-        {
-            list f = llParseString2List(msg, ["|"], []);
-            swap_seats((integer)llList2String(f, 0), (integer)llList2String(f, 1));
             return;
         }
 

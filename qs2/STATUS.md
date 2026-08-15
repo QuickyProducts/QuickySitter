@@ -411,3 +411,28 @@ self-healing occupancy model: the adopt pass gained one rule - an avatar
 occupies exactly one seat, so a sit target naming somebody already recorded
 elsewhere describes an empty seat. Classic seats are scanned free-then-adopt,
 which also fixed an ordering hazard that predates the feature.
+
+## seat is at the bytecode ceiling - DECIDE ON THE NEXT seat CHANGE
+
+Measured 2026-08-15 on the item-test build (3 seats, 2 items), seat 0.32
+with staged readings: **4378 bytes free at boot_up entry**, before any
+boot work. The weight is compiled bytecode, not a boot transient and not
+string literals (~2 KB total). A pose-start transient on a fuller build
+can stack-heap-crash the script.
+
+Immediate relief taken in 0.33: the dead QSS_SWAP handler + swap_seats
+went (nothing sent 90414 since the seat-swap became the item move), and
+the staged readings went with it.
+
+THE DECISION, parked by agreement until the next functional change to
+seat, whichever comes first:
+
+1. **A fifth script** (+64 KB headroom). Best cut: the door/arrival
+   machinery (nearest_door, pick_seat, arm_door, door half of rescan) -
+   newest subsystem, cleanest seam, and optional for classic builds. The
+   alternative seam is the interaction set (NUDGE, MOVE, 90057).
+2. **Diet in place**: 3-5 KB realistic, and the next feature starts the
+   squeeze again.
+
+Whoever touches seat next: re-measure first (one llGetFreeMemory print
+at boot_up entry), numbers over guesses.
