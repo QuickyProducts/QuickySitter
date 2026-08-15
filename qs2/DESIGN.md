@@ -1552,7 +1552,10 @@ The saving is per-furniture script count, on top of the sitter
 consolidation: those plugins ship n hand scripts + n face scripts + one
 controller = 2n+1 (a two-seater: 5 scripts, 320 KB). With OVERLAY the same
 furniture runs the feature at zero extra scripts - a two-seater lands on 4
-scripts total against 13 before (8 sitter + 5 plugin).
+scripts total against 10 before (5 sitter engine: n sitA + n sitB + boot,
+plus the 5 plugin scripts), 256 KB against 640. Scripts that exist
+identically on both sides ([QS]prop, the authoring-time adjuster) are not
+counted.
 
 ### Syntax
 
