@@ -1572,9 +1572,17 @@ block, without the ITEM token. The card says how many seats the item has
 link order of the item prims: deterministic, no numbering in card names.
 
 **AVpos stays base + root menu.** Global directives (BRAND, VERBOSE, onSit,
-CUSTOM_TEXT, ...) live ONLY there; in a `QS#` card they are an error with
-a message, because card order must never decide a global. A build with no
+CUSTOM_TEXT, ...) live ONLY there, because card order must never decide a
+global. In a `QS#` card they are IGNORED WITH A WARNING, one line per
+directive naming card and token - deliberately not an error, because the
+real-world authoring path for an item card is "copy the AVpos, rename,
+trim", and a missed BRAND line must not brick the item. A build with no
 QS# cards behaves exactly as today, nothing migrates.
+
+The one hard error in a `QS#` card is an ITEM token: if the copied AVpos
+itself declared items, ignoring the tokens would silently merge several
+items' SITTER blocks into one item. That is not a leftover, it is a
+misunderstanding - skip the card with a message.
 
 **Conflict rules.**
 
