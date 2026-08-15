@@ -1,4 +1,4 @@
-string version = "0.03";   // qs2 dev scheme; 2.0x is reserved for the release
+string version = "0.04";   // qs2 dev scheme; 2.0x is reserved for the release
 
 /*
  * [QS]boot - QuickySitter loader
@@ -1276,7 +1276,10 @@ default
                     Readout_Say("");
                     Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
                     Readout_Say("");
-                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "QuickySitter "));
+                    // The DUMP header a creator pastes back into AVpos.
+                    // Display name, so it carries the 2; the QSALIVE wire
+                    // token stays plain "QuickySitter".
+                    Readout_Say("\"" + llToUpper(llGetObjectName()) + "\" " + qs_str_replace(llList2String(data, 0), "V:", "QuickySitter 2 "));
                     if (llList2Integer(data, 1))
                     {
                         Readout_Say("MTYPE " + llList2String(data, 1));

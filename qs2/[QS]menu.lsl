@@ -1,4 +1,4 @@
-string version = "0.28";
+string version = "0.29";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -763,7 +763,11 @@ string dialog_title(integer ch, key av, integer page, integer pages)
         llLinksetDataRead("qs:cfg:" + (string)ch), ["\n"], []);
 
     string t = llList2String(cfg, 11);              // BRAND
-    if (t == "") t = "QuickySitter™ " + version;
+    // The DISPLAY name carries the 2; the wire token in core's QSALIVE
+    // reply stays "QuickySitter" because every receiver matches on it
+    // literally - sitB, hudadmin, boot's self-check - and renaming it
+    // would read as "no sitter present" to all of them at once.
+    if (t == "") t = "QuickySitter™ 2 " + version;
 
     // "Menu for X" only when the operator is not the person in the seat,
     // which is what tells a second reader whose seat is being driven.
