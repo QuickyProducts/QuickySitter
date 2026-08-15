@@ -1,4 +1,4 @@
-string version = "0.18";
+string version = "0.19";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -104,6 +104,7 @@ integer SEC_ADJUST  = -3;
 // make the pose visibly jump into place.
 list ADJ;
 integer ADJ_STRIDE = 7;
+integer QSS_SWAP    = 90414;   // menu -> seat, exchange two seats
 integer QSS_NUDGE   = 90415;   // menu -> seat, live sit-target preview
 integer QSO_SAVE    = 90262;   // -> [QS]offset, save personal offset
 
@@ -144,6 +145,33 @@ string item_of(integer ch)
         row = llLinksetDataRead("qs:item:" + (string)i);
     }
     return "";
+}
+
+// The seat to swap with when [SWAP ITEM] is pressed: the first occupied
+// seat belonging to a DIFFERENT item. -1 when there is nothing to do,
+// which is also what hides the button.
+//
+// First-match rather than a picker on purpose. Two items is the case
+// that exists; a picker for three would be a second dialog for a
+// situation nobody has built yet, and the seat picker is the right home
+// for that when it arrives.
+integer swap_item_target(integer ch)
+{
+    if (llLinksetDataRead("qs:item:1") == "") return -1;   // one item
+    string mine = item_of(ch);
+    integer c = 0;
+    while (llLinksetDataRead("qs:sitter:" + (string)c) != "")
+    {
+        if (c != ch)
+        {
+            if (llLinksetDataRead("qs:occ:" + (string)c) != "")
+            {
+                if (item_of(c) != mine) return c;
+            }
+        }
+        ++c;
+    }
+    return -1;
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -634,6 +662,11 @@ render(integer op)
     // there.
     if (mi == -1)
     {
+        // Offered only when it can actually do something: the operator
+        // is seated, another item exists, and somebody is on it. Showing
+        // a button that answers "nobody to swap with" is worse than not
+        // showing one.
+        if (swap_item_target(ch) != -1) tail += "[SWAP ITEM]";
         if (nOpt) tail += "[OPTIONS]";
         if (nAdj || hasPad) tail += "[ADJUST]";
     }
@@ -735,6 +768,16 @@ click(integer op, string msg)
             adj_dialog(op, adj_of(av));
             return;
         }
+        render(op);
+        return;
+    }
+
+    if (msg == "[SWAP ITEM]")
+    {
+        integer other = swap_item_target(ch);
+        if (other != -1)
+            llMessageLinked(LINK_SET, QSS_SWAP,
+                (string)ch + "|" + (string)other, av);
         render(op);
         return;
     }

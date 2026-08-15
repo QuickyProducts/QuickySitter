@@ -1,4 +1,4 @@
-string version = "0.26";
+string version = "0.27";
 
 /*
  * [QS]seat - QuickySitter v2 occupancy engine
@@ -1072,10 +1072,39 @@ rescan_occupancy()
 
 // A row swap plus new sit targets. In v1 this was ~80 lines of protocol
 // between two independent script instances (90030/90031).
+// SWAPPING ACROSS ITEMS IS ONLY POSSIBLE ON DOOR PRIMS, and the reason
+// is worth stating because it looks like an arbitrary restriction.
+//
+// A swap exchanges the OCCUPANT column and nothing physical: SL still
+// believes each avatar sits where they sat, and move_occupant then
+// places them at their new seat's position, in that seat's frame. For a
+// door prim that is the whole story, because occupancy there is tracked.
+//
+// A classic seat RE-DERIVES its occupant from llAvatarOnLinkSitTarget on
+// every scan. That self-healing property is the reason a missed event
+// cannot desynchronise the table - and it also means the sit target,
+// which still names the original sitter, would revert the swap on the
+// next CHANGED_LINK. Overriding it would trade a permanent guarantee for
+// one feature, which is not a trade worth making.
+//
+// Within one item both seats share a prim by construction, so the
+// ordinary [SWAP] is unaffected either way.
+integer swap_possible(integer a, integer b)
+{
+    if (same_item(a, b)) return TRUE;
+    integer pa = llList2Integer(SEATS, a * SEAT_STRIDE);
+    integer pb = llList2Integer(SEATS, b * SEAT_STRIDE);
+    if (is_door(pa) && is_door(pb)) return TRUE;
+    Out(0, "cross-item swap needs both items on their own prim"
+        + " (a description like \"#Sofa\" rather than \"#Sofa-0\").");
+    return FALSE;
+}
+
 swap_seats(integer a, integer b)
 {
     if (a < 0 || b < 0) return;
     if (a == b) return;
+    if (!swap_possible(a, b)) return;
     integer ra = a * SEAT_STRIDE;
     integer rb = b * SEAT_STRIDE;
     string occA = llList2String(SEATS, ra + 1);
