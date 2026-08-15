@@ -1,4 +1,4 @@
-string version = "0.23";
+string version = "0.24";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -516,6 +516,14 @@ integer adj_open(key av, integer seat)
 
 // Live preview. seat owns the sit targets, so it does the moving; this
 // only accumulates the delta and says where to put it.
+// EVERY PRESS PERSISTS, which is what the pad says and what the HUD
+// path has always done: hudproxy writes 90262 on each arrow, there is
+// no separate save step. A pad with a [SAVE] button invites people to
+// nudge, stand up, and lose it - the failure this avoids entirely.
+//
+// Two messages rather than one: QSS_NUDGE is the live preview seat
+// applies to the avatar's link, QSO_SAVE is the persistent write. They
+// carry the same delta, so the picture and the store cannot drift.
 adj_apply(integer a)
 {
     integer r = a * ADJ_STRIDE;
@@ -523,6 +531,14 @@ adj_apply(integer a)
         llList2String(ADJ, r + 1) + "="
         + (string)llList2Vector(ADJ, r + 3) + "="
         + (string)llList2Vector(ADJ, r + 4), "");
+
+    // v1 payload: "<slot>|<poseName>|<posDelta>|<rotDelta>", id is the
+    // avatar. The store keys on the RAW pose name, prefix included.
+    llMessageLinked(LINK_SET, QSO_SAVE,
+        llList2String(ADJ, r + 1) + "|" + llList2String(ADJ, r + 2) + "|"
+        + (string)llList2Vector(ADJ, r + 3) + "|"
+        + (string)llList2Vector(ADJ, r + 4),
+        (key)llList2String(ADJ, r));
 }
 
 adj_dialog(integer op, integer a)
@@ -533,13 +549,40 @@ adj_dialog(integer op, integer a)
     if (llList2Integer(ADJ, r + 5)) mode = "ROTATION";
     float step = llList2Float(ADJ, r + 6);
 
+    // THE PAD, in the layout the QuickyHUD kit taught people. Named
+    // directions rather than axis letters, because the arrows are
+    // camera-relative: "Left" is left on screen, and calling it "Y-"
+    // would be a label that changes meaning as you orbit.
+    //
+    // Written in READING order, top row first; reorder_rows turns it
+    // into llDialog's bottom-up fill. The result is the same button
+    // arrangement [QS]huddialog sent over 90279, which is the point:
+    // absorbing that pad must not cost anyone their muscle memory.
+    string toggle = "Rotate";
+    if (llList2Integer(ADJ, r + 5)) toggle = "Move";
+
+    // The active step is the filled marker. Three fixed sizes beat one
+    // cycling button: you can see which you are on without pressing.
+    string s1 = "- Small";
+    string s2 = "- Medium";
+    string s3 = "- Large";
+    if (step <= 0.006)      s1 = "* Small";
+    else if (step <= 0.06)  s2 = "* Medium";
+    else                    s3 = "* Large";
+
+    string unit = " m";
+    if (llList2Integer(ADJ, r + 5)) unit = " deg";
+
     dialog_safe((key)llList2String(OPS, row),
-        "\nPersonal adjustment: " + llList2String(ADJ, r + 2)
-        + "\n" + mode + ", step " + (string)step,
-        reorder_rows(["[BACK]", mode, (string)step,
-         "[DEFAULT]", "[SAVE]", "[SAVE ALL]",
-         "X+", "Y+", "Z+",
-         "X-", "Y-", "Z-"]),
+        "\nAdjust: " + mode
+        + "\nPose " + llList2String(ADJ, r + 2)
+        + "\nStep " + (string)step + unit
+        + "\nEvery press is saved as your personal offset.",
+        reorder_rows([
+            s1,       s2,        s3,
+            "Up",     "Fwd",     "Down",
+            "Left",   "Default", "Right",
+            toggle,   "Back",    "[BACK]"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -553,23 +596,36 @@ integer adj_click(integer op, integer a, string msg)
     vector d = llList2Vector(ADJ, r + 3);
     if (isRot) d = llList2Vector(ADJ, r + 4);
 
-    if (msg == "POSITION" || msg == "ROTATION")
+    if (msg == "Rotate" || msg == "Move")
     {
         ADJ = llListReplaceList(ADJ, [!isRot], r + 5, r + 5);
         adj_dialog(op, a);
         return TRUE;
     }
-    if (msg == (string)step)
+    // Three fixed sizes rather than a cycle: the dialog shows which one
+    // is active, so pressing one must SET it, not advance past it. The
+    // suffix match keeps the marker out of the comparison. One ladder
+    // serves both modes - metres here read as degrees there, and the
+    // magnitudes happen to suit both.
+    if (llSubStringIndex(msg, "Small") != -1)
     {
-        // Cycle the step. Rotation steps are degrees, position metres,
-        // so one ladder does for both at these magnitudes.
-        float next = step * 10.0;
-        if (next > 10.0) next = 0.005;
-        ADJ = llListReplaceList(ADJ, [next], r + 6, r + 6);
+        ADJ = llListReplaceList(ADJ, [0.005], r + 6, r + 6);
         adj_dialog(op, a);
         return TRUE;
     }
-    if (msg == "[DEFAULT]")
+    if (llSubStringIndex(msg, "Medium") != -1)
+    {
+        ADJ = llListReplaceList(ADJ, [0.05], r + 6, r + 6);
+        adj_dialog(op, a);
+        return TRUE;
+    }
+    if (llSubStringIndex(msg, "Large") != -1)
+    {
+        ADJ = llListReplaceList(ADJ, [0.5], r + 6, r + 6);
+        adj_dialog(op, a);
+        return TRUE;
+    }
+    if (msg == "Default")
     {
         ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 3, r + 3);
         ADJ = llListReplaceList(ADJ, [ZERO_VECTOR], r + 4, r + 4);
@@ -577,22 +633,19 @@ integer adj_click(integer op, integer a, string msg)
         adj_dialog(op, a);
         return TRUE;
     }
-    if (msg == "[SAVE]" || msg == "[SAVE ALL]")
-    {
-        // v1 payload: "<slot>|<poseName>|<posDelta>|<rotDelta>", id is
-        // the avatar. M#T! is the reserved "every pose" entry.
-        string name = llList2String(ADJ, r + 2);
-        if (msg == "[SAVE ALL]") name = "M#T!";
-        llMessageLinked(LINK_SET, QSO_SAVE,
-            llList2String(ADJ, r + 1) + "|" + name + "|"
-            + (string)llList2Vector(ADJ, r + 3) + "|"
-            + (string)llList2Vector(ADJ, r + 4),
-            (key)llList2String(ADJ, r));
-        adj_dialog(op, a);
-        return TRUE;
-    }
+    // No [SAVE] button: adj_apply persists every press. M#T!, the
+    // "same offset for every pose" entry, therefore has no button on
+    // this pad either - the twelve slots are spent on directions and
+    // step sizes. It is still reachable through the HUD's own settings,
+    // and core answers the wire for it unchanged, so nothing is lost
+    // except a shortcut. Worth revisiting if anyone asks for it.
 
-    integer at = llListFindList(["X+", "Y+", "Z+", "X-", "Y-", "Z-"], [msg]);
+    // Order matters: the first three are the positive half of each axis,
+    // the last three its negative, so index-3 flips the sign and
+    // index%3 names the axis. SL's own convention, +X forward, +Y left,
+    // +Z up, is what makes the labels line up with the vectors.
+    integer at = llListFindList(
+        ["Fwd", "Left", "Up", "Back", "Right", "Down"], [msg]);
     if (at == -1) return FALSE;
 
     float s = step;
