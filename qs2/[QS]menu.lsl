@@ -1,4 +1,4 @@
-string version = "0.26";
+string version = "0.28";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -561,38 +561,72 @@ adj_dialog(integer op, integer a)
     // into llDialog's bottom-up fill. The result is the same button
     // arrangement [QS]huddialog sent over 90279, which is the point:
     // absorbing that pad must not cost anyone their muscle memory.
+    integer isRot = llList2Integer(ADJ, r + 5);
     string toggle = "↻ Rotate";
-    if (llList2Integer(ADJ, r + 5)) toggle = "✛ Move";
+    if (isRot) toggle = "✛ Move";
 
     // The active step is the FILLED circle. Three fixed sizes beat one
     // cycling button: you can see which you are on without pressing.
     string s1 = "○ Small step";
     string s2 = "○ Middle step";
     string s3 = "○ Large step";
-    if (step <= 0.006)      s1 = "● Small step";
+    if (step <= 0.02)       s1 = "● Small step";
     else if (step <= 0.06)  s2 = "● Middle step";
     else                    s3 = "● Large step";
+
+    // EACH MODE HAS ITS OWN LABELS AND ITS OWN AXIS PLACES. Rotating is
+    // not "moving around a corner", so Up/Fwd/Left would name the wrong
+    // thing entirely; the kit uses Turn (around Z), Roll (around X) and
+    // Tilt (around Y), and puts them in different slots than the move
+    // arrows. Copied from [QS]huddialog's table(), including the slots.
+    //
+    // The page flip stays BOTTOM-LEFT in both modes, and that is a fix
+    // rather than an accident: it used to trade places with Down, so the
+    // one button you press to switch back moved under your finger the
+    // moment you used it. The cost, stated so nobody re-swaps it: Up and
+    // Down are no longer stacked, they share a row with Fwd between.
+    string bTL; string bTM; string bTR;      // third row
+    string bML; string bMR;                  // middle row, around Default
+    string bBM;                              // bottom row, beside the flip
+    if (isRot)
+    {
+        bTL = "⇓ Turn -"; bTM = "▲ Roll +"; bTR = "⇑ Turn +";
+        bML = "◄ Tilt +"; bMR = "Tilt - ►";
+        bBM = "▼ Roll -";
+    }
+    else
+    {
+        bTL = "⇑ Up";     bTM = "▲ Fwd";    bTR = "⇓ Down";
+        bML = "◄ Left";   bMR = "Right ►";
+        bBM = "▼ Back";
+    }
 
     // Show what a press ACTUALLY does, not the stored ladder value: the
     // rotate path scales it by 100, and printing 0.05 next to a five
     // degree turn would just be wrong.
-    string unit = " m";
-    float shown = step;
-    if (llList2Integer(ADJ, r + 5))
+    // LABELLED, NOT FORMATTED. (string) on an LSL float always yields six
+    // decimals, so the header read "5.000000°". The ladder has exactly
+    // three known values, so naming them costs less than a rounding
+    // helper and cannot drift from what a press actually does.
+    string amount = "0.05 m";
+    if (step <= 0.02)       amount = "0.01 m";
+    else if (step > 0.06)   amount = "0.10 m";
+    if (isRot)
     {
-        unit = "°";
-        shown = step * 100.0;
+        amount = "5°";
+        if (step <= 0.02)       amount = "1°";
+        else if (step > 0.06)   amount = "10°";
     }
 
     dialog_safe((key)llList2String(OPS, row),
         "\n✛ Adjust : " + mode
-        + "\nStep " + (string)shown + unit
+        + "\nStep " + amount
         + "\nEvery press is saved as personal offset.",
         reorder_rows([
-            s1,       s2,          s3,
-            "⇑ Up",   "▲ Fwd",     "⇓ Down",
-            "◄ Left", "◎ Default", "Right ►",
-            toggle,   "▼ Back",    "[BACK]"]),
+            s1,     s2,          s3,
+            bTL,    bTM,         bTR,
+            bML,    "◎ Default", bMR,
+            toggle, bBM,         "[BACK]"]),
         llList2Integer(OPS, row + 2));
     OPS = llListReplaceList(OPS, [llGetUnixTime()], row + 7, row + 7);
 }
@@ -619,7 +653,7 @@ integer adj_click(integer op, integer a, string msg)
     // magnitudes happen to suit both.
     if (llSubStringIndex(msg, "Small") != -1)
     {
-        ADJ = llListReplaceList(ADJ, [0.005], r + 6, r + 6);
+        ADJ = llListReplaceList(ADJ, [0.01], r + 6, r + 6);
         adj_dialog(op, a);
         return TRUE;
     }
@@ -631,7 +665,7 @@ integer adj_click(integer op, integer a, string msg)
     }
     if (llSubStringIndex(msg, "Large") != -1)
     {
-        ADJ = llListReplaceList(ADJ, [0.5], r + 6, r + 6);
+        ADJ = llListReplaceList(ADJ, [0.10], r + 6, r + 6);
         adj_dialog(op, a);
         return TRUE;
     }
@@ -654,8 +688,14 @@ integer adj_click(integer op, integer a, string msg)
     // the last three its negative, so index-3 flips the sign and
     // index%3 names the axis. SL's own convention, +X forward, +Y left,
     // +Z up, is what makes the labels line up with the vectors.
-    integer at = llListFindList(
-        ["▲ Fwd", "◄ Left", "⇑ Up", "▼ Back", "Right ►", "⇓ Down"], [msg]);
+    // Two label sets, one index space: first three are the positive half
+    // of X, Y, Z, the last three the negative, so index-3 flips the sign
+    // and index%3 names the axis. Roll is X, Tilt is Y, Turn is Z -
+    // which is why the rotate names are not a rename of the move ones.
+    list labels = ["▲ Fwd", "◄ Left", "⇑ Up", "▼ Back", "Right ►", "⇓ Down"];
+    if (isRot) labels = ["▲ Roll +", "◄ Tilt +", "⇑ Turn +",
+                         "▼ Roll -", "Tilt - ►", "⇓ Turn -"];
+    integer at = llListFindList(labels, [msg]);
     if (at == -1) return FALSE;
 
     float s = step;
