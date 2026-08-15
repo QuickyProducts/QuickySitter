@@ -1,4 +1,4 @@
-string version = "0.17";
+string version = "0.18";
 
 /*
  * [QS]menu - QuickySitter v2 dialogs
@@ -122,6 +122,28 @@ integer seat_count()
     integer c = 0;
     while (llLinksetDataRead("qs:sitter:" + (string)c) != "") ++c;
     return c;
+}
+
+// The name of the item owning this channel, for the dialog title.
+// Returns "" for a build with fewer than two items, which is what
+// suppresses the line on ordinary single-piece furniture rather than
+// printing a constant nobody needs. Read on demand: the title is not a
+// hot path, and caching it would need invalidating on every re-seed.
+string item_of(integer ch)
+{
+    if (llLinksetDataRead("qs:item:1") == "") return "";
+    integer i = 0;
+    string row = llLinksetDataRead("qs:item:0");
+    while (row != "")
+    {
+        list f = llParseStringKeepNulls(row, ["|"], []);
+        integer first = (integer)llList2String(f, 1);
+        if (ch >= first && ch < first + (integer)llList2String(f, 2))
+            return llList2String(f, 0);
+        ++i;
+        row = llLinksetDataRead("qs:item:" + (string)i);
+    }
+    return "";
 }
 
 // llDialog fills its 3-wide grid from the BOTTOM row upwards, with
@@ -487,6 +509,13 @@ string dialog_title(integer ch, key av, integer page, integer pages)
     string custom = llDumpList2String(
         llParseStringKeepNulls(llList2String(cfg, 13), ["\\n"], []), "\n");
     if (custom != "") t += custom + "\n";
+
+    // WHICH ITEM, then which seat. On a single-item build the item line
+    // is suppressed: naming the one piece of furniture in front of you
+    // says nothing, and v1 users would only see a line that never
+    // changes. It earns its place exactly when there is more than one.
+    string item = item_of(ch);
+    if (item != "") t += "[" + item + "] ";
 
     // The seat label from the notecard's SITTER directive, falling back
     // to the slot number the way v1 does when several seats exist.
