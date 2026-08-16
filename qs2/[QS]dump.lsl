@@ -1,4 +1,4 @@
-string version = "0.01";
+string version = "0.02";
 
 /*
  * [QS]dump - QuickySitter v2 settings dump (AUTHORING TOOL)
@@ -307,6 +307,7 @@ default
         // Wake any DUMP plugins that came up before us. Late starters
         // send their own unsolicited QSDUMP_HELLO on state_entry/on_rez.
         llMessageLinked(LINK_SET, QSDUMP_PROBE, "", "");
+        Out(1, "ready, mem=" + (string)llGetFreeMemory());
     }
 
     on_rez(integer p)
