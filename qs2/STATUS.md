@@ -467,3 +467,16 @@ boot went from tightest of the set to second-roomiest; the QS# card
 extension (§11.1) has its byte budget. The parse path (fresh seed) was
 not re-measured, but its transients ride on the same freed rest.
 [QS]dump 0.02 itself: 37530 free at ready, roomiest of the set.
+
+Free-memory table of the whole set, measured 2026-08-16/17 on the
+item-test build (the ~18/20 KB figures quoted earlier for menu/core were
+from the 0.16-era builds and are obsolete - menu in particular has since
+grown the pad, items and the registry):
+
+| script | free | note |
+|---|---|---|
+| dump 0.02 | 37530 | authoring-only |
+| boot 0.05 | 23412 | after the dump extraction |
+| core 0.21 | 12568 | |
+| menu 0.34 | 8154 | second-tightest, watch on next growth |
+| seat 0.33 | 5810 | tightest; split-or-diet parked, see above |
