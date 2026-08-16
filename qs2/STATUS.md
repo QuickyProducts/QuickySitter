@@ -461,5 +461,8 @@ authoring tool that ships and leaves with the adjuster:
 - total_channels is re-derived from qs:meta:* at every dump start, so a
   re-seed between dumps cannot leave it stale.
 
-Measure: boot prints Mem= in its "Load complete" / "Cached boot" line;
-compare before/after on the same build.
+Measured 2026-08-16 on the item-test build (Cached boot path): Mem=23412
+free on 0.05, against ~7.2 KB before - the extraction bought ~16 KB.
+boot went from tightest of the set to second-roomiest; the QS# card
+extension (§11.1) has its byte budget. The parse path (fresh seed) was
+not re-measured, but its transients ride on the same freed rest.
