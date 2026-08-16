@@ -466,3 +466,4 @@ free on 0.05, against ~7.2 KB before - the extraction bought ~16 KB.
 boot went from tightest of the set to second-roomiest; the QS# card
 extension (§11.1) has its byte budget. The parse path (fresh seed) was
 not re-measured, but its transients ride on the same freed rest.
+[QS]dump 0.02 itself: 37530 free at ready, roomiest of the set.
