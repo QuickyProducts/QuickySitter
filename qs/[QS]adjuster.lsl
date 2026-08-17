@@ -1,4 +1,4 @@
-string version = "1.271";
+string version = "1.272";
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -1093,7 +1093,6 @@ default
                         "Remote authoring needs the [QS]animesh plugin.");
                     return;
                 }
-                llMessageLinked(LINK_SET, 90282, "On", llGetOwner());
                 llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
                 llMessageLinked(LINK_SET, 90283, "On", llGetOwner());
             }
@@ -1101,12 +1100,12 @@ default
             {
                 // Deliberately NOT radius-gated — the owner may have walked
                 // away. Only a piece with an active standing session
-                // reacts (hudproxy stamps qs:hud:standing while one runs),
-                // so the off command never spams from bystander pieces.
+                // reacts ([QS]animeshAuthoring stamps qs:hud:standing while
+                // one runs), so the off command never spams from bystander
+                // pieces.
                 if (llLinksetDataRead("qs:hud:standing") == "") return;
                 llMessageLinked(LINK_SET, 90283, "Off", llGetOwner());
                 llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
-                llMessageLinked(LINK_SET, 90282, "Off", llGetOwner());
             }
         }
         else if (id == controller)
