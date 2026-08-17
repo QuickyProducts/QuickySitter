@@ -1040,20 +1040,34 @@ the sitter side.
 
 ### Adjusting without a seat
 
-`[QS]animeshAuthoring` opens its own listen on the operator's HUD
-channel and forwards each arrow press to `hudproxy` on **`90277`**
-`QSPOSE_ADJUST`, whose payload gained an optional fourth field:
+The worn HUD broadcasts on a channel derived from its wearer's key, and
+`hudproxy` only ever opens that listen in its 90060 **sit** handler — so
+for an operator who is seated nowhere, nobody is listening.
+`[QS]animeshAuthoring` opens that listen itself and decides per command:
 
-`"<token>|<step>|<camPos>|<target>"`
+- The twelve axis tokens and `*RESET*` are forwarded to `hudproxy` on
+  **`90277`** `QSPOSE_ADJUST`, whose payload gained an optional fourth
+  field: `"<token>|<step>|<camPos>|<target>"`. With a target present
+  hudproxy adjusts **that** entry (a dummy registered via `90275`)
+  instead of resolving one from the sender's own record, and skips the
+  seated same-furniture check. Compensating gates: the press is a link
+  message from inside the prim, the target must be a tracked entry, and
+  `ADJUSTMODE` must be On, so all it can move is a pose default. A
+  targeted `*RESET*` re-broadcasts the stored default (`resetPos`
+  resolves a group from the operator's own record, which does not exist
+  here). Empty fourth field = the seated behaviour, unchanged, which is
+  what `[QS]huddialog`'s pad sends.
+- `*MENU*` and `*SELECTSITTER*` are answered by the authoring script
+  itself: hudproxy's menu is rendered by the seat's own `[QS]sitB` and
+  its picker resolves seated sitters, neither of which exists here.
+- `*SYNC*` (90271) and `*DUMPFILTER*` (90400, keyed on the pose being
+  built) are plain broadcasts and go out directly.
+- `*SWAP*` and `*SETTINGS*` stay seat-bound and say so.
 
-With a target present hudproxy adjusts **that** entry (a dummy
-registered via `90275`) instead of resolving one from the sender's own
-record, and skips the seated same-furniture check — the operator is
-seated nowhere. Compensating gates: the press is a link message from
-inside the prim, the target must be a tracked entry, and `ADJUSTMODE`
-must be On, so the only thing it can move is a pose default. Empty
-fourth field = the seated behaviour, unchanged, which is what
-`[QS]huddialog`'s pad sends.
+`ADJUSTMODE` state runs the other way on the 958 channel. hudproxy
+broadcasts it over its slot table, i.e. to seated sitters only, so the
+authoring script sends the same message to the standing operator's HUD
+itself on session start and end.
 
 ## QSPROP_ATTACH — `90280`
 
