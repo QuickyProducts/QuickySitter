@@ -83,8 +83,8 @@ notice.
 | `90266` | same | `[QS]adjuster` → `hudproxy`: `"On"` / `"Off"` — flip QuickyHUD ADJUSTMODE remotely (sent by `[HELPER]`'s "Quicky HUD" branch and by `end_helper_mode` auto-Off) |
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 | `90280` | same | hudadmin / any in-prim source → `[QS]prop`: dynamic prop attach without notecard (see [§ QSPROP_ATTACH](#qsprop_attach--90280)) |
-| `90282` | same | `[QS]adjuster` → `hudproxy`: `QSPROXY_STANDING` — `"On"` / `"Off"`, id = the owner. Open / tear down a Remote-authoring standing session (see [§ Remote authoring](#remote-authoring--90282--90283)) |
-| `90283` | same | `[QS]adjuster` + `hudproxy` → `[QS]animesh` (external repo): `QSANIM_STANDING` — `"On"` = bind the owner as standing operator and open the seat list, `"Off"` = release the plugin session. Idempotent by design: both the adjuster's off branch and every hudproxy teardown path send it |
+| `90282` | same | **retired unused.** Was `QSPROXY_STANDING` for the first Remote-authoring build, where `hudproxy` held the standing session; the session moved into `[QS]animeshAuthoring` before release. Left reserved, not reused |
+| `90283` | same | `[QS]adjuster` → `[QS]animeshAuthoring` (external repo): `QSANIM_STANDING` — `"On"` opens a Remote-authoring session for the owner (id = owner), `"Off"` tears it down (see [§ Remote authoring](#remote-authoring--90283)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -1016,51 +1016,44 @@ policy, and the sitA 0.16–0.21 iteration history are documented in the
 private QuickyHUD repo (`docs/resync-90271.md`) and `qs/test/TESTPLAN.md`
 (TC-029).
 
-## Remote authoring — `90282` / `90283`
 
-The `/5 animesh` chat door (`[QS]adjuster` ≥ 1.271) lets the **owner** rez
-and adjust animesh dummies with the worn QuickyHUD while seated nowhere
-("standing operator"). Full spec: `docs/standing-operator.md` in the
-private QuickyHUD repo; this section records the wire contract.
+## Remote authoring — `90283`
+
+The `/5 animesh` chat door (`[QS]adjuster` ≥ 1.271) lets the **owner**
+build a scene without sitting: rez the animesh dummies, pick the pose
+from the piece's own menu, and adjust each dummy with the worn
+QuickyHUD. The session, the menu and the target live in
+`[QS]animeshAuthoring` (private QuickyHUD repo, spec
+`docs/standing-operator.md`); this section records what crosses into
+the sitter side.
 
 ### Door (`[QS]adjuster`, channel 5)
 
 - `/5 animesh` — gates in order: sender is the owner (the channel-5
-  listen is owner-filtered anyway), `qs:alive:animesh` set (plugin
-  present), owner within **5 m** of the adjuster's prim (channel 5 is
-  region-wide; only the piece the owner stands at may answer). On
-  success the adjuster fires, `LINK_SET`, id = owner:
-  `90282 "On"` (hudproxy session), `90266 "On"` (ADJUSTMODE + HUD
-  attach chain), `90283 "On"` (plugin bind + seat list).
+  listen is owner-filtered anyway), `qs:alive:animesh` set, owner within
+  **5 m** of the adjuster's prim (channel 5 is region-wide; only the
+  piece the owner stands at may answer). Then, `LINK_SET`, id = owner:
+  `90266 "On"` (ADJUSTMODE) and `90283 "On"` (open the session).
 - `/5 animesh off` — deliberately NOT radius-gated (the owner may have
-  walked away); reacts only when hudproxy's `qs:hud:standing` LSD flag
-  is set, so bystander pieces stay silent. Fires `90283 "Off"`,
-  `90266 "Off"`, `90282 "Off"`.
+  walked away); reacts only while `qs:hud:standing` is set, so bystander
+  pieces stay silent. Fires `90283 "Off"` and `90266 "Off"`.
 
-### hudproxy session (`90282`)
+### Adjusting without a seat
 
-`"On"` mirrors the 90060 sit handler (license/admin gates, per-avatar
-listen on the derived channel) but marks the entry `"st"` (standing, no
-slot/pose) and stamps `qs:hud:standing` = owner UUID. While the session
-runs, hudproxy's chat wire accepts commands from the standing operator
-although their `OBJECT_ROOT` is not the furniture — the ONE sanctioned
-exception to the seated check, compensated by owner-match + ADJUSTMODE-On
-+ the entry being creatable only via the in-prim door. The
-empty-furniture self-heal sweep is suspended for the session's duration;
-a 60 s presence-backstop timer (armed only during sessions) tears down
-when the owner leaves the region. Other teardowns: `90282 "Off"`,
-`90266 "Off"` while standing, `QS_FINALIZE` (90215), the operator
-sitting down (90060, session hands over to the seated flow). Every
-teardown also emits `90283 "Off"` so the plugin session never outlives
-the wire.
+`[QS]animeshAuthoring` opens its own listen on the operator's HUD
+channel and forwards each arrow press to `hudproxy` on **`90277`**
+`QSPOSE_ADJUST`, whose payload gained an optional fourth field:
 
-### Targeting
+`"<token>|<step>|<camPos>|<target>"`
 
-The standing operator has no own pose, so hudproxy resolves their `ALL`
-target through the **anchor pick**: the last concrete SELECT pick is
-stored as `"at"` in their entry, and `ALL` means "every entry on the
-anchor's pose". Arrow/RESET commands without any pick answer
-"Pick a target first (SELECT)."
+With a target present hudproxy adjusts **that** entry (a dummy
+registered via `90275`) instead of resolving one from the sender's own
+record, and skips the seated same-furniture check — the operator is
+seated nowhere. Compensating gates: the press is a link message from
+inside the prim, the target must be a tracked entry, and `ADJUSTMODE`
+must be On, so the only thing it can move is a pose default. Empty
+fourth field = the seated behaviour, unchanged, which is what
+`[QS]huddialog`'s pad sends.
 
 ## QSPROP_ATTACH — `90280`
 
