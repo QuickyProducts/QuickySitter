@@ -1,4 +1,4 @@
-/*
+/* [QS]adjuster 1.271
  * [QS]adjuster - QuickySitter creator tool
  *
  * Fork of [AV]adjuster from AVsitter2 (MPL 2.0). Live-saves pose
