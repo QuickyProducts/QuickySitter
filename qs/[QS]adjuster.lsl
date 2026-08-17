@@ -1,4 +1,5 @@
-/* [QS]adjuster 1.271
+string version = "1.271";
+/*
  * [QS]adjuster - QuickySitter creator tool
  *
  * Fork of [AV]adjuster from AVsitter2 (MPL 2.0). Live-saves pose
@@ -18,7 +19,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.271";
+// version lives in LINE 1 of this file (inworld check without scrolling).
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
