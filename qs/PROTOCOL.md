@@ -83,6 +83,8 @@ notice.
 | `90266` | same | `[QS]adjuster` → `hudproxy`: `"On"` / `"Off"` — flip QuickyHUD ADJUSTMODE remotely (sent by `[HELPER]`'s "Quicky HUD" branch and by `end_helper_mode` auto-Off) |
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 | `90280` | same | hudadmin / any in-prim source → `[QS]prop`: dynamic prop attach without notecard (see [§ QSPROP_ATTACH](#qsprop_attach--90280)) |
+| `90282` | same | `[QS]adjuster` → `hudproxy`: `QSPROXY_STANDING` — `"On"` / `"Off"`, id = the owner. Open / tear down a Remote-authoring standing session (see [§ Remote authoring](#remote-authoring--90282--90283)) |
+| `90283` | same | `[QS]adjuster` + `hudproxy` → `[QS]animesh` (external repo): `QSANIM_STANDING` — `"On"` = bind the owner as standing operator and open the seat list, `"Off"` = release the plugin session. Idempotent by design: both the adjuster's off branch and every hudproxy teardown path send it |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -1013,6 +1015,52 @@ on the sender. Mechanism (the 50 ms Stop+Start rationale), sender-side
 policy, and the sitA 0.16–0.21 iteration history are documented in the
 private QuickyHUD repo (`docs/resync-90271.md`) and `qs/test/TESTPLAN.md`
 (TC-029).
+
+## Remote authoring — `90282` / `90283`
+
+The `/5 animesh` chat door (`[QS]adjuster` ≥ 1.271) lets the **owner** rez
+and adjust animesh dummies with the worn QuickyHUD while seated nowhere
+("standing operator"). Full spec: `docs/standing-operator.md` in the
+private QuickyHUD repo; this section records the wire contract.
+
+### Door (`[QS]adjuster`, channel 5)
+
+- `/5 animesh` — gates in order: sender is the owner (the channel-5
+  listen is owner-filtered anyway), `qs:alive:animesh` set (plugin
+  present), owner within **5 m** of the adjuster's prim (channel 5 is
+  region-wide; only the piece the owner stands at may answer). On
+  success the adjuster fires, `LINK_SET`, id = owner:
+  `90282 "On"` (hudproxy session), `90266 "On"` (ADJUSTMODE + HUD
+  attach chain), `90283 "On"` (plugin bind + seat list).
+- `/5 animesh off` — deliberately NOT radius-gated (the owner may have
+  walked away); reacts only when hudproxy's `qs:hud:standing` LSD flag
+  is set, so bystander pieces stay silent. Fires `90283 "Off"`,
+  `90266 "Off"`, `90282 "Off"`.
+
+### hudproxy session (`90282`)
+
+`"On"` mirrors the 90060 sit handler (license/admin gates, per-avatar
+listen on the derived channel) but marks the entry `"st"` (standing, no
+slot/pose) and stamps `qs:hud:standing` = owner UUID. While the session
+runs, hudproxy's chat wire accepts commands from the standing operator
+although their `OBJECT_ROOT` is not the furniture — the ONE sanctioned
+exception to the seated check, compensated by owner-match + ADJUSTMODE-On
++ the entry being creatable only via the in-prim door. The
+empty-furniture self-heal sweep is suspended for the session's duration;
+a 60 s presence-backstop timer (armed only during sessions) tears down
+when the owner leaves the region. Other teardowns: `90282 "Off"`,
+`90266 "Off"` while standing, `QS_FINALIZE` (90215), the operator
+sitting down (90060, session hands over to the seated flow). Every
+teardown also emits `90283 "Off"` so the plugin session never outlives
+the wire.
+
+### Targeting
+
+The standing operator has no own pose, so hudproxy resolves their `ALL`
+target through the **anchor pick**: the last concrete SELECT pick is
+stored as `"at"` in their entry, and `ALL` means "every entry on the
+anchor's pose". Arrow/RESET commands without any pick answer
+"Pick a target first (SELECT)."
 
 ## QSPROP_ATTACH — `90280`
 

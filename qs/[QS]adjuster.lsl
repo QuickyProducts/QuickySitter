@@ -18,7 +18,7 @@ integer OLD_HELPER_METHOD;
 // Swap-grace: timestamp until which CHANGED_LINK is suppressed (set on
 // 90030 receive). See changed-event in default state for rationale.
 float swap_grace_until = 0.0;
-string version = "1.27";
+string version = "1.271";
 string helper_name = "[AV]helper";
 string camera_script = "[AV]camera";
 
@@ -1072,6 +1072,40 @@ default
                 {
                     llRegionSayTo(llGetOwner(), 0, "Use: /5 adjust owner|group|all");
                 }
+            }
+            else if (msg == "animesh")
+            {
+                // '/5 animesh' (1.271): the Remote-authoring door. Opens a
+                // standing-operator session — rez and adjust the animesh
+                // dummies with the worn HUD, nobody seated. Radius-gated so
+                // only the piece the owner stands at answers; channel 5
+                // reaches the whole region and every piece further away
+                // must stay silent. Session state lives in hudproxy; this
+                // branch only validates and fires the wire. Spec:
+                // docs/standing-operator.md (QuickyHUD repo).
+                vector owner_pos = llList2Vector(
+                    llGetObjectDetails(llGetOwner(), [OBJECT_POS]), 0);
+                if (llVecDist(llGetPos(), owner_pos) > 5.0) return;
+                if (llLinksetDataRead("qs:alive:animesh") == "")
+                {
+                    llRegionSayTo(llGetOwner(), 0,
+                        "Remote authoring needs the [QS]animesh plugin.");
+                    return;
+                }
+                llMessageLinked(LINK_SET, 90282, "On", llGetOwner());
+                llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
+                llMessageLinked(LINK_SET, 90283, "On", llGetOwner());
+            }
+            else if (msg == "animesh off")
+            {
+                // Deliberately NOT radius-gated — the owner may have walked
+                // away. Only a piece with an active standing session
+                // reacts (hudproxy stamps qs:hud:standing while one runs),
+                // so the off command never spams from bystander pieces.
+                if (llLinksetDataRead("qs:hud:standing") == "") return;
+                llMessageLinked(LINK_SET, 90283, "Off", llGetOwner());
+                llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
+                llMessageLinked(LINK_SET, 90282, "Off", llGetOwner());
             }
         }
         else if (id == controller)
