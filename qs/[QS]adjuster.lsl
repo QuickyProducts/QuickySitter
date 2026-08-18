@@ -1,4 +1,4 @@
-string version = "1.275";
+string version = "1.28";
 /*
  * [QS]adjuster - QuickySitter creator tool
  *

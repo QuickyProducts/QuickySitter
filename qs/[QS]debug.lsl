@@ -1,4 +1,4 @@
-string version = "1.271";
+string version = "1.28";
 /*
  * [QS]debug - QuickySitter LSD inspector
  *
