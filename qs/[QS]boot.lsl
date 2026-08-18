@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]boot - QuickySitter loader
  *
@@ -19,7 +20,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.27";
 string notecard_name = "AVpos";
 
 // Verbose convention (project-wide):
@@ -1109,12 +1109,12 @@ default
                     if (dump_failed)
                     {
                         llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Upload failed — link may be incomplete.");
+                            "[DUMP] Upload failed, the link may be incomplete: " + dump_url() + "?q=" + webkey);
                     }
                     else
                     {
                         llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Done — link finalized.");
+                            "[DUMP] Done, link finalized: " + dump_url() + "?q=" + webkey);
                     }
                 }
                 else
