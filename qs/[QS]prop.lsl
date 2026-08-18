@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.27";
+string version = "1.271";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -622,7 +622,14 @@ default
             if (llGetListLength(params) > 4)
                 postSay = llDumpList2String(llList2List(params, 4, -1), "|");
             if (obj == "") return;
-            if (sitter < 0 || sitter >= llGetListLength(SITTERS)) return;
+            // Slot 99 = the standing operator (Remote authoring): it has no
+            // seat, so no index into SITTERS. Deliberately not -1, because
+            // llList2Key counts a negative index from the END of the list
+            // and would silently resolve to the last sitter.
+            if (sitter != 99)
+            {
+                if (sitter < 0 || sitter >= llGetListLength(SITTERS)) return;
+            }
 
             string trig = (string)sitter + "|" + obj;
             integer idx = prop_find_trigger(trig);
@@ -642,7 +649,9 @@ default
             {
                 prop_update(idx, 6, [point, postSay]);
             }
-            if (id != NULL_KEY)
+            // The standing operator owns no seat, so nothing of theirs may
+            // be written into the slot table.
+            if (sitter != 99 && id != NULL_KEY)
                 SITTERS = llListReplaceList(SITTERS, [id], sitter, sitter);
             rez_prop(idx);
             return;
@@ -982,7 +991,11 @@ default
             list entry = prop_load(prop_index);
             string trig = llList2String(entry, 0);
             integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
-            key sitter_key = llList2Key(SITTERS, sitter);
+            // Slot 99 is the standing operator, who is the owner by
+            // definition (the Remote-authoring door is owner-gated).
+            key sitter_key;
+            if (sitter == 99) sitter_key = llGetOwner();
+            else              sitter_key = llList2Key(SITTERS, sitter);
             if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
