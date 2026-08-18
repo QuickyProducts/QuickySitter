@@ -480,3 +480,40 @@ grown the pad, items and the registry):
 | core 0.21 | 12568 | |
 | menu 0.34 | 8154 | second-tightest, watch on next growth |
 | seat 0.33 | 5810 | tightest; split-or-diet parked, see above |
+
+## The notecard is read five times over, and v2 should read it once
+
+Found 2026-08-18 while looking for room in v1's `[QS]prop` (the answer
+there was: none needed, it has 5680 free with 21 props). The detour
+turned up something that belongs here instead.
+
+In v1 **five** scripts open AVpos and walk it line by line, each picking
+out its own directives: `boot` (poses, sitters, config), `faces`
+(`ANIM`), `prop` (`PROP*`), `sequence` (`PLAY`/`LOOP`/`SAY`) and
+`root-RLV` (`DOMPOSE`/`ONCAPTURE`/`HTEXT`/`BRAND`). `boot` even sees the
+`PROP*` lines but only sets a self-check flag from them and stores
+nothing, so `prop` reads the whole card again for the same lines.
+
+This is inherited, not designed: in stock AVsitter every plugin parses
+the notecard itself, and the QS forks stayed minimally invasive. v1
+centralised the pose data into LSD and left the plugin directives where
+stock had them.
+
+What it costs, and why v2 is the place to fix it:
+
+- **Boot time.** Every line is an async `dataserver` round trip, so a
+  card of N lines costs 5N of them. On a large AVpos that dominates the
+  boot, and boot stability is exactly why `llGetNotecardLineSync` was
+  rejected (its NAK is load-dependent).
+- **Bytecode.** Each of those five carries its own parser, roughly one
+  to two KB, in scripts whose free memory is the recurring problem.
+
+The v2 shape is the one `prop` already half-demonstrates: the seeder
+parses once and writes a per-plugin LSD namespace (`qs:prop:*` exists
+today), and the plugins read LSD instead of the card. One pass, one
+parser. Since v2 rewrites the format anyway (DESIGN.md §4), the plugin
+directives should be seeded the same way from the start rather than
+retrofitted.
+
+Deliberately NOT a v1 change: it is a new seed contract across five
+scripts, and none of them is in trouble today.
