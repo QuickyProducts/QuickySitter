@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.271";
+string version = "1.272";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -991,11 +991,20 @@ default
             list entry = prop_load(prop_index);
             string trig = llList2String(entry, 0);
             integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
-            // Slot 99 is the standing operator, who is the owner by
-            // definition (the Remote-authoring door is owner-gated).
+            // Slot 99 is the standing operator. Who that is, the session
+            // itself says: [QS]animeshAuthoring holds qs:hud:standing for
+            // as long as it runs. Reading it here instead of assuming the
+            // owner keeps this script out of another repo's access rules -
+            // the door honours the Adjust ACL, so the operator is not
+            // necessarily the owner. Falls back for anything that marks
+            // slot 99 without claiming the key.
             key sitter_key;
-            if (sitter == 99) sitter_key = llGetOwner();
-            else              sitter_key = llList2Key(SITTERS, sitter);
+            if (sitter == 99)
+            {
+                sitter_key = (key)llLinksetDataRead("qs:hud:standing");
+                if (sitter_key == "") sitter_key = llGetOwner();
+            }
+            else sitter_key = llList2Key(SITTERS, sitter);
             if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);

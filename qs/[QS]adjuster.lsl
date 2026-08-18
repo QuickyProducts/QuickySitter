@@ -1,4 +1,4 @@
-string version = "1.274";
+string version = "1.275";
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -1073,28 +1073,6 @@ default
                 {
                     llRegionSayTo(llGetOwner(), 0, "Use: /5 adjust owner|group|all");
                 }
-            }
-            else if (msg == "animesh")
-            {
-                // '/5 animesh' (1.271): the Remote-authoring door. Opens a
-                // standing-operator session — rez and adjust the animesh
-                // dummies with the worn HUD, nobody seated. Radius-gated so
-                // only the piece the owner stands at answers; channel 5
-                // reaches the whole region and every piece further away
-                // must stay silent. Session state lives in hudproxy; this
-                // branch only validates and fires the wire. Spec:
-                // docs/standing-operator.md (QuickyHUD repo).
-                vector owner_pos = llList2Vector(
-                    llGetObjectDetails(llGetOwner(), [OBJECT_POS]), 0);
-                if (llVecDist(llGetPos(), owner_pos) > 5.0) return;
-                if (llLinksetDataRead("qs:alive:animesh") == "")
-                {
-                    llRegionSayTo(llGetOwner(), 0,
-                        "Remote authoring needs the [QS]animesh plugin.");
-                    return;
-                }
-                llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
-                llMessageLinked(LINK_SET, 90283, "On", llGetOwner());
             }
         }
         else if (id == controller)

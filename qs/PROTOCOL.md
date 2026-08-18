@@ -84,7 +84,7 @@ notice.
 | `90271` | same | hudproxy / any in-prim source → `[QS]sitA`: SYNC-pose Re-Sync trigger (see [§ Re-Sync trigger](#re-sync-trigger--90271)) |
 | `90280` | same | hudadmin / any in-prim source → `[QS]prop`: dynamic prop attach without notecard (see [§ QSPROP_ATTACH](#qsprop_attach--90280)) |
 | `90282` | same | **retired unused.** Was `QSPROXY_STANDING` for the first Remote-authoring build, where `hudproxy` held the standing session; the session moved into `[QS]animeshAuthoring` before release. Left reserved, not reused |
-| `90283` | same | `[QS]adjuster` → `[QS]animeshAuthoring` (external repo): `QSANIM_STANDING` — `"On"` opens a Remote-authoring session for the owner (id = owner), `"Off"` tears it down (see [§ Remote authoring](#remote-authoring--90283)) |
+| `90283` | same | reserved seam into `[QS]animeshAuthoring` (external repo): `QSANIM_STANDING` - `"On"` opens a Remote-authoring session for the id, `"Off"` tears it down. Sent by nothing in the kit since 1.28, when the door moved into that script (see [§ Remote authoring](#remote-authoring--90283)) |
 
 A stock-AVsitter plugin sending or receiving in these ranges would have
 collided with whatever it's reserved for in stock — but the stock reference
@@ -1019,21 +1019,30 @@ private QuickyHUD repo (`docs/resync-90271.md`) and `qs/test/TESTPLAN.md`
 
 ## Remote authoring — `90283`
 
-The `/5 animesh` chat door (`[QS]adjuster` ≥ 1.271) lets the **owner**
-build a scene without sitting: rez the animesh dummies, pick the pose
-from the piece's own menu, and adjust each dummy with the worn
-QuickyHUD. The session, the menu and the target live in
+The `/5 animesh` chat door (`[QS]animeshAuthoring` >= 0.43) lets a
+creator build a scene without sitting: rez the animesh dummies, pick the
+pose from the piece's own menu, and adjust each dummy with the worn
+QuickyHUD. The session, the menu, the door and the target live in
 `[QS]animeshAuthoring` (private QuickyHUD repo, spec
 `docs/standing-operator.md`); this section records what crosses into
 the sitter side.
 
-### Door (`[QS]adjuster`, channel 5)
-
-- `/5 animesh` — gates in order: sender is the owner (the channel-5
-  listen is owner-filtered anyway), `qs:alive:animesh` set, owner within
-  **5 m** of the adjuster's prim (channel 5 is region-wide; only the
-  piece the owner stands at may answer). Then, `LINK_SET`, id = owner:
-  `90266 "On"` (ADJUSTMODE) and `90283 "On"` (open the session).
+### Door (`[QS]animeshAuthoring`, channel 5)
+- `/5 animesh` gates in order: the listen carries an exact-match message
+  filter (`"animesh"`) and, on ACL level OWNER, an owner key filter, both
+  server-side; then the speaker within **5 m** of the prim (channel 5 is
+  region-wide, only the piece they stand at may answer); then
+  `adjust_allowed()` against `qs:sec:adjust`, so GROUP and ALL reach the
+  standing tools exactly as they reach the seated ones. No plugin-presence
+  gate is needed: the door ships inside the plugin and leaves with it at
+  `[FINALIZE]`, so a finished piece has no door.
+- The session then flips ADJUSTMODE itself (`90266 "On"`, `LINK_SET`,
+  id = operator). Until 1.28 the door sat in `[QS]adjuster` and sent both
+  that and `90283 "On"`; it moved out to give the tightest script in the
+  set its kilobyte back and to stop `[QS]prop` inheriting an owner
+  assumption from another repo's gate.
+- `90283` stays as the documented seam for opening a session from
+  elsewhere in the prim; nothing in the kit sends it since 1.28.
 - The session ends from the menu ([DONE]), by sitting down, or by leaving
   the region; there is no off command. It existed until 1.28 and was
   dropped once re-entry became reliable: `/5 animesh` re-opens a running
