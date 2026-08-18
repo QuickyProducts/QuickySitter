@@ -1034,9 +1034,10 @@ the sitter side.
   **5 m** of the adjuster's prim (channel 5 is region-wide; only the
   piece the owner stands at may answer). Then, `LINK_SET`, id = owner:
   `90266 "On"` (ADJUSTMODE) and `90283 "On"` (open the session).
-- `/5 animesh off` — deliberately NOT radius-gated (the owner may have
-  walked away); reacts only while `qs:hud:standing` is set, so bystander
-  pieces stay silent. Fires `90283 "Off"` and `90266 "Off"`.
+- The session ends from the menu ([DONE]), by sitting down, or by leaving
+  the region; there is no off command. It existed until 1.28 and was
+  dropped once re-entry became reliable: `/5 animesh` re-opens a running
+  session, so [DONE] is always one click away.
 
 ### Adjusting without a seat
 

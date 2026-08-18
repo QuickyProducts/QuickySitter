@@ -1,4 +1,4 @@
-string version = "1.272";
+string version = "1.273";
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -1095,17 +1095,6 @@ default
                 }
                 llMessageLinked(LINK_SET, 90266, "On", llGetOwner());
                 llMessageLinked(LINK_SET, 90283, "On", llGetOwner());
-            }
-            else if (msg == "animesh off")
-            {
-                // Deliberately NOT radius-gated — the owner may have walked
-                // away. Only a piece with an active standing session
-                // reacts ([QS]animeshAuthoring stamps qs:hud:standing while
-                // one runs), so the off command never spams from bystander
-                // pieces.
-                if (llLinksetDataRead("qs:hud:standing") == "") return;
-                llMessageLinked(LINK_SET, 90283, "Off", llGetOwner());
-                llMessageLinked(LINK_SET, 90266, "Off", llGetOwner());
             }
         }
         else if (id == controller)
