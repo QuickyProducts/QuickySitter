@@ -1036,8 +1036,17 @@ the sitter side.
   standing tools exactly as they reach the seated ones. No plugin-presence
   gate is needed: the door ships inside the plugin and leaves with it at
   `[FINALIZE]`, so a finished piece has no door.
-- The session then flips ADJUSTMODE itself (`90266 "On"`, `LINK_SET`,
-  id = operator). Until 1.28 the door sat in `[QS]adjuster` and sent both
+- The session then flips ADJUSTMODE itself, as `90266 "On|noattach"`
+  (`LINK_SET`, id = operator). The second field tells `hudproxy` to set
+  the mode WITHOUT asking `hudadmin` for a HUD: a session start hands
+  nobody one, that is `[HELPER HUD]`. Plain `"On"` still means "and lend
+  me a HUD", which is what the button sends.
+- `hudadmin` lets a standing operator past its `ATTACHMODE` gate. That
+  gate reads `"menu"` only and so missed `"menuplus"`, the default since
+  1.26, which left `[HELPER HUD]` inert on most furniture. The mode
+  describes what a SIT did or did not attach, and a standing operator
+  never sat.
+- Until 1.28 the door sat in `[QS]adjuster` and sent both
   that and `90283 "On"`; it moved out to give the tightest script in the
   set its kilobyte back and to stop `[QS]prop` inheriting an owner
   assumption from another repo's gate.
