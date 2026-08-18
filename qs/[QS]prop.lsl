@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.272";
+string version = "1.273";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -992,19 +992,19 @@ default
             string trig = llList2String(entry, 0);
             integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
             // Slot 99 is the standing operator. Who that is, the session
-            // itself says: [QS]animeshAuthoring holds qs:hud:standing for
-            // as long as it runs. Reading it here instead of assuming the
-            // owner keeps this script out of another repo's access rules -
-            // the door honours the Adjust ACL, so the operator is not
-            // necessarily the owner. Falls back for anything that marks
-            // slot 99 without claiming the key.
+            // says: [QS]animeshAuthoring holds qs:hud:standing while it
+            // runs. Read rather than assumed, because the door honours the
+            // Adjust ACL and the operator need not be the owner. The empty
+            // case falls back to the owner, and the test stays inside the
+            // 99 branch on purpose: an empty SEAT must keep resolving to
+            // NULL_KEY, which is what suppresses the ATTACHTO below.
+            // Costs 512 bytes measured, in the tightest script there is -
+            // if more is ever needed here, move the whole resolution out
+            // rather than growing this.
             key sitter_key;
-            if (sitter == 99)
-            {
-                sitter_key = (key)llLinksetDataRead("qs:hud:standing");
-                if (sitter_key == "") sitter_key = llGetOwner();
-            }
-            else sitter_key = llList2Key(SITTERS, sitter);
+            if (sitter == 99) sitter_key = (key)llLinksetDataRead("qs:hud:standing");
+            else              sitter_key = llList2Key(SITTERS, sitter);
+            if (sitter == 99 && sitter_key == "") sitter_key = llGetOwner();
             if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
