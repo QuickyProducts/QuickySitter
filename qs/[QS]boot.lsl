@@ -1,4 +1,4 @@
-string version = "1.271";
+string version = "1.272";
 /*
  * [QS]boot - QuickySitter loader
  *
@@ -342,10 +342,10 @@ qs_lsd_write(string k, string v)
     llSetText("ERROR: storage full during boot", <1, 0, 0>, 1);
     if (wipe_attempted)
     {
-        Out(0, "ERROR: storage full after wipe — " + notecard_name + " too large; reduce poses/sitters.");
+        Out(0, "ERROR: storage full after wipe - " + notecard_name + " too large; reduce poses/sitters.");
         return;
     }
-    Out(0, "ERROR: storage full at " + k + " — see wipe dialog.");
+    Out(0, "ERROR: storage full at " + k + " - see wipe dialog.");
     show_wipe_dialog();
 }
 
@@ -561,21 +561,21 @@ self_check_report()
     integer ok = TRUE;
     if (!sita_seen)
     {
-        Out(0, "ERROR: [QS]sitA missing — no animations.");
+        Out(0, "ERROR: [QS]sitA missing - no animations.");
         ok = FALSE;
     }
     if (!sitb_seen)
     {
-        Out(0, "ERROR: [QS]sitB missing — no menu.");
+        Out(0, "ERROR: [QS]sitB missing - no menu.");
         ok = FALSE;
     }
     if (has_prop_in_notecard && llLinksetDataRead("qs:alive:prop") == "")
     {
-        Out(0, "WARN: " + notecard_name + " has PROP* but [QS]prop missing — props won't rez.");
+        Out(0, "WARN: " + notecard_name + " has PROP* but [QS]prop missing - props won't rez.");
     }
     if (!ok)
     {
-        llSetText("ERROR: base scripts missing — see chat", <1, 0, 0>, 1);
+        llSetText("ERROR: base scripts missing - see chat", <1, 0, 0>, 1);
     }
     else
     {
@@ -794,7 +794,7 @@ default
             // CHANGED_INVENTORY: notecard_key is NULL_KEY here, so adding
             // the notecard will flip the asset-key compare and reset.
             llSetText("ERROR: " + notecard_name + " notecard missing", <1, 0, 0>, 1);
-            Out(0, "ERROR: " + notecard_name + " notecard missing — boot stopped.");
+            Out(0, "ERROR: " + notecard_name + " notecard missing - boot stopped.");
             return;
         }
         // Always fetch line count — used by the seed-phase progress
@@ -864,14 +864,14 @@ default
         {
             llLinksetDataReset();
             wipe_attempted = TRUE;
-            Out(1, "Storage wiped — retrying boot.");
+            Out(1, "Storage wiped - retrying boot.");
             start_boot();
             return;
         }
         // Cancel — stay in error state. CHANGED_INVENTORY on the notecard
         // (or a manual reset) restarts boot fresh; wipe_attempted clears
         // automatically via llResetScript().
-        Out(0, "Boot aborted — storage wipe declined.");
+        Out(0, "Boot aborted - storage wipe declined.");
     }
 
     timer()
@@ -894,7 +894,7 @@ default
             // dump completes without that plugin's lines instead of hanging.
             qs_cascade_pending = FALSE;
             llRegionSayTo(llGetOwner(), 0,
-                "[DUMP] plugin '" + qs_cascade_wait + "' didn't respond — lines omitted.");
+                "[DUMP] plugin '" + qs_cascade_wait + "' didn't respond - lines omitted.");
             llMessageLinked(LINK_THIS, 90021, (string)qs_cascade_ch, qs_cascade_wait);
             return;
         }
@@ -928,7 +928,7 @@ default
         // scripts (sitA/sitB/adjuster/...) is now inconsistent with
         // empty LSD until they're reset or the furniture is re-rezzed.
         if (act == LINKSETDATA_RESET)
-            OutForce("LSD was wiped — inconsistent state; reset scripts or re-rez.");
+            OutForce("LSD was wiped - inconsistent state; reset scripts or re-rez.");
         if (act == LINKSETDATA_RESET || name == "QPP_CFG:AUTOSYNC")
             arm_autosync();
 
@@ -940,7 +940,7 @@ default
         {
             lsd_low_warned = TRUE;
             OutForce("storage low: " + (string)avail
-                + " bytes free — pose saves and configs may start failing. Reduce poses or clear unused data.");
+                + " bytes free - pose saves and configs may start failing. Reduce poses or clear unused data.");
         }
         else if (lsd_low_warned && avail > LSD_LOW_WATER * 2)
             lsd_low_warned = FALSE;
@@ -1006,7 +1006,7 @@ default
             if (ch == 0 && qs_dump_ch != -1)
             {
                 llRegionSayTo(llGetOwner(), 0,
-                    "[QS] DUMP already running — wait for URL.");
+                    "[QS] DUMP already running - wait for URL.");
                 return;
             }
             if (ch == 0)

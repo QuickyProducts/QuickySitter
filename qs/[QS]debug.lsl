@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]debug - QuickySitter LSD inspector
  *
@@ -25,7 +26,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.27";
 integer chan = 88;
 integer listen_handle;
 integer LSD_TOTAL_BYTES = 131072;  // 128 KB linkset cap
@@ -56,7 +56,7 @@ list    stress_poses   = ["P:Sit", "P:Lounge", "Cuddle", "Hug",
 show_help()
 {
     llOwnerSay(
-        "\n[QS]debug — chat /" + (string)chan + " <cmd>:\n"
+        "\n[QS]debug - chat /" + (string)chan + " <cmd>:\n"
       + "  help                  this list\n"
       + "  keys [pattern]        list qs:* keys (regex optional)\n"
       + "  count <ch>            pose count for channel\n"
@@ -110,7 +110,7 @@ cmd_meta(integer ch)
     string v = llLinksetDataRead("qs:meta:" + (string)ch);
     if (v == "")
     {
-        llOwnerSay("[QS]debug: qs:meta:" + (string)ch + " — NOT SET (channel will re-seed on next reset).");
+        llOwnerSay("[QS]debug: qs:meta:" + (string)ch + " - NOT SET (channel will re-seed on next reset).");
     }
     else
     {
@@ -123,7 +123,7 @@ cmd_cfg(integer ch)
     string v = llLinksetDataRead("qs:cfg:" + (string)ch);
     if (v == "")
     {
-        llOwnerSay("[QS]debug: qs:cfg:" + (string)ch + " — empty.");
+        llOwnerSay("[QS]debug: qs:cfg:" + (string)ch + " - empty.");
         return;
     }
     llOwnerSay("[QS]debug: qs:cfg:" + (string)ch + ":\n" + v);
@@ -134,7 +134,7 @@ cmd_sitter(integer ch)
     string v = llLinksetDataRead("qs:sitter:" + (string)ch);
     if (v == "")
     {
-        llOwnerSay("[QS]debug: qs:sitter:" + (string)ch + " — empty.");
+        llOwnerSay("[QS]debug: qs:sitter:" + (string)ch + " - empty.");
     }
     else
     {
@@ -147,7 +147,7 @@ cmd_pose(integer ch, integer i)
     string val = llLinksetDataRead("qs:p:" + (string)ch + ":" + (string)i);
     if (val == "")
     {
-        llOwnerSay("[QS]debug: qs:p:" + (string)ch + ":" + (string)i + " — not found.");
+        llOwnerSay("[QS]debug: qs:p:" + (string)ch + ":" + (string)i + " - not found.");
         return;
     }
     list parts = llParseStringKeepNulls(val, ["|"], []);
@@ -216,7 +216,7 @@ cmd_raw(string lkey)
     string v = llLinksetDataRead(lkey);
     if (v == "")
     {
-        llOwnerSay("[QS]debug: " + lkey + " — not found.");
+        llOwnerSay("[QS]debug: " + lkey + " - not found.");
         return;
     }
     llOwnerSay("[QS]debug: " + lkey + " = " + v);

@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]sitB - QuickySitter memory script - needs [QS]sitA to work
  *
@@ -13,7 +14,6 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.27";   // rev 1
 // Per-file running count of changes made AFTER the 1.27 stamp. Fold-ins
 // keep the version at 1.27, so the version string alone cannot tell two
 // builds apart. Bump it in the same edit that changes the file.
@@ -479,7 +479,7 @@ integer animation_menu(integer animation_menu_function)
         // dialog's X button instead of [BACK]) must clear here. Without
         // this, the next click in the freshly-rendered pose menu lands
         // in the stale in_plugin_menu / in_adjust_menu branch in listen()
-        // and gets misrouted (the "Unknown click — bail back" safety
+        // and gets misrouted (the "Unknown click - bail back" safety
         // path), which the user sees as a phantom first-click being
         // eaten.
         in_plugin_menu = FALSE;
@@ -1545,7 +1545,7 @@ default
                 // no menu open get nothing. To pose again the user re-clicks
                 // the furniture or uses the HUD.
                 if (MY_SITTER != "" && dialog_open_for == MY_SITTER)
-                    llDialog(MY_SITTER, "\n" + product + " — pose menu closed (seat swapped via HUD).\n\nTouch the furniture or use the HUD to open it again.", ["OK"], menu_channel);
+                    llDialog(MY_SITTER, "\n" + product + " - pose menu closed (seat swapped via HUD).\n\nTouch the furniture or use the HUD to open it again.", ["OK"], menu_channel);
                 llListenRemove(menu_handle);
             }
             // View-state reset (MENU_SPEC § 12/§ 13): the occupant just changed,

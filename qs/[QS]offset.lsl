@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]offset - QuickySitter personal-offset store
  *
@@ -53,7 +54,7 @@
  *                          name. M#T! survives." sitA also handles
  *                          this for its own MY_CUSTOMS cache.
  *   90264  hudproxy→offset ""                      (id ignored)
- *                          "Wipe ALL personal offsets — every user's
+ *                          "Wipe ALL personal offsets - every user's
  *                          QSO:* LSD entries and the entire RAM
  *                          CUSTOMS list." Triggered by the HUD
  *                          settings menu "CLEAR offset storage"
@@ -63,7 +64,6 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.27";
 
 // Presence: [QS]offset owns the qs:offset:alive LSD flag directly (written
 // in state_entry, re-written on QS_ALIVE_CENSUS). [QS]sitA reads it to gate
@@ -193,7 +193,7 @@ emergency_shrink()
         ++evicted;
     }
     if (evicted)
-        Out(0, "WARN: emergency shrink — evicted " + (string)evicted
+        Out(0, "WARN: emergency shrink - evicted " + (string)evicted
             + " entries; free=" + (string)llGetFreeMemory()
             + " list=" + (string)(llGetListLength(CUSTOMS) / CUSTOMS_STRIDE));
 }

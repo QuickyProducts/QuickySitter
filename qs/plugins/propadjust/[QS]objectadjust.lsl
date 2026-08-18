@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]objectadjust - optional prop-side companion for live prop scaling
  *
@@ -40,7 +41,6 @@
  * arrives and the QSSAVESCALE reply is ignored — the prop just behaves
  * as if unscaled. A prop without this script ignores QSSCALE likewise.
  */
-string version = "1.27";
 
 integer comm_channel;
 integer prop_id;
@@ -101,7 +101,7 @@ open_menu(key who)
     integer pct = llRound(current_factor() * 100.0);
     llDialog(who, llGetObjectName() + "\nCurrent size: " + (string)pct
         + "% of original.\n\nMenu edits last until the prop is re-rezzed"
-        + " — use the furniture's ADJUSTMODE [SAVE] to keep them.",
+        + " - use the furniture's ADJUSTMODE [SAVE] to keep them.",
         ["-1%", "-5%", "-10%", "+1%", "+5%", "+10%", "[RESTORE]", "[CLOSE]"],
         dlg_channel);
     llSetTimerEvent(60.0);  // menu listen timeout

@@ -1,3 +1,4 @@
+string version = "1.271";
 /*
  * [QS]root-security - Specify who can sit and/or use the menu (QuickySitter fork of [AV]root-security)
  *
@@ -35,7 +36,6 @@
  */
 
 string product = "QuickySitter™ Security";
-string version = "1.27";
 string menucontrol_script = "[QS]root-control";
 string RLV_script = "[QS]root-RLV";
 key active_sitter;
@@ -281,7 +281,7 @@ default
         }
         else if (msg == "Adjust")
         {
-            dialog("Adjust security — who may use the adjust tools\n([HELPER]/[HELPER HUD] + owner-gated plugin entries):", ADJUST_TYPES);
+            dialog("Adjust security - who may use the adjust tools\n([HELPER]/[HELPER HUD] + owner-gated plugin entries):", ADJUST_TYPES);
             lastmenu = msg;
             return;
         }

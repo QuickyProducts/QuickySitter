@@ -1,4 +1,4 @@
-string version = "1.273";
+string version = "1.274";
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -784,7 +784,7 @@ default
                     // intent visible during diff review.
                     if (!adjust_allowed(id)) {
                         llDialog(id,
-                            "No adjust access — see [SECURITY] > Adjust. "
+                            "No adjust access - see [SECURITY] > Adjust. "
                             + "Owner nearby? Type '/5 helper' in chat.",
                             ["OK"], -3675);
                         return;
