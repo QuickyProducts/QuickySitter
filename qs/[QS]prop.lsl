@@ -55,7 +55,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.273";
+string version = "1.274";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -994,17 +994,17 @@ default
             // Slot 99 is the standing operator. Who that is, the session
             // says: [QS]animeshAuthoring holds qs:hud:standing while it
             // runs. Read rather than assumed, because the door honours the
-            // Adjust ACL and the operator need not be the owner. The empty
-            // case falls back to the owner, and the test stays inside the
-            // 99 branch on purpose: an empty SEAT must keep resolving to
-            // NULL_KEY, which is what suppresses the ATTACHTO below.
-            // Costs 512 bytes measured, in the tightest script there is -
-            // if more is ever needed here, move the whole resolution out
-            // rather than growing this.
+            // Adjust ACL and the operator need not be the owner.
+            //
+            // No fallback to the owner when the key is gone. A slot-99 prop
+            // record outlives its session in LSD, and firing one with no
+            // session running means there IS no standing operator - the
+            // empty key resolves to NULL_KEY and the ATTACHTO below is
+            // suppressed, which is the safe answer. Falling back would hand
+            // the prop to whoever happens to own the piece.
             key sitter_key;
             if (sitter == 99) sitter_key = (key)llLinksetDataRead("qs:hud:standing");
             else              sitter_key = llList2Key(SITTERS, sitter);
-            if (sitter == 99 && sitter_key == "") sitter_key = llGetOwner();
             if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
