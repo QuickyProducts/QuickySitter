@@ -1033,7 +1033,11 @@ the sitter side.
   server-side; then the speaker within **5 m** of the prim (channel 5 is
   region-wide, only the piece they stand at may answer); then
   `adjust_allowed()` against `qs:sec:adjust`, so GROUP and ALL reach the
-  standing tools exactly as they reach the seated ones. No plugin-presence
+  standing tools exactly as they reach the seated ones; then the speaker
+  must be STANDING (OBJECT_ROOT of a seated avatar is the sat-on root) -
+  a seated one is refused with a chat hint, because their worn HUD is
+  already served by a hudproxy on the same per-avatar channel and a
+  session on top would double-apply every press. No plugin-presence
   gate is needed: the door ships inside the plugin and leaves with it at
   `[FINALIZE]`, so a finished piece has no door.
 - The session then flips ADJUSTMODE itself, as `90266 "On|noattach"`
