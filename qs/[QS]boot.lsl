@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.28";   // rev 1
 /*
  * [QS]boot - QuickySitter loader
  *
@@ -129,6 +129,7 @@ string cache;
 string webkey;
 integer webcount;
 integer dump_failed;
+key     dump_for;      // who gets the finished link; set per run, owner if unset
 // Note: web() reads `notecard_lines` directly for the &n=<lines>
 // QUICKYHUD-progress param. `notecard_lines` is populated by the
 // dataserver callback from state_entry's unconditional
@@ -656,6 +657,17 @@ string FormatFloat(float f, integer num_decimals)
 // Resolve the endpoint for the current dump. Stays a tiny helper so
 // the URL choice is in one place (web POST + end-of-cascade shout both
 // call it).
+// Delivery of a finished-dump line: to whoever pressed [DUMP], and to
+// the owner as well when that is someone else. The requester needs the
+// link to work with; the owner should see that their piece's pose set
+// just left the building. One function so the three lines that report a
+// dump cannot drift apart again.
+dump_tell(string say)
+{
+    llRegionSayTo(dump_for, 0, say);
+    if (dump_for != llGetOwner()) llRegionSayTo(llGetOwner(), 0, say);
+}
+
 string dump_url()
 {
     if (dump_quiet) return url_qs;
@@ -1013,6 +1025,21 @@ default
             {
                 dump_quiet = ((string)id == "quiet");
                 dump_failed = FALSE;
+                // Remote authoring may run under the Adjust ACL, so the
+                // operator who pressed [DUMP] is not necessarily the
+                // owner - and the finished link went to the owner while
+                // the menu had promised it to the presser. The requester
+                // is handed over in LSD rather than in the 90098 payload:
+                // the id field is compared verbatim against "quiet", so a
+                // widened payload against an old boot would have turned
+                // every quiet dump loud. An absent key means an
+                // un-updated sender (or the seated path, which does not
+                // claim it) and falls back to the owner, i.e. exactly the
+                // old behaviour. Consumed at once so no stale requester
+                // can redirect a later run.
+                dump_for = (key)llLinksetDataRead("qs:dump:for");
+                llLinksetDataDelete("qs:dump:for");
+                if (dump_for == "") dump_for = llGetOwner();
                 // No start-hint here — the V: handler (90022 branch
                 // below) emits the live-view URL the moment the webkey
                 // is generated, which happens in the next event-loop
@@ -1108,13 +1135,11 @@ default
                 {
                     if (dump_failed)
                     {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Upload failed, the link may be incomplete: " + dump_url() + "?q=" + webkey);
+                        dump_tell("[DUMP] Upload failed, the link may be incomplete: " + dump_url() + "?q=" + webkey);
                     }
                     else
                     {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Done, link finalized: " + dump_url() + "?q=" + webkey);
+                        dump_tell("[DUMP] Done, link finalized: " + dump_url() + "?q=" + webkey);
                     }
                 }
                 else
@@ -1157,8 +1182,7 @@ default
                     // Refresh: 3 until the .done marker lands).
                     if (dump_quiet)
                     {
-                        llRegionSayTo(llGetOwner(), 0,
-                            "[DUMP] Live view: " + dump_url() + "?q=" + webkey);
+                        dump_tell("[DUMP] Live view: " + dump_url() + "?q=" + webkey);
                     }
                     Readout_Say("");
                     Readout_Say("--✄--COPY BELOW INTO \"AVpos\" NOTECARD--✄--");
