@@ -42,7 +42,7 @@ a self-compiled copy falls back to a permission dialog).
 ## Migration helper: [QS]propRezzer
 
 Drop `[QS]propRezzer` into the furniture prim for the duration of the
-migration (remove it afterwards). `/5 rezall` rezzes every inventory
+migration (remove it afterwards). `/5 proprezzall` rezzes every inventory
 object once - deduplicated, so a card with 88 PROP lines and 26
 distinct objects rezzes 26 copies - on a grid 1.5 m above the
 furniture, DORMANT (rez parameter 0: no listen, no attach, no

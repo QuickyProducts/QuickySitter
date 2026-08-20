@@ -1,4 +1,4 @@
-string version = "0.9";
+string version = "0.901";
 /*
  * [QS]propRezzer - one-shot prop unpacking for script migration
  *
@@ -12,8 +12,8 @@ string version = "0.9";
  * hand-rez; see plugins/prop2/README.md.
  *
  * Commands (public chat channel 5, owner only):
- *   /5 rezall        rez the grid, 1 m spacing, plus a chat manifest
- *   /5 rezall 2      same with 2 m spacing
+ *   /5 proprezzall   rez the grid, 1 m spacing, plus a chat manifest
+ *   /5 proprezzall 2 same with 2 m spacing
  *   /5 proplist      manifest only, nothing rezzed
  *
  * Why the rezzed copies are DORMANT: they go out with start parameter
@@ -169,7 +169,7 @@ default
     {
         llListen(LISTEN_CHANNEL, "", llGetOwner(), "");
         Out("ready - /" + (string)LISTEN_CHANNEL
-            + " rezall [spacing] | /" + (string)LISTEN_CHANNEL
+            + " proprezzall [spacing] | /" + (string)LISTEN_CHANNEL
             + " proplist. Remove this script after the migration.");
     }
 
@@ -190,7 +190,7 @@ default
     {
         list words = llParseString2List(message, [" "], []);
         string cmd = llToLower(llList2String(words, 0));
-        if (cmd == "rezall")
+        if (cmd == "proprezzall")
         {
             float spacing = (float)llList2String(words, 1);
             if (spacing <= 0.0)
