@@ -1,4 +1,4 @@
-string version = "0.901";
+string version = "0.902";
 /*
  * [QS]object - prop-side script for the PROP2 pair
  *
@@ -32,7 +32,11 @@ string version = "0.901";
  *     REM, fallback dialog never answered) says DEREZ and dies instead
  *     of lying in the region forever - invisible in the alpha-0 HUD
  *     case. Types 0/2/3 are untouched: world props never attach and
- *     touch-attach props wait for a click by design.
+ *     touch-attach props wait for a click by design. Authoring guards
+ *     (0.902): the timeout defers while anyone has the prop selected
+ *     in the editor, and every PROPSEARCH ([SAVE]) grants a fresh
+ *     window - a creator placing rez positions never loses the prop
+ *     under the cursor.
  *
  * Wire (all region-says on comm_channel, unchanged from the pair):
  *   REZ/ATTACHED/DETACHED/DEREZ|<id>   prop -> furniture handshake
@@ -453,6 +457,14 @@ state prop
         }
         else if (message == "PROPSEARCH")
         {
+            // Authoring guard (0.902): PROPSEARCH is the [SAVE]
+            // broadcast - the clearest "an authoring session is running"
+            // signal on the wire. Give the creator a fresh window before
+            // the type-1 timeout considers us abandoned.
+            if (attach_deadline)
+            {
+                attach_deadline = llGetUnixTime() + 120;
+            }
             // Stock SAVEPROP stays world-only (a furniture-relative
             // POSITION is meaningless worn); the scale factor is
             // well-defined either way, and the worn fit only worn.
@@ -518,6 +530,16 @@ state prop
                 if (llGetAttached())
                 {
                     attach_deadline = 0;
+                }
+                else if (llList2Integer(llGetObjectDetails(llGetKey(),
+                         [OBJECT_SELECT_COUNT]), 0) > 0)
+                {
+                    // Authoring guard (0.902): someone has us selected
+                    // in the editor - a creator placing the rez position
+                    // of an attach prop, the one legitimate long-lived
+                    // unattached type-1 state. Extend, never die under
+                    // the cursor.
+                    attach_deadline = llGetUnixTime() + 120;
                 }
                 else
                 {

@@ -1,4 +1,4 @@
-string version = "0.9";
+string version = "0.901";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *
@@ -281,10 +281,21 @@ integer prop_add(string trig, integer type, string obj, string grp,
         return -1;
     }
     integer idx = prop_count_cached;
-    llLinksetDataWrite(LSD_PROP_PFX + (string)idx,
+    integer rc = llLinksetDataWrite(LSD_PROP_PFX + (string)idx,
         trig + "\t" + (string)type + "\t" + obj + "\t" + grp
         + "\t" + (string)pos + "\t" + (string)rot + "\t" + pt + "\t" + prs
         + "\t" + scl + "\t" + wpos + "\t" + wrot);
+    if (rc != LINKSETDATA_OK)
+    {
+        // 0.901: a silently failed entry write (LSD store full: rc 1,
+        // literal - see house LSD-constants rule) used to leave index
+        // rows pointing at nothing, which surfaces much later as the
+        // self-heal WARN dropping the trigger. Fail loudly instead,
+        // and BEFORE the index writes so nothing dangles.
+        Out(0, "ERROR: LSD write failed (" + (string)rc
+            + "), prop not stored: " + trig);
+        return -1;
+    }
     prop_index_append(LSD_TRIG_PFX + trig, idx);
     prop_index_append(LSD_SIT_PFX  + prop_trig_sit(trig), idx);
     prop_index_append(LSD_GRP_PFX  + grp, idx);
@@ -884,6 +895,17 @@ default
             }
             if (num == 90020 && (string)id == llGetScriptName())
             {
+                // Round-trip the wire switch (0.901): without this line
+                // a wire-v2 creator's [DUMP] pastes into a card that
+                // silently boots on wire 1 - props still run (dual
+                // decoder in [QS]object) but the cap drops back to 100.
+                // Emitted once, in sitter 0's block, which the cascade
+                // streams before any PROP line - satisfying the parser's
+                // before-first-PROP rule on re-read.
+                if (WIRE == 2 && msg == "0")
+                {
+                    Readout_Say("PROP2 ON");
+                }
                 // Dump matching props (sitter prefix) — iterate all
                 // indices since there's no direct sitter-pose index.
                 // Rare admin path; the O(count) LSD reads are fine.
