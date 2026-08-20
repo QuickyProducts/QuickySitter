@@ -20,8 +20,15 @@ Kit contents:
   QuickyHUD       - HUD object variant carrying [QS]object
   (this notecard)
 
-You need: modify rights on the furniture, and your prop objects must be
-COPY. Make a backup copy of the furniture before you start.
+You need:
+- MODIFY on the furniture AND on every prop object. A no-modify prop
+  cannot take the new script - it keeps the old pair, and Part C is
+  then off the table for this furniture.
+- COPY on every prop object.
+- COPY + TRANSFER on attach props (PROP1/PROP2 lines) INCLUDING their
+  contents - wearing hands the object to the sitter, which is a
+  transfer, and the rez check refuses otherwise.
+Make a backup copy of the furniture before you start.
 
 
 PART A - furniture script
