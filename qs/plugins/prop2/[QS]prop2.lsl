@@ -1,4 +1,4 @@
-string version = "0.902";
+string version = "0.903";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *
@@ -1022,6 +1022,28 @@ default
         // 1.281: hoisted. This field was re-read eleven times below,
         // four of them inside a single condition.
         string cmd = llList2String(data, 0);
+        // Reply scoping (0.903): only props WE rezzed are heard. The
+        // speaker's OBJECT_REZZER_KEY survives attachment (measured
+        // 2026-08-20, rezzerProbe on a worn type-1), so one blanket
+        // check covers world and worn replies alike, and it needs no
+        // cooperation from the prop - stock [AV]object props pass too.
+        // Closes the last channel-collision flank: a colliding furniture's
+        // props can no longer write our prop rows via SAVEPROP/QSSAVE*.
+        key spk_rezzer = llList2Key(
+            llGetObjectDetails(id, [OBJECT_REZZER_KEY]), 0);
+        if (spk_rezzer != llList2Key(
+            llGetObjectDetails(llGetKey(), [OBJECT_ROOT]), 0))
+        {
+            // A prop that says DEREZ and dies in the same frame can be
+            // gone before the event arrives - details on a dead key are
+            // empty, resolving to NULL_KEY. Let exactly that through: a
+            // LIVE foreign speaker always has a real rezzer key and
+            // stays rejected.
+            if (!(spk_rezzer == NULL_KEY && cmd == "DEREZ"))
+            {
+                return;
+            }
+        }
         if (cmd == "SAVEPROP")
         {
             integer index = (integer)llList2String(data, 1);

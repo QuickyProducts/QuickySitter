@@ -1249,11 +1249,17 @@ prop index, bits 18-30 channel magnitude (channel = -magnitude).
   `qs:prop2:chan` (outside the wiped `qs:prop:*` namespace) and sweeps
   `REM_ALL` over the previous channel on state_entry, so a script reset
   or update push while props are out no longer strands them.
-- Rezzer scoping in `[QS]object`: comm-channel commands are honoured
-  only when the speaker's root prim equals OBJECT_REZZER_KEY of self.
-  Colliding furnitures can no longer derez foreign props or have their
-  SAVE replies mis-attributed. (The furniture side keeps accepting
-  unscoped replies for stock-prop compatibility.)
+- Rezzer scoping, BOTH directions. `[QS]object`: comm-channel commands
+  are honoured only when the speaker's root prim equals
+  OBJECT_REZZER_KEY of self. `[QS]prop2` (0.903): replies are honoured
+  only when the speaker's OBJECT_REZZER_KEY equals the furniture root -
+  measured 2026-08-20 (rezzerProbe, worn type-1): the rezzer key IS the
+  furniture root key and survives attachment, so one blanket check
+  covers world and worn speakers, and stock [AV]object props pass it
+  without cooperating. Exception: a DEREZ whose speaker is already
+  dead (empty object details) is let through, since a prop may die in
+  the same frame it speaks. Colliding furnitures can no longer derez
+  foreign props, steal SAVE replies, or write foreign prop rows.
 - Type-1 attach timeout: an auto-attach prop whose attach never
   completes (empty sitter slot, REZ raced the standup REM, fallback
   dialog ignored) says DEREZ and dies after 120 s (180 s once a
