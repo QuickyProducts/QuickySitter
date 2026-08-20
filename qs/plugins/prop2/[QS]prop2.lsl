@@ -1,4 +1,4 @@
-string version = "0.904";
+string version = "0.905";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *
@@ -1051,12 +1051,39 @@ default
         if (spk_rezzer != llList2Key(
             llGetObjectDetails(llGetKey(), [OBJECT_ROOT]), 0))
         {
+            integer pass = FALSE;
             // A prop that says DEREZ and dies in the same frame can be
             // gone before the event arrives - details on a dead key are
             // empty, resolving to NULL_KEY. Let exactly that through: a
             // LIVE foreign speaker always has a real rezzer key and
             // stays rejected.
-            if (!(spk_rezzer == NULL_KEY && cmd == "DEREZ"))
+            if (spk_rezzer == NULL_KEY && cmd == "DEREZ")
+            {
+                pass = TRUE;
+            }
+            // Worn fallback (0.905): llGetObjectDetails on an ATTACHMENT
+            // redirects to the wearing avatar, so a worn prop's rezzer
+            // key is not reliably readable from outside (the rezzerProbe
+            // only proved the SELF-query survives). For the worn-borne
+            // replies, legitimise by WEARER instead: temp-attach hands
+            // ownership to the wearer, who must be one of our seated
+            // sitters or the standing operator. World replies (SAVEPROP,
+            // REZ, menu-driven QSSAVESCALE from ground props) keep
+            // passing the strict rezzer check above.
+            else if (cmd == "QSSAVESCALE" || cmd == "QSSAVEWORN"
+                || cmd == "ATTACHED" || cmd == "DETACHED")
+            {
+                key wearer = llGetOwnerKey(id);
+                if (llListFindList(SITTERS, [wearer]) != -1)
+                {
+                    pass = TRUE;
+                }
+                else if ((key)llLinksetDataRead("qs:hud:standing") == wearer)
+                {
+                    pass = TRUE;
+                }
+            }
+            if (!pass)
             {
                 return;
             }
