@@ -1,4 +1,4 @@
-string version = "0.902";
+string version = "0.903";
 /*
  * [QS]object - prop-side script for the PROP2 pair
  *
@@ -188,6 +188,13 @@ state prop
     {
         if (llGetLinkNumber() < 2)
         {
+            // Stale-state guard (0.903): globals SURVIVE take-back into
+            // inventory (LSL saves script state in the asset). A copy
+            // taken from a live rez and later hand-rezzed (param 0)
+            // arrived here with the previous life's channel and
+            // re-announced REZ on it - a ghost stock never had, because
+            // stock opens its listen inside the decode branch.
+            comm_channel = 0;
             integer start = llGetStartParameter();
             if (start > 0)
             {
@@ -242,6 +249,12 @@ state prop
             llSetTimerEvent(0);
         }
 
+        // Stale-state guard, same reason as comm_channel above (0.903):
+        // an expired deadline riding in from a previous life would let
+        // the watchdog's first tick kill a freshly rezzed prop of any
+        // type 10 s in - hit by the stock bake workflow, which takes
+        // live props back into inventory as a matter of course.
+        attach_deadline = 0;
         // Type-1 attach timeout (see header). Generous deadline at
         // machine speed; extended when a permission flow starts, since
         // the fallback dialog needs a human answer.
