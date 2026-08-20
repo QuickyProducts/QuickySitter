@@ -86,7 +86,14 @@ deleted by hand.
    "... did not answer the v2 handshake ...". Migrate that object
    (Part B) and re-test.
 
-To go back at any time: remove the PROP2 ON line and save.
+To go back: remove the PROP2 ON line and save. This is only clean
+while the card has AT MOST 100 PROP lines - on the old wire, every
+line beyond 100 errors out and that prop stops existing. Your migrated
+props themselves are fine either way; [QS]object speaks both wires.
+
+Note for every AVpos save (this switch included): prop adjustments you
+made in-world but never copied into the notecard ([SAVE] chat lines,
+[DUMP]) are wiped by the re-read. Dump first, then edit.
 
 
 Verification checklist
