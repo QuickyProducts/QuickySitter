@@ -1,4 +1,4 @@
-string version = "0.903";
+string version = "0.904";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *
@@ -491,7 +491,22 @@ remove_indexed(string lsd_key, integer remove_type3, integer allow_world)
         {
             command = "REM_WORLD";
         }
-        send_command(llDumpList2String([command] + text, "|"));
+        // 0.904: chunked. llSay/llRegionSay truncate at 1024 bytes; a
+        // wire-2 removal can carry up to 1024 indices (~5 KB), and the
+        // cut-off tail would simply stay rezzed. 60 indices per say
+        // stays under ~300 B. Stock never hit this (cap 100 ~ 400 B).
+        integer total = llGetListLength(text);
+        integer at;
+        for (at = 0; at < total; at += 60)
+        {
+            integer end = at + 59;
+            if (end >= total)
+            {
+                end = total - 1;
+            }
+            send_command(llDumpList2String(
+                [command] + llList2List(text, at, end), "|"));
+        }
     }
 }
 
@@ -523,14 +538,16 @@ remove_props_by_group(integer gp)
     string group = llList2String(sequential_prop_groups, gp);
     list idx_strs = prop_index_list(LSD_GRP_PFX + group);
     integer n = llGetListLength(idx_strs);
-    string text = "";
-    integer i;
-    for (i = 0; i < n; i++)
+    // 0.904: chunked like remove_indexed - see the 1024-byte say cap.
+    integer at;
+    for (at = 0; at < n; at += 60)
     {
-        text += "|" + llList2String(idx_strs, i);
-    }
-    if (text != "")
-    {
+        integer end = at + 59;
+        if (end >= n)
+        {
+            end = n - 1;
+        }
+        string text = "|" + llDumpList2String(llList2List(idx_strs, at, end), "|");
         if (qs_alive)
         {
             send_command("REM_INDEX" + text);
