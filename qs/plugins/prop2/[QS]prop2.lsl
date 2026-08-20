@@ -1,4 +1,4 @@
-string version = "0.901";
+string version = "0.902";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *
@@ -126,6 +126,10 @@ integer listen_handle;
 // call.
 integer prop_count_cached;
 list sequential_prop_groups;
+// Wire-2 handshake watchdog (0.902): prop indices rezzed but not yet
+// confirmed by a REZ reply. Fed only on WIRE == 2, drained by the REZ
+// listen branch, checked by the one-shot timer armed per rez burst.
+list PENDING_REZ;
 
 integer HAVENTNAGGED = TRUE;
 list SITTERS = [key_request]; //OSS::list SITTERS;
@@ -421,6 +425,18 @@ rez_prop(integer index)
                     + type);
         }
         llRezAtRoot(object, pos, ZERO_VECTOR, rot, start_param);
+        if (WIRE == 2)
+        {
+            // Handshake watchdog: [QS]object answers REZ on both wires,
+            // stock [AV]object cannot decode the positive v2 param and
+            // stays silent. Re-arming per rez in a burst is deliberate:
+            // the check runs once, after the LAST rez settles.
+            if (llListFindList(PENDING_REZ, [index]) == -1)
+            {
+                PENDING_REZ += index;
+            }
+            llSetTimerEvent(10.0);
+        }
     }
 }
 
@@ -977,6 +993,29 @@ default
         }
     }
 
+    timer()
+    {
+        // One-shot wire-2 handshake watchdog (0.902), armed per rez
+        // burst in rez_prop(). Whatever is still pending after 10 s
+        // never opened a listen: stock [AV]object cannot decode the
+        // positive v2 param, goes mute AND deaf (comm_channel stays 0,
+        // guarded), and becomes an immortal corpse no REM can reach.
+        // We cannot kill a foreign object - but we can name it, which
+        // is what a creator migrating 60 props actually needs.
+        llSetTimerEvent(0.0);
+        integer n = llGetListLength(PENDING_REZ);
+        integer i;
+        for (i = 0; i < n; i++)
+        {
+            Out(0, "WARN: prop '"
+                + llList2String(prop_load(llList2Integer(PENDING_REZ, i)), 2)
+                + "' did not answer the v2 handshake."
+                + " Does it carry [QS]object? (Stock [AV]object cannot"
+                + " run under PROP2 ON - remove the rezzed copy by hand.)");
+        }
+        PENDING_REZ = [];
+    }
+
     listen(integer channel, string name, key id, string message)
     {
         list data = llParseStringKeepNulls(message, ["|"], []);
@@ -1084,6 +1123,15 @@ default
         if (cmd == "ATTACHED" || cmd == "DETACHED" || cmd == "REZ" || cmd == "DEREZ")
         {
             integer prop_index = (integer)llList2String(data, 1);
+            if (cmd == "REZ")
+            {
+                // Handshake confirmed - off the wire-2 watchdog list.
+                integer pri = llListFindList(PENDING_REZ, [prop_index]);
+                if (pri != -1)
+                {
+                    PENDING_REZ = llDeleteSubList(PENDING_REZ, pri, pri);
+                }
+            }
             list entry = prop_load(prop_index);
             string trig = llList2String(entry, 0);
             integer sitter = (integer)llList2String(llParseStringKeepNulls(trig, ["|"], []), 0);
