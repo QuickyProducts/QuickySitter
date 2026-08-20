@@ -1,4 +1,4 @@
-string version = "0.901";
+string version = "1.28";
 /*
  * [QS]propRezzer - one-shot prop unpacking for script migration
  *

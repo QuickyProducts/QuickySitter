@@ -1251,15 +1251,22 @@ prop index, bits 18-30 channel magnitude (channel = -magnitude).
   or update push while props are out no longer strands them.
 - Rezzer scoping, BOTH directions. `[QS]object`: comm-channel commands
   are honoured only when the speaker's root prim equals
-  OBJECT_REZZER_KEY of self. `[QS]prop2` (0.903): replies are honoured
-  only when the speaker's OBJECT_REZZER_KEY equals the furniture root -
-  measured 2026-08-20 (rezzerProbe, worn type-1): the rezzer key IS the
-  furniture root key and survives attachment, so one blanket check
-  covers world and worn speakers, and stock [AV]object props pass it
+  OBJECT_REZZER_KEY of self (measured 2026-08-20: the rezzer key IS the
+  furniture root key, and the SELF-query survives attachment).
+  `[QS]prop2`: world replies are honoured only when the speaker's
+  OBJECT_REZZER_KEY equals the furniture root. Worn-borne replies
+  (QSSAVESCALE / QSSAVEWORN / ATTACHED / DETACHED) cannot use that
+  check - llGetObjectDetails on an ATTACHMENT redirects to the wearing
+  avatar, so the cross-query fails (field-confirmed regression) - and
+  are legitimised by WEARER instead: temp-attach hands ownership to
+  the wearer, whose key must be a seated sitter or the standing
+  operator (`qs:hud:standing`). Stock [AV]object props pass both paths
   without cooperating. Exception: a DEREZ whose speaker is already
   dead (empty object details) is let through, since a prop may die in
   the same frame it speaks. Colliding furnitures can no longer derez
-  foreign props, steal SAVE replies, or write foreign prop rows.
+  foreign props, steal SAVE replies, or write foreign prop rows;
+  residual exposure is a colliding furniture's worn prop on OUR seated
+  sitter with a matching index.
 - Type-1 attach timeout: an auto-attach prop whose attach never
   completes (empty sitter slot, REZ raced the standup REM, fallback
   dialog ignored) says DEREZ and dies after 120 s (180 s once a

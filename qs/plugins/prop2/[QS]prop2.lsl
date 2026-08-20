@@ -1,4 +1,4 @@
-string version = "0.905";
+string version = "1.28";
 /*
  * [QS]prop2 - alternative prop engine (wire v2), creator opt-in
  *

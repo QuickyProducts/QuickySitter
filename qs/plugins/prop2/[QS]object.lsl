@@ -1,4 +1,4 @@
-string version = "0.903";
+string version = "1.28";
 /*
  * [QS]object - prop-side script for the PROP2 pair
  *
