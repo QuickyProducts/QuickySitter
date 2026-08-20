@@ -517,3 +517,32 @@ retrofitted.
 
 Deliberately NOT a v1 change: it is a new seed contract across five
 scripts, and none of them is in trouble today.
+
+## Attach props are not authorable in-world - v2 should fix that
+
+Found 2026-08-20 during the prop2 work (v1 sitter repo). The in-world
+authoring path creates world props only: the 90171/90173 handler in
+`[QS]prop` hardcodes `prop_add(trig, 0, ...)` - type 0, always. PROP1
+(auto-attach) and PROP2 (touch-attach) can only come from hand-written
+notecard lines. Stock inheritance, present in `[QS]prop2` identically.
+
+Today's workaround, documented in chat 2026-08-20: author as a world
+prop, [SAVE], then hand-edit the dumped line (`PROP` -> `PROP1`, append
+the attach point as field 6 - AVsitter's 40 names only, substring
+match), re-save AVpos. Worn fit afterwards via QSSAVEWORN ([SAVE] while
+attached, needs the objectadjust/[QS]object companion).
+
+The v2 authoring surface should carry the type from the start:
+
+- the add-prop flow asks World / Auto-attach / Touch-attach / Stay
+  (types 0/1/2/3) before registering,
+- attach types then ask for the point, ideally as a paged dialog over
+  the 40 AVsitter names instead of free text - the bed-card audit found
+  two silently-dead free-text points (`right forearm`,
+  `right ring finger`),
+- the add wire (v2's counterpart to 90171) carries `|type|point` in the
+  payload.
+
+Deliberately NOT a v1/prop2 change: it is adjuster-menu UI plus a wire
+extension, and the hand-edit path works. Belongs to the qs2 adjuster
+fork (see "the adjuster is forked into qs2" above).
