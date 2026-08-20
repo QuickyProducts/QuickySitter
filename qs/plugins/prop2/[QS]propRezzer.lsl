@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.281";
 /*
  * [QS]propRezzer - one-shot prop unpacking for script migration
  *
@@ -15,6 +15,7 @@ string version = "1.28";
  *   /5 proprezzall   rez the grid, 1 m spacing, plus a chat manifest
  *   /5 proprezzall 2 same with 2 m spacing
  *   /5 proplist      manifest only, nothing rezzed
+ *   /5 propclean     return leftover grid copies (Lost and Found)
  *
  * Why the rezzed copies are DORMANT: they go out with start parameter
  * 0. Both stock [AV]object and [QS]object gate their active state on a
@@ -24,11 +25,16 @@ string version = "1.28";
  * without a handshake there is no ATTACHTO, they lie in the grid like
  * everything else.
  *
- * That dormancy is also why there is NO cleanup command: a dormant
- * prop hears nothing, and any non-zero parameter would put stock
- * [AV]object into its half-awake corpse state instead. The creator
- * opens every object anyway; taking or deleting the copy afterwards
- * is part of the same hand motion.
+ * That dormancy is also why cleanup cannot go THROUGH the props: a
+ * dormant prop hears nothing, and any non-zero parameter would put
+ * stock [AV]object into its half-awake corpse state instead. propclean
+ * (1.281) therefore works from the rezzer side: object_rez hands us
+ * the key of every copy we rez, and llReturnObjectsByID sends the
+ * survivors to the owner's Lost and Found. Needs object-return rights
+ * on the parcel (own or group land - a foreign sandbox refuses, then
+ * collect by hand), and only knows copies rezzed by THIS script since
+ * its last reset. The key collection window is time-boxed so live
+ * props rezzed by [QS]prop2 during a pose change are not swept up.
  *
  * No-copy objects are SKIPPED with a warning: rezzing a no-copy
  * inventory object would move it out of the furniture.
@@ -41,6 +47,13 @@ string version = "1.28";
  */
 
 integer LISTEN_CHANNEL = 5;
+
+// propclean bookkeeping (1.281): keys of grid copies this script
+// rezzed. object_rez fires for every rez from this PRIM - including
+// [QS]prop2's live props - so collection is gated on a time window
+// opened by proprezzall.
+list    rezzed_keys;
+integer collect_until;
 
 Out(string out)
 {
@@ -120,6 +133,13 @@ run(float spacing)
     integer rows_total = (n + cols - 1) / cols;
     vector root_pos = llGetRootPosition();
     rotation root_rot = llGetRootRotation();
+    if (spacing > 0.0)
+    {
+        // Open the object_rez collection window: the queued events are
+        // delivered only after this handler returns, so a flag cleared
+        // at the end of the loop would miss all of them.
+        collect_until = llGetUnixTime() + 120;
+    }
     integer rezzed;
     integer i;
     for (i = 0; i < n; i++)
@@ -170,12 +190,23 @@ default
         llListen(LISTEN_CHANNEL, "", llGetOwner(), "");
         Out("ready - /" + (string)LISTEN_CHANNEL
             + " proprezzall [spacing] | /" + (string)LISTEN_CHANNEL
-            + " proplist. Remove this script after the migration.");
+            + " proplist | /" + (string)LISTEN_CHANNEL
+            + " propclean. Remove this script after the migration.");
     }
 
     on_rez(integer start)
     {
         llResetScript();
+    }
+
+    object_rez(key id)
+    {
+        // Fires for every rez from this prim, [QS]prop2's live props
+        // included - only collect inside the proprezzall window.
+        if (llGetUnixTime() < collect_until)
+        {
+            rezzed_keys += id;
+        }
     }
 
     changed(integer change)
@@ -202,6 +233,32 @@ default
         else if (cmd == "proplist")
         {
             run(0.0);
+        }
+        else if (cmd == "propclean")
+        {
+            integer n = llGetListLength(rezzed_keys);
+            if (n == 0)
+            {
+                Out("Nothing tracked. propclean only knows copies"
+                    + " rezzed by THIS script since its last reset.");
+                return;
+            }
+            integer rc = llReturnObjectsByID(rezzed_keys);
+            if (rc >= 0)
+            {
+                Out((string)rc + " of " + (string)n + " tracked copies"
+                    + " returned to your Lost and Found. Already-taken"
+                    + " copies are simply no longer there.");
+                rezzed_keys = [];
+            }
+            else
+            {
+                // -2 = no parcel return rights; keep the list so a
+                // retry after fixing permissions still works.
+                Out("Return failed (error " + (string)rc + "). You"
+                    + " need object-return rights on this parcel -"
+                    + " otherwise collect the copies by hand.");
+            }
         }
     }
 }

@@ -50,7 +50,8 @@ timeout), ready to be opened for the script swap. A chat manifest
 names each object with its prop type, attach point and grid slot;
 `/5 proplist` prints the manifest without rezzing. Taking the edited
 copies back and replacing the inventory originals stays manual, and
-so does removing leftovers - dormant props hear no cleanup command.
+`/5 propclean` returns leftover grid copies to Lost and Found (needs
+object-return rights on the parcel; tracked per session).
 Ctrl+Alt+T in the viewer highlights the invisible ones.
 
 After swapping, the wire-2 handshake watchdog is the acceptance test:
