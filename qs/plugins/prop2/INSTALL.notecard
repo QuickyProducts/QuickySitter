@@ -1,0 +1,103 @@
+PROP2 - Manual installation on QuickySitter 1.28
+=================================================
+
+This kit upgrades the prop system of a QuickySitter 1.28 furniture to
+the PROP2 engine. It is OPTIONAL and installed by hand - your furniture
+keeps working unchanged if you never install it.
+
+What you gain:
+- up to 1024 props per furniture (instead of 100)
+- props can no longer be orphaned or removed by other furniture that
+  happens to share a chat channel
+- leftover attach props clean themselves up
+- prop resizing and worn-fit saving without a companion script
+- a migration helper that rezzes all your props in one command
+
+Kit contents:
+  [QS]prop2       - furniture script, replaces [QS]prop
+  [QS]object      - prop script, replaces [AV]object + [QS]objectadjust
+  [QS]propRezzer  - migration helper, temporary
+  QuickyHUD       - HUD object variant carrying [QS]object
+  (this notecard)
+
+You need: modify rights on the furniture, and your prop objects must be
+COPY. Make a backup copy of the furniture before you start.
+
+
+PART A - furniture script
+-------------------------
+1. Edit the furniture, open the prim inventory that holds the
+   [QS] scripts.
+2. DELETE [QS]prop.
+3. Drop in [QS]prop2.
+   Never leave both installed - each would rez every prop twice.
+4. Also drop in [QS]propRezzer for the duration of the migration.
+
+Nothing else changes. Your AVpos notecard stays as it is, and the
+furniture now runs exactly as before ("mixed state"): existing props
+with the old scripts keep working.
+
+
+PART B - prop objects
+---------------------
+Every prop object gets the new script. The helper does the tedious
+part:
+
+1. Say:  /5 proprezzall
+   Every prop object from the furniture inventory rezzes ONCE on a
+   grid above the furniture, sleeping (they will not attach or react).
+   The chat manifest names each object with its type and grid slot.
+   Tip: Ctrl+Alt+T in the viewer highlights invisible objects.
+   Use  /5 proprezzall 2  for a wider grid (2 m spacing).
+2. For each rezzed copy:
+   a. Edit it, open its content tab.
+   b. DELETE [AV]object and, if present, [QS]objectadjust.
+   c. Drop in [QS]object.
+   d. Take the copy back into your inventory.
+   e. In the furniture prim inventory, delete the old prop object and
+      drop in your edited copy. THE NAME MUST STAY EXACTLY THE SAME,
+      otherwise the AVpos PROP lines will not find it.
+3. Leftover grid copies: say  /5 propclean
+   They are returned to your Lost and Found (needs object return
+   rights on the parcel - on foreign land, pick them up by hand).
+4. Replace the QuickyHUD object in the furniture inventory with the
+   QuickyHUD from this kit (same rule: delete old, drop in new).
+5. DELETE [QS]propRezzer from the furniture.
+
+You can migrate props in batches. Migrated and unmigrated props work
+side by side as long as you do NOT do Part C.
+
+
+PART C - the wire switch (optional, only when Part B is COMPLETE)
+-----------------------------------------------------------------
+The switch raises the prop limit to 1024 and hardens the rez channel.
+It requires that EVERY prop object carries [QS]object - an old
+[AV]object prop rezzed under the new wire lies inert and must be
+deleted by hand.
+
+1. Open the AVpos notecard.
+2. Add this line ABOVE the first PROP line:
+
+   PROP2 ON
+
+3. Save. The furniture re-reads the notecard.
+4. Sit and click through your poses once. If any prop still carries
+   the old script, the furniture names it in chat within ten seconds:
+   "... did not answer the v2 handshake ...". Migrate that object
+   (Part B) and re-test.
+
+To go back at any time: remove the PROP2 ON line and save.
+
+
+Verification checklist
+----------------------
+- pose with a world prop: prop appears, disappears on pose change
+- pose with an attach prop: prop attaches (a permission dialog is
+  normal on land without the QuickyProducts experience)
+- stand up: worn props detach and vanish
+- owner-click a rezzed world prop: the size menu opens
+- no "did not answer the v2 handshake" warnings (Part C only)
+
+Trouble? All QS scripts announce their version in chat. This kit is
+version 1.28 - a furniture on an older QuickySitter must be updated
+first.
