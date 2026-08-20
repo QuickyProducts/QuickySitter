@@ -38,3 +38,21 @@ cannot decode the v2 rez parameter and sits inert.
 `[QS]object` must be the in-world compiled copy from the box (it is
 compiled under the QuickyProducts experience for no-dialog temp-attach;
 a self-compiled copy falls back to a permission dialog).
+
+## Migration helper: [QS]propRezzer
+
+Drop `[QS]propRezzer` into the furniture prim for the duration of the
+migration (remove it afterwards). `/5 rezall` rezzes every inventory
+object once - deduplicated, so a card with 88 PROP lines and 26
+distinct objects rezzes 26 copies - on a grid 1.5 m above the
+furniture, DORMANT (rez parameter 0: no listen, no attach, no
+timeout), ready to be opened for the script swap. A chat manifest
+names each object with its prop type, attach point and grid slot;
+`/5 proplist` prints the manifest without rezzing. Taking the edited
+copies back and replacing the inventory originals stays manual, and
+so does removing leftovers - dormant props hear no cleanup command.
+Ctrl+Alt+T in the viewer highlights the invisible ones.
+
+After swapping, the wire-2 handshake watchdog is the acceptance test:
+set `PROP2 ON`, click through the poses, and every prop still missing
+`[QS]object` reports itself by name within ten seconds.
