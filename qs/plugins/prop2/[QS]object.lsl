@@ -1,4 +1,4 @@
-string version = "0.9";
+string version = "0.901";
 /*
  * [QS]object - prop-side script for the PROP2 pair
  *
@@ -27,6 +27,12 @@ string version = "0.9";
  *     state_entry is gone - the click action is decided once, here.
  *   - llSetMemoryLimit(49152) cuts the per-prop parcel script memory
  *     from 2 x 64 KB (stock pair, no limit set) to 48 KB.
+ *   - Type-1 attach timeout (0.901): an auto-attach prop whose attach
+ *     never completes (no sitter to attach to, REZ raced the standup
+ *     REM, fallback dialog never answered) says DEREZ and dies instead
+ *     of lying in the region forever - invisible in the alpha-0 HUD
+ *     case. Types 0/2/3 are untouched: world props never attach and
+ *     touch-attach props wait for a click by design.
  *
  * Wire (all region-says on comm_channel, unchanged from the pair):
  *   REZ/ATTACHED/DETACHED/DEREZ|<id>   prop -> furniture handshake
@@ -71,6 +77,8 @@ rotation worn_rot;      // local rot vs attach point
 integer dlg_channel;
 integer dlg_handle;
 integer dlg_deadline;   // llGetUnixTime cutoff for the menu listen
+integer attach_deadline; // type-1 only: llDie cutoff if attach never
+                         // completes; 0 = no attach pending
 
 unsit_all()
 {
@@ -229,6 +237,15 @@ state prop
             watchdog = FALSE;
             llSetTimerEvent(0);
         }
+
+        // Type-1 attach timeout (see header). Generous deadline at
+        // machine speed; extended when a permission flow starts, since
+        // the fallback dialog needs a human answer.
+        if (prop_type == 1 && comm_channel)
+        {
+            attach_deadline = llGetUnixTime() + 120;
+            llSetTimerEvent(10);
+        }
     }
 
     attach(key id)
@@ -237,6 +254,7 @@ state prop
         {
             if (llGetAttached())
             {
+                attach_deadline = 0;  // attach completed - stand down
                 llListen(local_attach_channel, "", "", "");
                 llSay(comm_channel, "ATTACHED|" + (string)prop_id);
                 llSay(local_attach_channel, "LOCAT|" + (string)llGetAttached());
@@ -270,6 +288,11 @@ state prop
         if (llGetAttached()) return;
         if (prop_type == 1 || prop_type == 2)
         {
+            if (prop_type == 1)
+            {
+                // Dialog grace - do not die mid-permission-flow.
+                attach_deadline = llGetUnixTime() + 180;
+            }
             llRequestExperiencePermissions(llDetectedKey(0), "");
             return;
         }
@@ -386,6 +409,9 @@ state prop
             }
             else
             {
+                // Dialog grace: the fallback permission dialog after an
+                // experience denial needs a human answer.
+                attach_deadline = llGetUnixTime() + 180;
                 llRequestExperiencePermissions(llList2Key(data, 1), "");
             }
         }
@@ -483,7 +509,24 @@ state prop
                 dlg_handle = 0;
             }
         }
-        // Job 2: orphan watchdog (stock) - furniture gone, so leave.
+        // Job 2: type-1 attach timeout (see state_entry). DEREZ books
+        // the prop out on the furniture side like every other exit.
+        if (attach_deadline)
+        {
+            if (llGetUnixTime() > attach_deadline)
+            {
+                if (llGetAttached())
+                {
+                    attach_deadline = 0;
+                }
+                else
+                {
+                    llSay(comm_channel, "DEREZ|" + (string)prop_id);
+                    llDie();
+                }
+            }
+        }
+        // Job 3: orphan watchdog (stock) - furniture gone, so leave.
         if (watchdog)
         {
             if (llGetObjectMass(parentkey) == 0)
@@ -500,9 +543,9 @@ state prop
         }
         else
         {
-            if (!dlg_handle)
+            if (!dlg_handle && !attach_deadline)
             {
-                // Neither job pending - stop ticking.
+                // No job pending - stop ticking.
                 llSetTimerEvent(0.0);
             }
         }

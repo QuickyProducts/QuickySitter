@@ -1254,6 +1254,10 @@ prop index, bits 18-30 channel magnitude (channel = -magnitude).
   Colliding furnitures can no longer derez foreign props or have their
   SAVE replies mis-attributed. (The furniture side keeps accepting
   unscoped replies for stock-prop compatibility.)
+- Type-1 attach timeout: an auto-attach prop whose attach never
+  completes (empty sitter slot, REZ raced the standup REM, fallback
+  dialog ignored) says DEREZ and dies after 120 s (180 s once a
+  permission flow starts). Types 0/2/3 unaffected.
 - `[QS]object` sets llSetMemoryLimit(49152); the stock pair billed
   2 x 64 KB per rezzed prop.
 
