@@ -1213,3 +1213,50 @@ Viewer-editor stretch and the companion's owner touch menu (±1/5/10 %,
 **Compatibility**: props without the companion ignore `QSSCALE` (rezzed
 unscaled); stock `[AV]prop` ignores `QSSAVESCALE`. No stock message is
 reused or altered.
+
+## Prop wire v2 - `PROP2 2` (`[QS]prop2` + `[QS]object`)
+
+Opt-in alternative prop engine, shipped in the creator box NEXT TO the
+frozen stock-wire pair, never pushed as an update. Exactly one of
+`[QS]prop` / `[QS]prop2` per prim (each broadcasts QSDUMP_HELLO on
+state_entry; `[QS]prop2` chats an error when it sees its sibling).
+`[QS]object` replaces the stock `[AV]object` + `[QS]objectadjust` pair
+inside the prop and must be compiled under the QuickyProducts
+experience.
+
+**Selection**: AVpos line `PROP2 <n>` before the first PROP line.
+`PROP2` doubles as the type-2 prop command; the selector is told apart
+by having no `|` fields. Persisted as field 5 of `qs:prop:meta` so
+LSD-cached boots keep it.
+
+| n | start_param | cap | prop-side script |
+|---|-------------|-----|------------------|
+| 1 (default) | stock decimal, negative | 100 | `[AV]object` or `[QS]object` |
+| 2 | bit-packed, POSITIVE | 1024 | `[QS]object` only |
+
+**Wire v2 start_param** (positive; the sign is the discriminator
+`[QS]object` switches decoders on - stock wire is always <= -10000000):
+bits 0-1 type, bits 2-7 attach point (AVsitter numbering), bits 8-17
+prop index, bits 18-30 channel magnitude (channel = -magnitude).
+`[QS]prop2` rolls channels in 1000-8191 (13 bits) for both wires.
+
+**Hardening carried by the pair, active on wire v1 too**:
+
+- Cap enforcement moved into `prop_add()` - the authoring paths
+  (90171/90173, 90280) can no longer mint an index past the cap, which
+  under the decimal wire overflowed into the channel digits.
+- Channel persistence: `[QS]prop2` stores its comm channel in
+  `qs:prop2:chan` (outside the wiped `qs:prop:*` namespace) and sweeps
+  `REM_ALL` over the previous channel on state_entry, so a script reset
+  or update push while props are out no longer strands them.
+- Rezzer scoping in `[QS]object`: comm-channel commands are honoured
+  only when the speaker's root prim equals OBJECT_REZZER_KEY of self.
+  Colliding furnitures can no longer derez foreign props or have their
+  SAVE replies mis-attributed. (The furniture side keeps accepting
+  unscoped replies for stock-prop compatibility.)
+- `[QS]object` sets llSetMemoryLimit(32768); the stock pair billed
+  2 x 64 KB per rezzed prop.
+
+All commands and message shapes are unchanged from the stock pair +
+the Prop scale section above; only the start_param encoding and the
+acceptance rules differ.
