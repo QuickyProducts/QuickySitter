@@ -1,4 +1,3 @@
-string version = "1.281";
 /*
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
@@ -56,6 +55,7 @@ string version = "1.281";
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
+string version = "1.28";
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -92,7 +92,7 @@ list SITTERS = [key_request]; //OSS::list SITTERS;
 list SITTER_POSES;
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
-// 2=runtime status, 3=debug. Level 0 always prints — verbose floors at 0.
+// 2=runtime status, 3=debug. OutForce() bypasses for critical messages.
 // Set globally via AVpos `VERBOSE n` → qs:cfg:verbose LSD key (read in
 // state_entry below). Default lowered from stock's 5 to 0 — see
 // [[feedback_ownersay_region_spam]]: prop instances on furniture-heavy
@@ -113,6 +113,10 @@ Out(integer level, string out)
     {
         llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
     }
+}
+OutForce(string out)
+{
+    llOwnerSay(llGetScriptName() + "[" + version + "] " + out);
 }
 
 integer get_number_of_scripts()
@@ -145,6 +149,11 @@ integer get_point(string text)
 // ───────────────────────────────────────────────────────────────────
 // LSD storage layer
 // ───────────────────────────────────────────────────────────────────
+
+integer prop_count()
+{
+    return prop_count_cached;
+}
 
 // Append idx to a comma-separated index list under `lsd_key`. Creates the
 // entry if missing. (Param is `lsd_key`, not `key` — `key` is an LSL
@@ -373,35 +382,41 @@ rez_props_by_trigger(string pose_name)
     }
 }
 
-// Send one REM_INDEX for every prop listed under `lsd_key`, skipping
-// type-3 (sequential) props unless remove_type3.
-//
-// 1.281: merged from the former remove_props_by_sitter (sitter index,
-// REM_WORLD fallback) and remove_sitter_props_by_pose (trigger index,
-// always REM_INDEX). They differed only in the LSD prefix and in whether
-// the pre-QS fallback downgrades the command, so callers now pass the
-// built key plus allow_world instead of duplicating the whole loop.
-remove_indexed(string lsd_key, integer remove_type3, integer allow_world)
+list get_props_by_pose(string pose_name)
 {
-    list idx_strs = prop_index_list(lsd_key);
+    list idx_strs = prop_trig_indices(pose_name);
+    integer n = llGetListLength(idx_strs);
+    list result;
+    integer i;
+    for (i = 0; i < n; i++)
+    {
+        result += (integer)llList2String(idx_strs, i);
+    }
+    return result;
+}
+
+remove_props_by_sitter(string sitter, integer remove_type3)
+{
+    list idx_strs = prop_index_list(LSD_SIT_PFX + sitter);
     integer n = llGetListLength(idx_strs);
     list text;
     integer i;
     for (i = 0; i < n; i++)
     {
         integer idx = (integer)llList2String(idx_strs, i);
-        if ((integer)llList2String(prop_load(idx), 1) != 3 || remove_type3)
+        integer type = (integer)llList2String(prop_load(idx), 1);
+        if (type != 3 || remove_type3)
         {
             text += [idx];
         }
     }
+    string command = "REM_INDEX";
+    if (!qs_alive)
+    {
+        command = "REM_WORLD";
+    }
     if (text != [])
     {
-        string command = "REM_INDEX";
-        if (allow_world && !qs_alive)
-        {
-            command = "REM_WORLD";
-        }
         send_command(llDumpList2String([command] + text, "|"));
     }
 }
@@ -411,15 +426,36 @@ remove_worn(key av)
     send_command(llDumpList2String(["REM_WORN", av], "|"));
 }
 
-remove_sitter_props_by_pose_group(string msg)
+remove_sitter_props_by_pose(string sitter_pose, integer remove_type3)
 {
-    list idx_strs = prop_trig_indices(msg);
-    list groups;
+    list idx_strs = prop_index_list(LSD_TRIG_PFX + sitter_pose);
     integer n = llGetListLength(idx_strs);
+    list text;
     integer i;
     for (i = 0; i < n; i++)
     {
         integer idx = (integer)llList2String(idx_strs, i);
+        integer type = (integer)llList2String(prop_load(idx), 1);
+        if (type != 3 || remove_type3)
+        {
+            text += [idx];
+        }
+    }
+    if (text != [])
+    {
+        send_command(llDumpList2String(["REM_INDEX"] + text, "|"));
+    }
+}
+
+remove_sitter_props_by_pose_group(string msg)
+{
+    list props = get_props_by_pose(msg);
+    list groups;
+    integer n = llGetListLength(props);
+    integer i;
+    for (i = 0; i < n; i++)
+    {
+        integer idx = llList2Integer(props, i);
         string prop_group = llList2String(prop_load(idx), 3);
         if (llListFindList(groups, [prop_group]) == -1)
         {
@@ -629,7 +665,7 @@ default
                 integer sitter = (integer)llList2String(data, 0);
                 if (id == llList2Key(SITTERS, sitter))
                 {
-                    remove_indexed(LSD_TRIG_PFX + llList2String(SITTER_POSES, sitter), FALSE, FALSE);
+                    remove_sitter_props_by_pose(llList2String(SITTER_POSES, sitter), FALSE);
                     string given_posename = llList2String(data, 1);
                     given_posename = (string)sitter + "|" + given_posename;
                     SITTER_POSES = llListReplaceList(SITTER_POSES, [given_posename], sitter, sitter);
@@ -653,7 +689,7 @@ default
                     {
                         if (llList2Key(SITTERS, i) == sitting_av_or_sitter || id == "" || (string)sitting_av_or_sitter == (string)i)
                         {
-                            remove_indexed(LSD_TRIG_PFX + (string)i + "|" + llGetSubString(msg, 8, 99999), TRUE, FALSE);
+                            remove_sitter_props_by_pose((string)i + "|" + llGetSubString(msg, 8, 99999), TRUE);
                         }
                     }
                 }
@@ -680,7 +716,7 @@ default
                                 }
                                 else if (!flag)
                                 {
-                                    remove_indexed(LSD_SIT_PFX + (string)i, TRUE, TRUE);
+                                    remove_props_by_sitter((string)i, TRUE);
                                 }
                             }
                             else
@@ -711,7 +747,7 @@ default
             }
             if (num == 90065)
             {
-                remove_indexed(LSD_SIT_PFX + msg, FALSE, TRUE);
+                remove_props_by_sitter(msg, FALSE);
                 remove_worn(id);
                 integer index = llListFindList(SITTERS, [id]);
                 if (index != -1)
@@ -731,8 +767,8 @@ default
             // its successor, matching the stock 90030 path's behavior.
             if (num == 90030 || num == 90031)
             {
-                remove_indexed(LSD_SIT_PFX + msg, FALSE, TRUE);
-                remove_indexed(LSD_SIT_PFX + (string)id, FALSE, TRUE);
+                remove_props_by_sitter(msg, FALSE);
+                remove_props_by_sitter((string)id, FALSE);
                 SITTERS = llListReplaceList(SITTERS, [NULL_KEY], (integer)msg, (integer)msg);
                 SITTERS = llListReplaceList(SITTERS, [NULL_KEY], (integer)((string)id), (integer)((string)id));
                 return;
@@ -851,10 +887,7 @@ default
     listen(integer channel, string name, key id, string message)
     {
         list data = llParseStringKeepNulls(message, ["|"], []);
-        // 1.281: hoisted. This field was re-read eleven times below,
-        // four of them inside a single condition.
-        string cmd = llList2String(data, 0);
-        if (cmd == "SAVEPROP")
+        if (llList2String(data, 0) == "SAVEPROP")
         {
             integer index = (integer)llList2String(data, 1);
             if (index >= 0 && index < prop_count_cached)
@@ -895,7 +928,7 @@ default
             }
             return;
         }
-        if (cmd == "QSSAVESCALE")
+        if (llList2String(data, 0) == "QSSAVESCALE")
         {
             // [QS]objectadjust replying to the [SAVE]-triggered PROPSEARCH
             // broadcast with its current scale factor (vs inventory size).
@@ -926,7 +959,7 @@ default
             }
             return;
         }
-        if (cmd == "QSSAVEWORN")
+        if (llList2String(data, 0) == "QSSAVEWORN")
         {
             // [QS]objectadjust on a WORN prop replying to PROPSEARCH with its
             // current attach-point-local pos/rot (Euler deg).
@@ -952,7 +985,7 @@ default
             }
             return;
         }
-        if (cmd == "ATTACHED" || cmd == "DETACHED" || cmd == "REZ" || cmd == "DEREZ")
+        if (llList2String(data, 0) == "ATTACHED" || llList2String(data, 0) == "DETACHED" || llList2String(data, 0) == "REZ" || llList2String(data, 0) == "DEREZ")
         {
             integer prop_index = (integer)llList2String(data, 1);
             list entry = prop_load(prop_index);
@@ -972,11 +1005,11 @@ default
             key sitter_key;
             if (sitter == 99) sitter_key = (key)llLinksetDataRead("qs:hud:standing");
             else              sitter_key = llList2Key(SITTERS, sitter);
-            if (sitter_key != NULL_KEY && cmd == "REZ" && (integer)llList2String(entry, 1) == 1)
+            if (sitter_key != NULL_KEY && llList2String(data, 0) == "REZ" && (integer)llList2String(entry, 1) == 1)
             {
                 llSay(comm_channel, "ATTACHTO|" + (string)sitter_key + "|" + (string)id);
             }
-            if (cmd == "REZ")
+            if (llList2String(data, 0) == "REZ")
             {
                 string postSay = llList2String(entry, 7);
                 if (postSay != "")
@@ -998,7 +1031,7 @@ default
                 }
             }
             llMessageLinked(LINK_SET, 90500, llDumpList2String([
-                cmd,
+                llList2String(data, 0),
                 trig,
                 llList2String(entry, 2),
                 element(llList2String(entry, 3), 1),
@@ -1006,7 +1039,7 @@ default
             ], "|"), sitter_key);
             return;
         }
-        if (cmd == "NAG" && HAVENTNAGGED && (!llGetAttached()))
+        if (llList2String(data, 0) == "NAG" && HAVENTNAGGED && (!llGetAttached()))
         {
             llRegionSayTo(llGetOwner(), 0, "To enable auto-attachments, please enable the experience '" + llList2String(data, 1) + "' by Code Violet in 'About Land'.");
             HAVENTNAGGED = FALSE;
