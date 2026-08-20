@@ -546,3 +546,30 @@ The v2 authoring surface should carry the type from the start:
 Deliberately NOT a v1/prop2 change: it is adjuster-menu UI plus a wire
 extension, and the hand-edit path works. Belongs to the qs2 adjuster
 fork (see "the adjuster is forked into qs2" above).
+
+## [QS]faces is deleted in v2 - OVERLAY replaces it
+
+Decided 2026-08-20. DESIGN.md section 12 already specifies OVERLAY and
+counts the third-party hand/face plugins as subsumed; this note makes
+the same call explicit for our own `[QS]faces`: v2 ships without it.
+Its core job - "while pose X plays, also play animation set Y" - IS the
+OVERLAY feature, verified in-world 2026-08-15/16 for both plugin
+classes. This also takes one of the five notecard readers off the list
+(see "read five times over" above): `faces` walks AVpos for `ANIM`
+lines today.
+
+Migration: the v2 seeder reads legacy `ANIM <pose>|<anim>[|<anim>...]`
+lines and folds them into the same `qs:ov:<ch>:<i>` rows as OVERLAY
+lines - v1 cards keep working unchanged. The numeric interval field
+some cards carry (`ANIM name|B1|3`) is ignored; resolved 2026-08-15,
+these anims loop.
+
+Two faces jobs are NOT covered by OVERLAY and need a home:
+
+- The facial-anim picker dialog (QSFACE_PICK 90214, the built-in
+  express_* list) - authoring UI, belongs in the qs2 adjuster fork
+  next to the attach-prop type picker noted above.
+- The [DUMP] round trip: faces emits `ANIM` lines today (90172 store,
+  Readout_Say). The v2 dump pipeline emits `OVERLAY` lines instead;
+  emitting the legacy spelling is only needed if a card must round-trip
+  back to stock AVsitter, which OVERLAY cards cannot do anyway.
