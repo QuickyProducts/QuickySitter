@@ -27,11 +27,11 @@ onto existing furniture.
 1. Replace `[QS]prop` with `[QS]prop2` in the furniture prim.
 2. Put `[QS]object` into every prop object's root prim and remove the
    stock `[AV]object` / `[QS]objectadjust` pair there.
-3. Add the line `PROP2 2` to AVpos, above the first PROP line.
+3. Add the line `PROP2 ON` to AVpos, above the first PROP line.
 
 Steps 1 and 2 alone (without the AVpos line) already run on the stock
 wire with the hardening active - that is the supported mixed state
-while you migrate prop objects one by one. The `PROP2 2` line is the
+while you migrate prop objects one by one. The `PROP2 ON` line is the
 final switch and requires step 2 to be COMPLETE: stock `[AV]object`
 cannot decode the v2 rez parameter and sits inert.
 

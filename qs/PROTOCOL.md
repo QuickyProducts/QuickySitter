@@ -1214,7 +1214,7 @@ Viewer-editor stretch and the companion's owner touch menu (±1/5/10 %,
 unscaled); stock `[AV]prop` ignores `QSSAVESCALE`. No stock message is
 reused or altered.
 
-## Prop wire v2 - `PROP2 2` (`[QS]prop2` + `[QS]object`)
+## Prop wire v2 - `PROP2 ON` (`[QS]prop2` + `[QS]object`)
 
 Opt-in alternative prop engine, shipped in the creator box NEXT TO the
 frozen stock-wire pair, never pushed as an update. Exactly one of
@@ -1224,15 +1224,15 @@ state_entry; `[QS]prop2` chats an error when it sees its sibling).
 inside the prop and must be compiled under the QuickyProducts
 experience.
 
-**Selection**: AVpos line `PROP2 <n>` before the first PROP line.
-`PROP2` doubles as the type-2 prop command; the selector is told apart
-by having no `|` fields. Persisted as field 5 of `qs:prop:meta` so
+**Selection**: AVpos line `PROP2 ON` before the first PROP line.
+`PROP2` doubles as the type-2 prop command; the switch is told apart
+by having no `|` fields (case-insensitive value). Persisted as field 5 of `qs:prop:meta` so
 LSD-cached boots keep it.
 
-| n | start_param | cap | prop-side script |
-|---|-------------|-----|------------------|
-| 1 (default) | stock decimal, negative | 100 | `[AV]object` or `[QS]object` |
-| 2 | bit-packed, POSITIVE | 1024 | `[QS]object` only |
+| AVpos | start_param | cap | prop-side script |
+|-------|-------------|-----|------------------|
+| line absent (default) | stock decimal, negative | 100 | `[AV]object` or `[QS]object` |
+| `PROP2 ON` | bit-packed, POSITIVE | 1024 | `[QS]object` only |
 
 **Wire v2 start_param** (positive; the sign is the discriminator
 `[QS]object` switches decoders on - stock wire is always <= -10000000):
@@ -1254,7 +1254,7 @@ prop index, bits 18-30 channel magnitude (channel = -magnitude).
   Colliding furnitures can no longer derez foreign props or have their
   SAVE replies mis-attributed. (The furniture side keeps accepting
   unscoped replies for stock-prop compatibility.)
-- `[QS]object` sets llSetMemoryLimit(32768); the stock pair billed
+- `[QS]object` sets llSetMemoryLimit(49152); the stock pair billed
   2 x 64 KB per rezzed prop.
 
 All commands and message shapes are unchanged from the stock pair +

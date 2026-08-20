@@ -9,17 +9,17 @@ string version = "0.9";
  * [QS]prop / [QS]prop2 belongs in the prim - both at once double-rez
  * every prop (a HELLO cross-check below warns about that).
  *
- * Wire selection via AVpos `PROP2 <n>` (same name as the script),
+ * Wire selection via AVpos `PROP2 ON` (same name as the script),
  * placed BEFORE the first PROP line:
- *   PROP2 1 (default) - stock decimal start_param, cap 100 props,
+ *   line absent (default) - stock decimal start_param, cap 100 props,
  *     props may keep stock [AV]object.
- *   PROP2 2 - bit-packed POSITIVE start_param, cap 1024 props,
+ *   PROP2 ON - bit-packed POSITIVE start_param, cap 1024 props,
  *     EVERY prop must carry [QS]object. Stock [AV]object cannot decode
  *     the positive param and sits inert on no channel - do not mix.
  *
  * `PROP2` doubles as the type-2 prop command (`PROP2 trigger|object|…`);
- * the selector is told apart by having NO | fields. Legacy parsers
- * ([QS]prop, boot) read a stray `PROP2 2` as a prop line with an empty
+ * the switch is told apart by having NO | fields. Legacy parsers
+ * ([QS]prop, boot) read a stray `PROP2 ON` as a prop line with an empty
  * object name and drop it at rez time - ugly but harmless.
  *
  * Wire v2 start_param layout (positive; the stock wire is always
@@ -108,7 +108,7 @@ integer qs_sitter_count_cached = 1;
 key key_request;
 integer comm_channel;
 integer WARN = 1;
-// Wire selection (AVpos `PROP2 <n>` line; persisted in the meta record
+// Wire selection (AVpos `PROP2 ON` line; persisted in the meta record
 // so LSD-cached boots keep it without a notecard re-read).
 integer WIRE = 1;
 integer PROP_CAP = 100;
@@ -1142,9 +1142,9 @@ default
             }
             if (command == "PROP2" && llGetListLength(parts) == 1)
             {
-                // Wire selector `PROP2 <n>` (see header), told apart
-                // from a PROP2 prop definition by having no | fields.
-                if ((integer)llList2String(parts, 0) == 2)
+                // Wire switch `PROP2 ON` (see header), told apart from
+                // a PROP2 prop definition by having no | fields.
+                if (llToUpper(llList2String(parts, 0)) == "ON")
                 {
                     WIRE = 2;
                     PROP_CAP = 1024;

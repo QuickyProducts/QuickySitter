@@ -25,8 +25,8 @@ string version = "0.9";
  *   - One decoder, one listen, one timer. The 2-second click-action
  *     deferral [QS]objectadjust needed to avoid racing [AV]object's
  *     state_entry is gone - the click action is decided once, here.
- *   - llSetMemoryLimit cuts the per-prop parcel script memory from
- *     2 x 64 KB (stock pair, no limit set) to one small allocation.
+ *   - llSetMemoryLimit(49152) cuts the per-prop parcel script memory
+ *     from 2 x 64 KB (stock pair, no limit set) to 48 KB.
  *
  * Wire (all region-says on comm_channel, unchanged from the pair):
  *   REZ/ATTACHED/DETACHED/DEREZ|<id>   prop -> furniture handshake
@@ -154,9 +154,11 @@ default
     state_entry()
     {
         // Parcel-accounting diet: without a limit every prop bills the
-        // full 64 KB. The limit survives state changes. Tune in-world
-        // if the dialog path ever hits a Stack-Heap Collision.
-        llSetMemoryLimit(32768);
+        // full 64 KB. Deliberately generous (48 KB): the win over the
+        // unlimited stock pair (2 x 64 KB) is already large, and a limit
+        // set too tight is a Stack-Heap Collision in the field. Measure
+        // llGetUsedMemory in-world before ever lowering it.
+        llSetMemoryLimit(49152);
     }
 
     on_rez(integer start)
