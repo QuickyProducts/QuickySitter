@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.281";
 /*
  * [QS]object - prop-side script for the PROP2 pair
  *
@@ -168,9 +168,21 @@ default
         // Parcel-accounting diet: without a limit every prop bills the
         // full 64 KB. Deliberately generous (48 KB): the win over the
         // unlimited stock pair (2 x 64 KB) is already large, and a limit
-        // set too tight is a Stack-Heap Collision in the field. Measure
-        // llGetUsedMemory in-world before ever lowering it.
-        llSetMemoryLimit(49152);
+        // set too tight is a Stack-Heap Collision in the field. Sizing
+        // (1.281, anchored on prop2's measured 60 B per code line): 430
+        // code lines = ~26 KB used, and this script holds NOTHING that
+        // grows - no notecard parse, no prop DB, transients bounded by
+        // the 1024 B say cap. The call is CHECKED: it fails if the
+        // script already uses more than the limit, so a future edit
+        // outgrowing the estimate warns at compile time instead of
+        // crashing in the field.
+        if (!llSetMemoryLimit(49152))
+        {
+            llOwnerSay(llGetScriptName() + "[" + version + "] WARN:"
+                + " llSetMemoryLimit(49152) failed - running at the"
+                + " 64 KB default. Report this; the diet limit needs"
+                + " raising.");
+        }
     }
 
     on_rez(integer start)
