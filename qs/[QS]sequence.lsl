@@ -1,3 +1,4 @@
+string version = "1.29";   // rev 1
 /*
  * [QS]sequence - Play sequences of poses (QuickySitter fork of [AV]sequence)
  *
@@ -9,6 +10,10 @@
  *     sequence sitters only fire for slot 0.
  *   - get_number_of_scripts() now returns qs_sitter_count_cached
  *     (default 7 until first QSALIVE reply, then the real count).
+ *   - product string reads "QuickySitter™ sequence" where stock reads
+ *     "AVsitter™ sequence". A modified fork must not ship under the
+ *     upstream mark; see the trademark policy linked below. This was
+ *     the last file in qs/ still carrying the upstream brand.
  *
  * Probe is fired in `state running`'s state_entry so the link_message
  * handler that receives the 90097 reply is already active. Pre-state-
@@ -31,8 +36,8 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string product = "AVsitter™ sequence";
-string version = "1.29";
+string product = "QuickySitter™ sequence";
+// version lives in LINE 1 of this file
 // [QS] fork: QSALIVE handshake replaces the stock `string main_script = "[AV]sitA"`
 // + inventory-walk. See qs/PROTOCOL.md § QSALIVE.
 integer QSALIVE_PROBE = 90096;
