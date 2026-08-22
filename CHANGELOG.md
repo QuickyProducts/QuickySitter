@@ -6,6 +6,10 @@ Grouped by version, newest on top.
 
 ## Unreleased
 
+- **Fix**: `<< Softer` and `Harder >>` change the speed for **everyone seated** again, the way AVsitter always did it. A guard added in an earlier QuickySitter release (against a double-dialog bug) had quietly narrowed the two buttons to the seat that clicked them, so a couple on a SYNC pose with speed variants drifted apart: the plus and minus variants are different-length loops, and one seat alone changed pace. The guard itself stays, and the bug it fixed stays fixed - only the speed buttons go back to reaching every seat
+
+## Version 1.28
+
 - **Feature**: Groundwork for Remote authoring, the Creator Edition feature that lets you build an animesh scene while standing instead of sitting. Two things had to change on the sitter side: a prop (and the HUD itself) can now be handed to someone who occupies no seat at all, and the Adjust access level from `[SECURITY]` decides who may open such a session, exactly as it already decides who may use the seated adjust tools. On furniture without the security plugin the chat shortcut `/5 adjust owner|group|all` sets the same level. Nothing changes for a piece that is only sat on
 - **Fix**: The `[DUMP]` link is repeated when the dump finishes. Until now the completion line only said the link was final, while the link itself had been printed before the dump started, so on a large piece you had to scroll back through hundreds of lines to find it. Both the success and the failure line now carry it, and in the failure case it is the more useful of the two, because it shows you what did arrive
 

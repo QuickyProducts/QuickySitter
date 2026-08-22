@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.281";
 /*
  * [QS]sitB - QuickySitter memory script - needs [QS]sitA to work
  *
@@ -1577,6 +1577,35 @@ default
             // for slot 1 too. "X" is a wildcard used by [QS]select for
             // cross-slot routing (e.g. [QUICKYHUD] entry); accept it so
             // those paths still fan out to all sitB instances.
+            // Speed clicks fan out BY DESIGN, ahead of the slot filter.
+            // Stock broadcast every menu click to every sitB, and the
+            // Harder/Softer branch was the one branch with no sitter
+            // check, so ALL seats changed speed together - which is what
+            // keeps a V-variant SYNC pair in step (name+ and name- are
+            // different-length loops; one seat alone drifts the pair).
+            // The 0.991 filter below cut that fanout to the clicking
+            // seat as a side effect. Handling speed here restores stock
+            // parity without weakening the filter for everything else:
+            // the dual-[ADJUST]-dialog bug it was added against still
+            // cannot fan out. Only the clicker's menu reopens - sitA's
+            // reopen path is gated on id == MY_SITTER, not on this.
+            // (Customer report; verified against stock 2.2-03.01:
+            // [AV]sitA L659 sends LINK_SET, [AV]sitB L476 counts
+            // unchecked.)
+            if (msg == "Harder >>")
+            {
+                ++speed_index;
+                if (speed_index > 1) speed_index = 1;
+                send_anim_info(FALSE);
+                return;
+            }
+            if (msg == "<< Softer")
+            {
+                --speed_index;
+                if (speed_index < -1) speed_index = -1;
+                send_anim_info(FALSE);
+                return;
+            }
             string sSlot = llList2String(data, 0);
             if (sSlot != "X" && (integer)sSlot != SCRIPT_CHANNEL) return;
             if (msg == "[HELPER]")
@@ -1625,20 +1654,6 @@ default
                 // state — we just reset paging so the next pose-menu
                 // re-render starts at page 0 (parity with [ADJUST]).
                 menu_page = 0;
-            }
-            if (msg == "Harder >>")
-            {
-                ++speed_index;
-                if (speed_index > 1)
-                    speed_index = 1;
-                send_anim_info(FALSE);
-            }
-            if (msg == "<< Softer")
-            {
-                --speed_index;
-                if (speed_index < -1)
-                    speed_index = -1;
-                send_anim_info(FALSE);
             }
             return;
         }
