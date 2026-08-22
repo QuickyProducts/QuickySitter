@@ -4,7 +4,7 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
-## Unreleased
+## Version 1.29
 
 - **Fix**: `<< Softer` and `Harder >>` change the speed for **everyone seated** again, the way AVsitter always did it. A guard added in an earlier QuickySitter release (against a double-dialog bug) had quietly narrowed the two buttons to the seat that clicked them, so a couple on a SYNC pose with speed variants drifted apart: the plus and minus variants are different-length loops, and one seat alone changed pace. The guard itself stays, and the bug it fixed stays fixed - only the speed buttons go back to reaching every seat
 

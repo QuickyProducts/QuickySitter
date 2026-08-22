@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.29";
 /*
  * [QS]objectadjust - optional prop-side companion for live prop scaling
  *

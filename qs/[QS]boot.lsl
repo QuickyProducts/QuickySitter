@@ -1,4 +1,4 @@
-string version = "1.28";   // rev 1
+string version = "1.29";
 /*
  * [QS]boot - QuickySitter loader
  *

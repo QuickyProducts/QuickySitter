@@ -21,7 +21,7 @@
  */
 
 string product = "QuickySitter™ Menu Control";
-string version = "1.28";
+string version = "1.29";
 string security_script = "[QS]root-security";
 string RLV_script = "[QS]root-RLV";
 list DESIGNATIONS_NOW;

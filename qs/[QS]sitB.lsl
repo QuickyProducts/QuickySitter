@@ -1,4 +1,4 @@
-string version = "1.281";
+string version = "1.29";
 /*
  * [QS]sitB - QuickySitter memory script - needs [QS]sitA to work
  *

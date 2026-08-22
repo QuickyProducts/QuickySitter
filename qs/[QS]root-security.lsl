@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.29";
 /*
  * [QS]root-security - Specify who can sit and/or use the menu (QuickySitter fork of [AV]root-security)
  *

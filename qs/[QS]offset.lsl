@@ -1,4 +1,4 @@
-string version = "1.28";
+string version = "1.29";
 /*
  * [QS]offset - QuickySitter personal-offset store
  *
