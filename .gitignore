@@ -1,1 +1,5 @@
 .claude/
+
+# The v2 engine lives in the private QuickyHUD repo (qs2/), grafted there
+# with its full history on 2026-08-22. Nothing in this repo references it.
+qs2/
