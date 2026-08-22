@@ -1,5 +1,7 @@
 .claude/
 
-# The v2 engine lives in the private QuickyHUD repo (qs2/), grafted there
-# with its full history on 2026-08-22. Nothing in this repo references it.
+# Both the v2 engine (qs2/) and the opt-in prop wire v2 (qs/plugins/prop2/)
+# live in the private QuickyHUD repo, grafted there
+# with their full history on 2026-08-22. Nothing in this repo references them.
 qs2/
+qs/plugins/prop2/
