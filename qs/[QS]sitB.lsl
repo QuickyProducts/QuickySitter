@@ -1,6 +1,7 @@
-string version = "1.29";
+string version = "1.29";   // rev 1
 /*
- * [QS]sitB - QuickySitter memory script - needs [QS]sitA to work
+ * [QS]sitB - QuickySitter per-seat menu and dialog script - needs
+ * [QS]sitA to work
  *
  * Fork of [AV]sitB from AVsitter2 (MPL 2.0).
  *
@@ -14,9 +15,9 @@ string version = "1.29";
  */
 
 string product = "QuickySitter™";
-// Per-file running count of changes made AFTER the 1.27 stamp. Fold-ins
-// keep the version at 1.27, so the version string alone cannot tell two
-// builds apart. Bump it in the same edit that changes the file.
+// The rev count restarts at each stamp: a change after the 1.29 stamp
+// adds a "// rev N" beside the version line rather than moving the
+// number.
 
 // Verbose convention applies (see [QS]boot header for the full ladder).
 // sitB diverges from the project trio: Out/OutForce helpers are dropped
