@@ -1,4 +1,4 @@
-string version = "1.29";
+string version = "1.29";   // rev 1
 /*
  * [QS]adjuster - QuickySitter creator tool
  *
@@ -783,9 +783,15 @@ default
                     // if-statement — the explicit `return` keeps the
                     // intent visible during diff review.
                     if (!adjust_allowed(id)) {
+                        // The reader is the DENIED guest, so the hint names
+                        // what they can relay to the owner and what works on
+                        // every seat: the Adjust ACL. '/5 helper' left the
+                        // text in 1.29 rev 1 - owner-typed and seat-0-only,
+                        // it stranded guests on other seats.
                         llDialog(id,
-                            "No adjust access - see [SECURITY] > Adjust. "
-                            + "Owner nearby? Type '/5 helper' in chat.",
+                            "No adjust access - ask the owner to widen it: "
+                            + "[SECURITY] > Adjust, or '/5 adjust group|all' "
+                            + "in chat.",
                             ["OK"], -3675);
                         return;
                     }
