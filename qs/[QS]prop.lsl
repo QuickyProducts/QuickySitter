@@ -1,4 +1,4 @@
-string version = "1.291";
+string version = "1.292";
 /*
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
@@ -748,19 +748,27 @@ default
             }
             if (num == 90065)
             {
-                remove_props_by_sitter(msg, FALSE);
-                // Two-beat stand-up (1.291, QS 1.30 face reset): give the
-                // worn Quicky HUD half a second between hudproxy's
-                // *FACERESET* (same 90065, already sent) and our REM_WORN.
-                // Without the beat all three HUD scripts hear the kill in
-                // the same frame, and when [AV]object's detach chain wins
-                // the whole race, a temp attachment dies with the reset
-                // still queued - measured on the ISKA throne 2026-08-31,
-                // while another piece won by scheduling luck. The sender
-                // owns the sequencing (same pattern as hudadmin's toggle
-                // beat); world props above stay immediate, and events
-                // queued during the sleep are delayed, not lost.
+                // Two-beat stand-up (1.291/1.292, QS 1.30 face reset):
+                // give the worn Quicky HUD half a second between
+                // hudproxy's *FACERESET* (same 90065, already sent) and
+                // our kill commands. Without the beat all three HUD
+                // scripts hear the kill in the same frame, and when
+                // [AV]object's detach chain wins the whole scheduling
+                // race, a temp attachment dies with the reset still
+                // queued in its sibling scripts - measured on the ISKA
+                // throne 2026-08-31, while another piece won by luck.
+                //
+                // The beat must come BEFORE remove_props_by_sitter, not
+                // just before remove_worn (the 1.291 mistake, measured
+                // as "HUD gone instantly" despite the sleep): the
+                // dynamically registered HUD prop (90280) sits in the
+                // qs:prop:sit index, so it is killed by THAT call's
+                // REM_INDEX, not by REM_WORN. The sender owns the
+                // sequencing (same pattern as hudadmin's toggle beat).
+                // Cost: the stander's props leave half a second later;
+                // events queued during the sleep are delayed, not lost.
                 llSleep(0.5);
+                remove_props_by_sitter(msg, FALSE);
                 remove_worn(id);
                 integer index = llListFindList(SITTERS, [id]);
                 if (index != -1)
