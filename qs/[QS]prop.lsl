@@ -1,3 +1,4 @@
+string version = "1.291";
 /*
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
@@ -55,7 +56,7 @@
  * https://avsitter.github.io/TRADEMARK.mediawiki
  */
 
-string version = "1.29";
+// version lives in LINE 1 of this file
 string notecard_name = "AVpos";
 integer QSALIVE_PROBE = 90096;
 integer QSALIVE_REPLY = 90097;
@@ -748,6 +749,18 @@ default
             if (num == 90065)
             {
                 remove_props_by_sitter(msg, FALSE);
+                // Two-beat stand-up (1.291, QS 1.30 face reset): give the
+                // worn Quicky HUD half a second between hudproxy's
+                // *FACERESET* (same 90065, already sent) and our REM_WORN.
+                // Without the beat all three HUD scripts hear the kill in
+                // the same frame, and when [AV]object's detach chain wins
+                // the whole race, a temp attachment dies with the reset
+                // still queued - measured on the ISKA throne 2026-08-31,
+                // while another piece won by scheduling luck. The sender
+                // owns the sequencing (same pattern as hudadmin's toggle
+                // beat); world props above stay immediate, and events
+                // queued during the sleep are delayed, not lost.
+                llSleep(0.5);
                 remove_worn(id);
                 integer index = llListFindList(SITTERS, [id]);
                 if (index != -1)
