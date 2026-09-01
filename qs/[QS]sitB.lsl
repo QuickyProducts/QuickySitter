@@ -1,4 +1,4 @@
-string version = "1.29";   // rev 1
+string version = "1.30";
 /*
  * [QS]sitB - QuickySitter per-seat menu and dialog script - needs
  * [QS]sitA to work

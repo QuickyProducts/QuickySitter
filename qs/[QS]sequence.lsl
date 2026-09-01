@@ -1,4 +1,4 @@
-string version = "1.29";   // rev 1
+string version = "1.30";
 /*
  * [QS]sequence - Play sequences of poses (QuickySitter fork of [AV]sequence)
  *

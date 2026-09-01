@@ -1,4 +1,4 @@
-string version = "1.293";
+string version = "1.30";
 /*
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
@@ -748,7 +748,7 @@ default
             }
             if (num == 90065)
             {
-                // Two-beat stand-up (1.291/1.292, QS 1.30 face reset):
+                // Two-beat stand-up (1.30 face reset):
                 // give the worn Quicky HUD half a second between
                 // hudproxy's *FACERESET* (same 90065, already sent) and
                 // our kill commands. Without the beat all three HUD
@@ -759,7 +759,7 @@ default
                 // throne 2026-08-31, while another piece won by luck.
                 //
                 // The beat must come BEFORE remove_props_by_sitter, not
-                // just before remove_worn (the 1.291 mistake, measured
+                // just before remove_worn (an earlier cut's mistake, measured
                 // as "HUD gone instantly" despite the sleep): the
                 // dynamically registered HUD prop (90280) sits in the
                 // qs:prop:sit index, so it is killed by THAT call's
@@ -899,7 +899,7 @@ default
                 HAVENTNAGGED = TRUE;
                 if (qs_alive)
                 {
-                    // Third sender of the stand-up kill (1.293): this is
+                    // Third sender of the stand-up kill (1.30): this is
                     // the "furniture emptied" sweep, and for the LAST
                     // sitter it fires in the same instant as their 90065
                     // - straight past the two-beat in the 90065 handler

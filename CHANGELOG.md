@@ -4,6 +4,10 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
+## Version 1.30
+
+- **Feature**: Standing up now gives the worn Quicky HUD its moment to un-stick face and body bones. When a sitter stands, `[QS]prop` waits half a second before removing worn props, so the Quicky HUD (updated to 1.30) can play its neutral bone reset in the instant before it is taken off - the fix for mesh heads and bodies that keep a face or a bent spine after an animation stops. The full feature is described in the QuickySitter Pro changelog. On furniture used without a Quicky HUD the only visible change is that a stander's props disappear half a second later than before
+
 ## Version 1.29
 
 - **Fix**: `<< Softer` and `Harder >>` change the speed for **everyone seated** again, the way AVsitter always did it. A guard added in an earlier QuickySitter release (against a double-dialog bug) had quietly narrowed the two buttons to the seat that clicked them, so a couple on a SYNC pose with speed variants drifted apart: the plus and minus variants are different-length loops, and one seat alone changed pace. The guard itself stays, and the bug it fixed stays fixed - only the speed buttons go back to reaching every seat
