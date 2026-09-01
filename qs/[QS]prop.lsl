@@ -1,4 +1,4 @@
-string version = "1.292";
+string version = "1.293";
 /*
  * [QS]prop - Rez props when playing poses (QuickySitter fork of [AV]prop)
  *
@@ -899,6 +899,16 @@ default
                 HAVENTNAGGED = TRUE;
                 if (qs_alive)
                 {
+                    // Third sender of the stand-up kill (1.293): this is
+                    // the "furniture emptied" sweep, and for the LAST
+                    // sitter it fires in the same instant as their 90065
+                    // - straight past the two-beat in the 90065 handler
+                    // (measured on the ISKA throne: REM_ALL beat the
+                    // *FACERESET* by the width of one event). Same beat
+                    // here, same rationale, same half second. Only the
+                    // empty-object case is delayed; occupied stand-ups
+                    // never reach this branch.
+                    llSleep(0.5);
                     remove_all_props();
                 }
             }
