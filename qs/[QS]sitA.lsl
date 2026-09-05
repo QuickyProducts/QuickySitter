@@ -1,3 +1,4 @@
+string version = "1.30";   // rev 1
 /*
  * [QS]sitA - QuickySitter main script - needs [QS]sitB to work
  *
@@ -15,7 +16,7 @@
  */
 
 string product = "QuickySitter™";
-string version = "1.30";
+// version declaration moved to line 1 (project convention).
 
 // Verbose convention: 0=error/warn floor (default), 1=boot banner,
 // 2=runtime status, 3=debug.
@@ -256,7 +257,16 @@ qs_load_from_lsd()
     // run_time_permissions sets it (standup/reset clear it to "", never
     // NULL_KEY — see L1299), so == "" keeps a 90023 reload (notecard
     // save, no reset) of an already-tracked sitter a no-op.
-    if (MY_SITTER == "")
+    // FIRST_POSENAME gate (1.30 rev 1): an UNCONFIGURED channel (sitter
+    // script present, no SITTER block in AVpos, so no poses at all) must
+    // never adopt. The resume read is purely PHYSICAL - whoever sits on
+    // this slot's prim target - and on auto-assign builds the physical
+    // prim is decoupled from the logical slot, so a surplus channel
+    // grabbed whoever happened to have landed on its prim and parked
+    // them without any animation (field case 2026-09-05, reseed and
+    // post-install). Left unadopted they re-sit and auto-assign places
+    // them properly.
+    if (MY_SITTER == "" && FIRST_POSENAME != "")
     {
         key resume = llAvatarOnLinkSitTarget(llList2Integer(SITTERS_SITTARGETS, SCRIPT_CHANNEL));
         if (llGetListLength(SITTERS) == 1) resume = llAvatarOnSitTarget();
@@ -333,6 +343,23 @@ sittargets()
         }
         wrong_primcount = TRUE;
     }
+    // Surplus-script warning (1.30 rev 1): more sitter scripts than
+    // SITTER lines in the AVpos (GENDERS carries one entry per line).
+    // Those channels are inert now - no sit target, no auto-assign, no
+    // resume adoption - so the furniture works, but the state is an
+    // authoring mistake that used to park avatars on dead seats. Say so
+    // once per load, slot 0 only, suppressable via WARN like the prim
+    // warning above.
+    if (llGetListLength(GENDERS) > 0
+        && llGetListLength(SITTERS) > llGetListLength(GENDERS)
+        && WARN && !SCRIPT_CHANNEL)
+    {
+        Out(0, "WARNING: " + (string)llGetListLength(SITTERS)
+            + " sitter scripts but the AVpos defines only "
+            + (string)llGetListLength(GENDERS)
+            + " - remove the surplus [QS]sitA/[QS]sitB pairs or add the"
+            + " missing SITTER sections.");
+    }
     integer i;
     SITTERS_SITTARGETS = [];
     list ASSIGNED_SITTARGETS = [];
@@ -393,7 +420,14 @@ sittargets()
     // set_sittarget() directly for their explicit refresh; this guard only
     // affects the sittargets()-driven refresh, which is non-essential for
     // an already-seated occupant (their existing target stays valid).
-    if (llAvatarOnLinkSitTarget(my_sittarget) == NULL_KEY)
+    // FIRST_POSENAME gate (1.30 rev 1): an unconfigured channel arms no
+    // sit target at all. Slot 0's wipe loop has already cleared this
+    // prim's target, so leaving it unarmed makes the prim unsittable -
+    // SL can then never seat more avatars than the AVpos defines, which
+    // closes the dead-seat traps (empty-channel adoption, phantom-gender
+    // assignment, third-sitter-on-empty-slot) at their root.
+    if (llAvatarOnLinkSitTarget(my_sittarget) == NULL_KEY
+        && FIRST_POSENAME != "")
         set_sittarget();
 }
 
@@ -1318,16 +1352,29 @@ default
                         // (fa stays -1, no SCRIPT_CHANNEL match). llList2String
                         // catches both representations because (string)key("") = ""
                         // via the key's value.
+                        // Bound every slot walk to the AVpos-defined channel
+                        // count (1.30 rev 1). GENDERS holds one entry per
+                        // SITTER line; surplus sitter scripts create slots
+                        // past that count with no pose config, and
+                        // llList2Integer's out-of-range 0 read them as
+                        // gender 0 = FEMALE - the gender match then steered
+                        // every female shape onto a dead channel (field case
+                        // 2026-09-05). Undefined channels are now invisible
+                        // to auto-assign. Empty GENDERS (stale pre-gender
+                        // seed) falls back to the full width.
+                        integer gn = llGetListLength(GENDERS);
+                        if (gn == 0 || gn > llGetListLength(SITTERS))
+                            gn = llGetListLength(SITTERS);
                         integer first_available = -1;
                         integer k;
-                        for (k = 0; k < llGetListLength(SITTERS) && first_available == -1; k++)
+                        for (k = 0; k < gn && first_available == -1; k++)
                         {
                             if (llList2String(SITTERS, k) == "")
                                 first_available = k;
                         }
                         integer first_unassigned = -1;
                         integer j;
-                        while (j < llGetListLength(SITTERS))
+                        while (j < gn)
                         {
                             if (llList2String(SITTERS, j) == "")
                             {

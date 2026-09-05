@@ -33,8 +33,9 @@
  */
 
 string product = "QuickySitter™ seat select";
-string version = "1.30";
+string version = "1.30";   // rev 1
 integer select_type;
+integer configured;   // AVpos-defined channel count (GENDERS CSV length)
 list BUTTONS;
 
 // QSALIVE — sitter-count cache (replaces the legacy
@@ -130,8 +131,16 @@ menu(key av)
             }
         }
         list menu_buttons;
+        // Cap the picker at the AVpos-defined channel count (1.30 rev 1):
+        // slots past it belong to surplus sitter scripts with no pose
+        // config, and offering them (default "Sitter N" labels) moved
+        // people onto dead channels. configured == 0 (stale pre-gender
+        // seed) keeps the full width.
+        integer picker_max = llGetListLength(BUTTONS);
+        if (configured > 0 && configured < picker_max)
+            picker_max = configured;
         integer i;
-        for (i = 0; i < llGetListLength(BUTTONS); i++)
+        for (i = 0; i < picker_max; i++)
         {
             string avname = llKey2Name(llList2Key(SITTERS, i));
             if ((select_type == 0 && llList2Integer(SYNCS, i) == FALSE || select_type == 2) && avname != "" && av != llList2Key(SITTERS, i))
@@ -203,6 +212,11 @@ load_from_lsd()
     list p = llParseStringKeepNulls(cfg, ["\n"], []);
     menu_type   = (integer)llList2String(p, 0);
     select_type = (integer)llList2String(p, 4);
+    // 1.30 rev 1: slot 16 is boot's GENDERS CSV, one entry per SITTER
+    // line - the authoritative count of DEFINED channels, which can be
+    // smaller than the script count when surplus sitter scripts are in
+    // the prim. The picker caps at it (see menu()).
+    configured  = llGetListLength(llCSV2List(llList2String(p, 16)));
     string ctext = llList2String(p, 13);
     if (ctext != "")
         CUSTOM_TEXT = llDumpList2String(llParseStringKeepNulls(ctext, ["\\n"], []), "\n") + "\n";
