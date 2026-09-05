@@ -1,4 +1,4 @@
-string version = "1.30";   // rev 1
+string version = "1.30";   // rev 2
 /*
  * [QS]sitA - QuickySitter main script - needs [QS]sitB to work
  *
@@ -343,23 +343,10 @@ sittargets()
         }
         wrong_primcount = TRUE;
     }
-    // Surplus-script warning (1.30 rev 1): more sitter scripts than
-    // SITTER lines in the AVpos (GENDERS carries one entry per line).
-    // Those channels are inert now - no sit target, no auto-assign, no
-    // resume adoption - so the furniture works, but the state is an
-    // authoring mistake that used to park avatars on dead seats. Say so
-    // once per load, slot 0 only, suppressable via WARN like the prim
-    // warning above.
-    if (llGetListLength(GENDERS) > 0
-        && llGetListLength(SITTERS) > llGetListLength(GENDERS)
-        && WARN && !SCRIPT_CHANNEL)
-    {
-        Out(0, "WARNING: " + (string)llGetListLength(SITTERS)
-            + " sitter scripts but the AVpos defines only "
-            + (string)llGetListLength(GENDERS)
-            + " - remove the surplus [QS]sitA/[QS]sitB pairs or add the"
-            + " missing SITTER sections.");
-    }
+    // The surplus-script warning lives in [QS]boot's self-check (since
+    // 1.30 rev 2) - boot holds both counts and has no byte pressure.
+    // rev 1 carried it here and the literals cost ~1 KB on the tightest
+    // script of the set (Paloma measurement 2026-09-06: 6020 -> 4942).
     integer i;
     SITTERS_SITTARGETS = [];
     list ASSIGNED_SITTARGETS = [];

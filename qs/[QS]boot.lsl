@@ -1,4 +1,4 @@
-string version = "1.30";
+string version = "1.30";   // rev 1
 /*
  * [QS]boot - QuickySitter loader
  *
@@ -104,6 +104,7 @@ integer QSALIVE_REPLY = 90097;
 integer QS_SITB_PROBE = 90077;
 integer QS_SITB_HELLO = 90078;
 integer sita_seen;
+integer sita_count;   // sitter-script count from the 90097 payload (rev 1)
 integer sitb_seen;
 integer has_prop_in_notecard;
 integer selfcheck_pending;
@@ -574,6 +575,22 @@ self_check_report()
     {
         Out(0, "WARN: " + notecard_name + " has PROP* but [QS]prop missing - props won't rez.");
     }
+    // Surplus-script check (1.30 rev 1): more sitter scripts than SITTER
+    // sections in the notecard. sitA/select 1.30 rev 1+ keep those
+    // channels inert (no sit target, no auto-assign, no resume, no
+    // picker slot), so the furniture works - but the state is an
+    // authoring mistake that used to park avatars on dead seats, so it
+    // gets said once per boot. GENDERS holds one entry per SITTER line;
+    // it is only populated on a real parse, so the skip-seed path stays
+    // silent - fine, the mismatch is caught on the next notecard save.
+    if (llGetListLength(GENDERS) > 0 && sita_count > llGetListLength(GENDERS))
+    {
+        Out(0, "WARN: " + (string)sita_count + " sitter scripts but "
+            + notecard_name + " defines only "
+            + (string)llGetListLength(GENDERS) + " SITTER section(s)"
+            + " - surplus seats are disabled. Remove the extra"
+            + " [QS]sitA/[QS]sitB pairs or add the missing sections.");
+    }
     if (!ok)
     {
         llSetText("ERROR: base scripts missing - see chat", <1, 0, 0>, 1);
@@ -982,8 +999,12 @@ default
         }
         if (num == QSALIVE_REPLY)
         {
-            // Slot-0 sitA reply — flag suffices for the self-check.
+            // Slot-0 sitA reply. Field 2 of the payload is the sitter-
+            // script count ("QuickySitter|<ver>|<count>|..."), kept for
+            // the surplus-script check in self_check_report (rev 1).
             sita_seen = TRUE;
+            sita_count = (integer)llList2String(
+                llParseString2List(msg, ["|"], []), 2);
             try_complete_selfcheck();
             return;
         }
