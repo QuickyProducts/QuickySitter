@@ -1,4 +1,4 @@
-string VERSION = "0.1"; // [QS]wireprobe - passive link-message probe (test tool, never shipped)
+string VERSION = "0.2"; // [QS]wireprobe - passive link-message probe (test tool, never shipped)
 // ------------------------------------------------------------------------
 // Drop this script into the SAME prim as the QS scripts (all QS base
 // scripts live in one inventory). It sends NOTHING on the QS wire and
@@ -13,6 +13,11 @@ string VERSION = "0.1"; // [QS]wireprobe - passive link-message probe (test tool
 //              observed since arming (90060/90065), plus qs:sitter labels
 //   /7 all     toggle logging of census/alive chatter (90079/90096/90097),
 //              off by default
+//   /7 anims   list the running animation UUIDs per seated avatar
+//              (before/after a pose click: new UUID = anim really started
+//              and is merely masked; no change = the start fizzled)
+//   /7 qso     dump stored personal-offset LSD entries (QSO:*) that sitA
+//              silently adds onto the card positions
 //   /7 help    command list
 //
 // Field-case protocol (MFM cuddle, Female1 not animating):
@@ -169,9 +174,46 @@ default
                 say("census/alive chatter is muted again.");
             }
         }
+        else if (msg == "anims")
+        {
+            integer i = llGetNumberOfPrims();
+            integer found = FALSE;
+            while (llGetAgentSize(llGetLinkKey(i)) != ZERO_VECTOR)
+            {
+                key av = llGetLinkKey(i);
+                list anims = llGetAnimationList(av);
+                say(llKey2Name(av) + ": " + (string)llGetListLength(anims)
+                    + " anim(s) running");
+                integer j;
+                for (j = 0; j < llGetListLength(anims); ++j)
+                {
+                    say("  " + llList2String(anims, j));
+                }
+                found = TRUE;
+                --i;
+            }
+            if (!found)
+            {
+                say("nobody seated.");
+            }
+        }
+        else if (msg == "qso")
+        {
+            list qso = llLinksetDataFindKeys("^QSO:", 0, 50);
+            if (llGetListLength(qso) == 0)
+            {
+                say("no QSO personal-offset entries stored.");
+            }
+            integer j;
+            for (j = 0; j < llGetListLength(qso); ++j)
+            {
+                string k = llList2String(qso, j);
+                say(k + " = " + llLinksetDataRead(k));
+            }
+        }
         else if (msg == "help")
         {
-            say("/7 on | off | who | all | help");
+            say("/7 on | off | who | anims | qso | all | help");
         }
     }
 
