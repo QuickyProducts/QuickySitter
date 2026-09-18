@@ -1,4 +1,4 @@
-string VERSION = "0.2"; // [QS]wireprobe - passive link-message probe (test tool, never shipped)
+string VERSION = "0.3"; // [QS]wireprobe - passive link-message probe (test tool, never shipped)
 // ------------------------------------------------------------------------
 // Drop this script into the SAME prim as the QS scripts (all QS base
 // scripts live in one inventory). It sends NOTHING on the QS wire and
@@ -18,6 +18,8 @@ string VERSION = "0.2"; // [QS]wireprobe - passive link-message probe (test tool
 //              and is merely masked; no change = the start fizzled)
 //   /7 qso     dump stored personal-offset LSD entries (QSO:*) that sitA
 //              silently adds onto the card positions
+//   /7 pos     print each seated avatar's actual local position/rotation
+//              (compare against the AVpos value the 90055 line carried)
 //   /7 help    command list
 //
 // Field-case protocol (MFM cuddle, Female1 not animating):
@@ -197,6 +199,25 @@ default
                 say("nobody seated.");
             }
         }
+        else if (msg == "pos")
+        {
+            integer i = llGetNumberOfPrims();
+            integer found = FALSE;
+            while (llGetAgentSize(llGetLinkKey(i)) != ZERO_VECTOR)
+            {
+                key av = llGetLinkKey(i);
+                list p = llGetLinkPrimitiveParams(i, [PRIM_POS_LOCAL, PRIM_ROT_LOCAL]);
+                vector eul = llRot2Euler(llList2Rot(p, 1)) * RAD_TO_DEG;
+                say(llKey2Name(av) + " (link " + (string)i + "): pos "
+                    + (string)llList2Vector(p, 0) + " rot " + (string)eul);
+                found = TRUE;
+                --i;
+            }
+            if (!found)
+            {
+                say("nobody seated.");
+            }
+        }
         else if (msg == "qso")
         {
             list qso = llLinksetDataFindKeys("^QSO:", 0, 50);
@@ -213,7 +234,7 @@ default
         }
         else if (msg == "help")
         {
-            say("/7 on | off | who | anims | qso | all | help");
+            say("/7 on | off | who | anims | pos | qso | all | help");
         }
     }
 
