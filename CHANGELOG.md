@@ -4,7 +4,7 @@ Customer-facing changes only. Each entry is tagged **Fix** (bug fix) or
 **Feature** (new). Routine internal/technical changes are not listed.
 Grouped by version, newest on top.
 
-## Version 1.30
+## Version 1.30 (in preparation)
 
 - **Fix**: Furniture carrying more sitter scripts than its `AVpos` defines no longer parks avatars on invisible dead seats. The surplus seats used to accept sitters and then play nothing: female shapes were steered onto them by a counting defect, and anyone could land on one after a notecard save or right after an installation, stuck in the plain SL sit pose until they re-sat. Such seats are now completely inert - they take no sitters, show up in no seat picker, and adopt nobody after a notecard save - and the furniture tells its owner once per load that script count and `AVpos` disagree, naming both numbers
 - **Feature**: Standing up now gives the worn Quicky HUD its moment to un-stick face and body bones. When a sitter stands, `[QS]prop` waits half a second before removing worn props, so the Quicky HUD (updated to 1.30) can play its neutral bone reset in the instant before it is taken off - the fix for mesh heads and bodies that keep a face or a bent spine after an animation stops. The full feature is described in the QuickySitter Pro changelog. On furniture used without a Quicky HUD the only visible change is that a stander's props disappear half a second later than before
